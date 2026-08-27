@@ -2954,13 +2954,15 @@ function drawGaugeMarkers(){
    ===================================================================== */
 var RELEASES = [
   { v:'0.1.0', date:'2026-08-27', changes:[
-      'First release. Four rivers on one screen, coloured by water temperature so you can tell at a glance which one is worth the drive.',
+      'First release. It opens on all four rivers, each with a card saying whether it is open, what the water temperature means, how much water is coming down and when the tide next turns — the go-or-not answer before you drive anywhere. Tap one for its own map, tide and depth.',
+      'Thalweg does not rank the four. Reading a thermometer against a threshold is one thing; telling you where the fishing will be better is a forecast it has no basis for.',
       'Tide for the tidal water — the Sacramento and the lower Mokelumne — with the next highs and lows, fetched a week ahead so they still work with no signal.',
       'Published depth surveys where the state has them: continuous multibeam where the bottom was mapped as a surface, and single beam soundings where it was measured along the boat’s track. Where a reach has never been surveyed it says so rather than offering an empty switch.',
       'Flow, height and water temperature from every gauge that reports, with the name the service itself gives it, so a wrong identifier shows as an error rather than a plausible wrong reading.',
       'The Feather reads from the state’s own gauges rather than USGS, which publishes nothing current for that river.',
       'Season dates and reach boundaries in the words of the regulation, with a note where the printed rules are the last word.',
       'Drop marks for holes, hazards, ramps and fish; export them as a file. They never leave your device.',
+      'On a phone the readings get the screen and the map is one button away.',
       'Works offline once loaded, and can be installed to a home screen.'
     ],
     broken:[
@@ -2968,6 +2970,7 @@ var RELEASES = [
       'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
       'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
       'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',
+      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead.',
       'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.'
     ] }
 ];
