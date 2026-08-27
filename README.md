@@ -41,6 +41,16 @@ Connect the repository to Cloudflare Pages. That is the whole deploy.
   deploy and no origin to paste anywhere.
 - Production is `cv-thalweg.pages.dev`.
 
+Before the first deploy, and after any change to `functions/`, it is worth
+building them the way Cloudflare does:
+
+- `npm run check:functions` runs `wrangler pages functions build`. It compiles
+  `functions/` exactly as Pages will, which is the only way to know that
+  `functions/bathy/[[path]].js` can import `worker.js` from outside its own
+  directory. It can, checked on 27 August 2026: the bundle carries `/bathy`,
+  `/bathy/:path*` and `/version`, with both allow-lists inside it. It needs the
+  network and no Cloudflare account.
+
 **A push is not a release.** Verifying a push against the remote says nothing
 about whether the deploy went out; a site can sit on an older build for
 releases while every push is correctly reported as pushed. A static file cannot
@@ -265,6 +275,8 @@ still says the printed regulations are the authority.
   machine.
 - `node tools/live-test.mjs` — the whole app end to end against the live
   services.
+- `npm run check:functions` — compile `functions/` the way Pages will, before
+  finding out at deploy time.
 - `node tools/check-deploy.mjs [url] [sha]` — ask the live site what it is
   serving. Defaults to `https://cv-thalweg.pages.dev` and the commit checked
   out here.

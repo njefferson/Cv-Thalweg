@@ -15,9 +15,10 @@ session needs before it touches anything.
 
 - Connect the repository to Cloudflare Pages: build command none, output
   directory `public`. That is the entire deploy.
-- Allow `cv-thalweg.pages.dev` on the session network. `cdec.water.ca.gov` and
-  `noahjefferson.pages.dev` were allowed on 27 August 2026; the Thalweg host
-  was not, so a session still cannot check its own deploy.
+- Connect Pages. `*.pages.dev` is allowed on the session network as of
+  27 August 2026, and `cv-thalweg.pages.dev` answers 502 — the same answer a
+  deliberately invented `*.pages.dev` host gives, and not the 403 a blocked
+  host gives. The network is fine; the project does not exist yet.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.
@@ -86,6 +87,12 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   would be inventing the water in between, so the app says what it has.
 
 ## Checking a deploy
+
+`npm run check:functions` compiles `functions/` the way Pages will. Run it
+before a first deploy and after anything that changes an import: it is the only
+local way to know that the mount can still reach `worker.js` outside its own
+directory.
+
 
 `node tools/check-deploy.mjs` asks the live site which commit it is serving,
 via `functions/version.js`, and checks the proxy went out with it. Run it after

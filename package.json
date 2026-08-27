@@ -13,7 +13,8 @@
     "verify": "node tools/verify.mjs",
     "icons": "node tools/render-icons.mjs",
     "test:live": "node tools/live-test.mjs",
-    "check:deploy": "node tools/check-deploy.mjs"
+    "check:deploy": "node tools/check-deploy.mjs",
+    "check:functions": "npx --yes wrangler@4 pages functions build --outdir=.functions-build"
   },
   "devDependencies": {
     "axe-core": "4.10.2",
