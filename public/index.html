@@ -63,6 +63,7 @@ header{
   font-size:.68rem; letter-spacing:.09em; text-transform:uppercase;
   padding:.18rem .45rem; white-space:nowrap; font-weight:600;
 }
+.pickwrap{display:inline-flex; align-items:center; gap:.35rem}
 .stale{color:var(--warn); font-size:.72rem; max-width:100%}
 .stale:empty{display:none}
 button{font-family:inherit; font-size:inherit; color:inherit; background:none;
@@ -78,6 +79,7 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
 #ribbonwrap{flex:0 0 auto; background:var(--panel-2); border-bottom:1px solid var(--teal);
   padding:.35rem .5rem .1rem; overflow-x:auto}
 #ribbon{display:block; width:100%; min-width:520px}
+@media (max-width:900px){ #ribbon{min-width:0} }
 .ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
 
 /* ---------- main ---------- */
@@ -186,9 +188,35 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 
 @media (max-width:900px){
   main{flex-direction:column}
-  #rail{flex:1 1 auto; width:auto; border-left:0; border-top:1px solid var(--teal)}
-  #map{flex:0 0 46vh; min-height:220px}
+  #rail{flex:1 1 auto; width:auto; border-left:0; border-top:1px solid var(--teal); min-height:0}
   :root{--rail:auto}
+
+  /* The tagline is the first thing to go: the name says it, and on a
+     667px screen a hundred and seventeen pixels of header is a sixth of
+     everything before a single reading. */
+  .brand span{display:none}
+  header{padding:.35rem .5rem; gap:.4rem;
+    padding-top:calc(.35rem + env(safe-area-inset-top))}
+  .brand h1{font-size:.95rem}
+  .notnav{font-size:.6rem; padding:.15rem .35rem; letter-spacing:.06em}
+  header label{font-size:.72rem}
+  select,input[type=text]{font-size:.82rem}
+
+  #ribbonwrap{padding:.3rem .4rem 0}
+  .ribbon-note{font-size:.66rem; line-height:1.25}
+
+  /* The map is the canvas, not a panel, and on a phone it cannot be both
+     visible and out of the way. It is off by default and takes the whole
+     stage when asked for; the readings get the screen the rest of the
+     time. Above this width nothing changes: map and rail sit side by
+     side as before. */
+  #map{flex:1 1 auto; min-height:0; display:none}
+  body.show-map #map{display:block}
+  body.show-map #rail{flex:0 0 auto}
+  body.show-map [role=tabpanel]{display:none}
+}
+@media (min-width:901px){
+  #maptoggle{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important; transition-duration:.001ms!important}
@@ -207,9 +235,12 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <span>Central Valley depth &amp; conditions</span>
   </div>
   <span class="notnav">Not for navigation</span>
-  <label for="riverpick">River</label>
-  <select id="riverpick"></select>
+  <span class="pickwrap">
+    <label for="riverpick">River</label>
+    <select id="riverpick"></select>
+  </span>
   <span class="stale" id="staleness" role="status"></span>
+  <button id="maptoggle" type="button" aria-pressed="false">Map</button>
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
@@ -1394,13 +1425,31 @@ function axisValue(river, row){
 function tidalEdge(river){
   var t = state.tides[river.id];
   if (!t || !t.stations || !t.stations.length) return null;
+  /* Declared stations only. The discovered ones come from a bounding box
+     over the lower Delta, which catches most of the bay: taking the
+     furthest upstream of THOSE had the Mokelumne's tide reaching Stockton,
+     which is on the San Joaquin. A declared station was checked against
+     the river it is on; a box hit was not. */
+  var declared = {};
+  (river.tideStations || []).forEach(function(s){ declared[s.id] = true; });
   var best = null;
   t.stations.forEach(function(st){
+    if (!declared[st.id]) return;
     var v = river.axis === 'lon' ? st.lon : st.lat;
     if (!isNum(v)) return;
     if (best === null || v > best.v) best = { v:v, name:st.name || st.id };
   });
   return best;
+}
+
+/* On a phone the ribbon is drawn tighter. Four stacked rivers at the
+   desktop pitch is half a 667px screen, and the comparison is the point of
+   the view — but not at the price of the readings underneath it. */
+var RIB = { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
+function ribbonMetrics(W){
+  var n = W < 620;
+  RIB = n ? { rowH:44, top:18, foot:24, dot:5, fig:10, name:10, note:8, narrow:true }
+          : { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
 }
 
 function ribbonRow(g, river, rows, x0, x1, y, showName){
@@ -1434,14 +1483,22 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
     var left = Math.min(x0, tx), right = Math.max(x0, tx);
     g.appendChild(svg('rect', { x:left, y:y-5, width:Math.max(0, right-left),
       height:10, fill:'url(#' + gid + ')' }));
-    var lab = svg('text', { x:tx, y:y+30, fill:'#9FB3B1', 'font-size':'9',
-      'text-anchor':'middle' });
-    lab.textContent = 'tide predicted to ' + edge.name;
+    /* Below the lower band of figures, not through it, and never past the
+       edge of the drawing — a caption clipped mid-word says less than no
+       caption, and the right-hand end of the ribbon is upstream. */
+    var text = (RIB.narrow ? 'tide to ' : 'tide predicted to ') + edge.name;
+    var half = text.length * RIB.note * 0.29;
+    var anchor = 'middle', lx = tx;
+    if (tx + half > x1){ anchor = 'end'; lx = x1; }
+    else if (tx - half < x0){ anchor = 'start'; lx = x0; }
+    var lab = svg('text', { x:lx, y:y + RIB.dot + (RIB.narrow ? 25 : 31),
+      fill:'#9FB3B1', 'font-size':String(RIB.note), 'text-anchor':anchor });
+    lab.textContent = text;
     g.appendChild(lab);
   }
 
   if (showName){
-    var rn = svg('text', { x:6, y:y+4, fill:'#E6F0EF', 'font-size':'11',
+    var rn = svg('text', { x:6, y:y+4, fill:'#E6F0EF', 'font-size':String(RIB.name),
       'font-weight':'600' });
     rn.textContent = river.short;
     g.appendChild(rn);
@@ -1451,23 +1508,31 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
      river — so the figures stagger rather than print on top of each
      other. Sorted first so "the one before me" means the one to my left. */
   pts.sort(function(a, b){ return axisValue(river, a) - axisValue(river, b); });
-  var lastX = -1e9, high = true;
+  /* Two bands, above the channel and below it, each remembering where it
+     last printed. A figure that fits in neither is not printed at all —
+     stacked digits are less use than none, and the reading is on the dot. */
+  var lastAt = { hi:-1e9, lo:-1e9 }, gap = RIB.fig * 2.4;
   pts.forEach(function(r){
     var f = isNum(r.tempF) ? r.tempF : null;
     var x = sx(axisValue(river, r));
-    high = (x - lastX < 26) ? !high : true;
-    lastX = x;
-    var c = svg('circle', { cx:x, cy:y, r:6, fill:tempColour(f),
+    var band = (x - lastAt.hi >= gap) ? 'hi'
+             : ((x - lastAt.lo >= gap) ? 'lo' : null);
+    var high = band === 'hi';
+    var c = svg('circle', { cx:x, cy:y, r:RIB.dot, fill:tempColour(f),
       stroke:'#0A1214', 'stroke-width':'1.5' });
     var ttl = svg('title');
     ttl.textContent = (r.name || r.id) + (f === null ? ' — no temperature'
       : ' — ' + fmt(f,1) + 'F');
     c.appendChild(ttl);
     g.appendChild(c);
-    var t = svg('text', { x:x, y: high ? y-11 : y+19, fill:'#E6F0EF', 'font-size':'11',
-      'text-anchor':'middle', 'font-family':'Georgia,serif', 'font-style':'italic' });
-    t.textContent = f === null ? '—' : fmt(f,0);
-    g.appendChild(t);
+    if (band){
+      lastAt[band] = x;
+      var t = svg('text', { x:x, y: high ? y - (RIB.dot + 5) : y + (RIB.dot + 13),
+        fill:'#E6F0EF', 'font-size':String(RIB.fig),
+        'text-anchor':'middle', 'font-family':'Georgia,serif', 'font-style':'italic' });
+      t.textContent = f === null ? '—' : fmt(f,0);
+      g.appendChild(t);
+    }
   });
   return pts.length;
 }
@@ -1498,11 +1563,23 @@ function drawRibbon(){
     if (n.nodeName !== 'title' && n.nodeName !== 'desc') host.removeChild(n);
   });
 
-  var W = 1000, list = state.riverId ? [byId(state.riverId)] : RIVERS;
-  var rowH = 52, top = 24;
-  var H = top + list.length * rowH + 30;
+  /* Draw at the width the ribbon is actually rendered at, so the scale is
+     1 and an 11px figure is 11 pixels. A fixed 1000-unit viewBox squeezed
+     into a phone made the figures unreadable and left the difference as
+     dead space above and below them. */
+  /* Under the breakpoint the ribbon fits the screen rather than scrolling:
+     the right-hand end is upstream, and a view you have to drag sideways to
+     finish reading is one nobody finishes reading. */
+  var narrow = window.matchMedia && window.matchMedia('(max-width:900px)').matches;
+  var W = narrow ? Math.max(host.clientWidth || 360, 300)
+                 : Math.max(host.clientWidth || 1000, 520);
+  ribbonMetrics(W);
+  var list = state.riverId ? [byId(state.riverId)] : RIVERS;
+  var rowH = RIB.rowH, top = RIB.top;
+  var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   host.setAttribute('height', H);
+  host.setAttribute('width', W);
   var g = svg('g', {});
   var plotted = 0, missing = 0;
 
@@ -1510,19 +1587,25 @@ function drawRibbon(){
     var payload = state.gauges[river.id];
     var rows = (payload && payload.rows) || [];
     var onRiver = rows.filter(function(r){ return !r.context; });
-    var n = ribbonRow(g, river, rows, list.length > 1 ? 96 : 30, W - 20,
-                      top + i * rowH, list.length > 1);
+    var n = ribbonRow(g, river, rows, list.length > 1 ? (RIB.narrow ? 74 : 96) : 30,
+                      W - 20, top + i * rowH, list.length > 1);
     plotted += n;
     missing += onRiver.length - n;
   });
-  tempScale(g, W - 190, H - 26, 170);
+  /* Bottom left on a phone, bottom right where there is room. Off the
+     right-hand edge it was simply invisible, and it is the key to every
+     colour above it. */
+  tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
+            RIB.narrow ? 104 : 170);
   host.appendChild(g);
 
-  var note = 'Downstream on the left; ' +
-    (state.riverId ? byId(state.riverId).axisLabel
-                   : 'each river on its own axis, one temperature scale') + '. ' +
-    plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
-  if (missing) note += ', ' + missing + ' not plotted (no position or no data)';
+  var note = RIB.narrow
+    ? 'Downstream left. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
+    : 'Downstream on the left; ' +
+      (state.riverId ? byId(state.riverId).axisLabel
+                     : 'each river on its own axis, one temperature scale') + '. ' +
+      plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
+  if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
   $('#ribbonnote').textContent = note + '.';
   $('#ribbondesc').textContent = note + '. Readings are listed in the Water panel.';
 }
@@ -2236,8 +2319,38 @@ function drawMarks(){
 function renderMarks(){
   var p = $('#panel-marks'); p.innerHTML = '';
   if (!state.riverId){
+    /* A mark belongs to a river, so there is nowhere to put a new one here.
+       That is no reason to show nothing: the ones already dropped are
+       readable, and a refusal with a list under it is a different thing
+       from a refusal on its own. */
     p.appendChild(el('p',{class:'note',
-      text:'Marks belong to a river. Pick one to drop or read them.'}));
+      text:'A mark belongs to one river, so pick a river to drop one. Everything already dropped is below.'}));
+    var total = 0;
+    RIVERS.forEach(function(river){
+      var marks = sget(river.id,'marks') || [];
+      if (!marks.length) return;
+      total += marks.length;
+      p.appendChild(el('h2',{class:'sec',text:river.name + ' (' + marks.length + ')'}));
+      marks.slice().reverse().forEach(function(m){
+        var def = MARK_TYPES.filter(function(t){ return t.id===m.type; })[0] || MARK_TYPES[0];
+        var r = el('div',{class:'markrow'});
+        r.appendChild(el('span',{class:'swatch',style:'background:'+def.colour}));
+        var g = el('span',{class:'grow'});
+        g.appendChild(el('span',{text:def.label + ' '}));
+        g.appendChild(el('span',{class:'v',text:m.lat.toFixed(5)+', '+m.lon.toFixed(5)}));
+        r.appendChild(g);
+        var go = el('button',{type:'button',text:'Go',
+          'aria-label':'Show ' + river.name + ' and centre on this mark'});
+        go.addEventListener('click',function(){
+          selectRiver(river.id);
+          state.map.setView([m.lat,m.lon], 15);
+          setMapShown(true);
+        });
+        r.appendChild(go);
+        p.appendChild(r);
+      });
+    });
+    if (!total) p.appendChild(el('p',{class:'note',text:'No marks on any river yet.'}));
     return;
   }
   p.appendChild(el('h2',{class:'sec',text:'Drop a mark'}));
@@ -2447,14 +2560,45 @@ function selectTab(idx){
   if (TABS[idx] === 'brief')  renderBrief();
 }
 
+/* Showing the map after it has been display:none leaves Leaflet believing
+   it is the size it was when it was last visible, so it must be told. */
+function setMapShown(on){
+  document.body.classList.toggle('show-map', !!on);
+  var b = $('#maptoggle');
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  b.textContent = on ? 'Readings' : 'Map';
+  if (on && state.map) setTimeout(function(){
+    state.map.invalidateSize();
+    drawMarks();
+  }, 60);
+  announce(on ? 'Map shown.' : 'Readings shown.');
+}
+
+function initMapToggle(){
+  var b = $('#maptoggle');
+  b.addEventListener('click', function(){
+    setMapShown(!document.body.classList.contains('show-map'));
+  });
+  /* Wide enough for both at once: the class means nothing there, but it
+     must not be left on when a phone is rotated into a tablet layout. */
+  var wide = window.matchMedia('(min-width:901px)');
+  var onChange = function(){ if (wide.matches) setMapShown(false); };
+  if (wide.addEventListener) wide.addEventListener('change', onChange);
+  else if (wide.addListener) wide.addListener(onChange);
+}
+
 function initPicker(){
   var sel = $('#riverpick');
   RIVERS.forEach(function(r){
     sel.appendChild(el('option',{ value:r.id, text:r.short }));
   });
   sel.appendChild(el('option',{ value:'', text:'All rivers' }));
+  /* First run opens on All rivers — the four stacked against one
+     temperature scale is the comparison this app exists to make, and it
+     is the question actually being asked on a Saturday morning. After
+     that it opens wherever it was left. */
   var saved = Store.s.getItem('thalweg:_shared:river');
-  sel.value = (saved === null ? RIVERS[0].id : saved);
+  sel.value = (saved === null ? '' : saved);
   sel.addEventListener('change', function(){ selectRiver(sel.value); });
 }
 
@@ -2610,13 +2754,15 @@ var RELEASES = [
       'Season dates and reach boundaries are the words of Title 14 section 7.40 as amended on 6 May 2026.',
       'Tide predictions fetched a week ahead so they stay good with no signal.',
       'Works offline after first load; flow and temperature say how old they are.',
-      'Tapping a pin opens a label that pans itself into view, so a pin near the edge of the map still shows its whole reading.'
+      'Tapping a pin opens a label that pans itself into view, so a pin near the edge of the map still shows its whole reading.',
+      'On a phone the readings get the screen and the map is a button away, and it opens on All rivers — four ribbons against one temperature scale, which is the comparison worth making before you drive anywhere.'
     ],
     broken:[
       'The Feather has two gauges where the Sacramento has six. Only Gridley and Boyd’s Landing sit on the mainstem in water a salmon can reach; Boyd’s Landing has no temperature sensor, so that reading is a dash rather than a number.',
       'The NOAA raster chart tiles could not be reached from the machine this was built on, so that layer switches itself off if the tiles do not arrive. If it disappears when you turn it on, that is what happened.',
       'The CARTO dark basemap is in the same position. Esri imagery and topo were both fetched and drew.',
       'Season dates are each reach’s standing open season. The Commission kept the discretion to start a reach later or end it earlier, and the final per-reach dates were given in a presentation this build could not read.',
+      'On a phone, depth and marks both need a river picked; the All view has neither. It shows the marks you already dropped and says so.',
       'Depth values are drawn as published. Thalweg does not restate a vertical datum it has not checked, so the sounding legend gives numbers without one.'
     ] }
 ];
@@ -2807,8 +2953,8 @@ function maybeWelcome(){
   var dlg = $('#welcome');
   if (seen === VERSION || !dlg.showModal) return;
   var b = $('#welcomebody'); b.innerHTML = '';
-  b.appendChild(el('p',{text:'Depth, tide and flow for four Central Valley rivers and the Delta. Pick a river at the top; the ribbon puts every gauge at its place on that river, downstream on the left, coloured by water temperature. All rivers stacks the four so you can choose between them.'}));
-  b.appendChild(el('p',{text:'The Layers panel is where depth lives. Coverage is uneven — where nothing has been surveyed it says so instead of showing you an empty switch.'}));
+  b.appendChild(el('p',{text:'Depth, tide and flow for four Central Valley rivers and the Delta. It opens on All rivers: the four stacked against one temperature scale, downstream on the left, which is the comparison worth making before you drive anywhere. Pick a single river for its tide, its depth and its marks.'}));
+  b.appendChild(el('p',{text:'The Layers panel is where depth lives. Coverage is uneven — where nothing has been surveyed it says so instead of showing you an empty switch. On a phone the map is behind the Map button, so the readings get the screen.'}));
   b.appendChild(el('p',{text:'It does not know where fish are being caught, and it is not a navigation aid.'}));
   b.appendChild(el('div',{class:'warnbox',
     text:'This is the first build. Every number in it comes from USGS, NOAA or DWR and is labelled with where it came from — but it is a first build, so treat what you see as new until it has agreed with something you trust.'}));
@@ -2889,6 +3035,7 @@ function boot(){
   initPicker();
   initTabs();
   initMap();
+  initMapToggle();
 
   $('#aboutbtn').addEventListener('click', function(){
     renderAbout();
@@ -2898,8 +3045,17 @@ function boot(){
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
 
   var initial = Store.s.getItem('thalweg:_shared:river');
-  selectRiver(initial === null ? RIVERS[0].id : initial);
+  selectRiver(initial === null ? '' : initial);
   selectTab(0);
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      drawRibbon();
+      if (state.map) state.map.invalidateSize();
+    }, 180);
+  });
 
   window.addEventListener('online',  function(){ refreshData(); announce('Back online.'); });
   window.addEventListener('offline', function(){ updateStaleness(); announce('Offline. Stored readings only.'); });

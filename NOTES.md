@@ -76,6 +76,15 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **A phone is not a narrow desktop, and the measurement said so.** On a
+  667px screen this app gave its readings panel THIRTY-FOUR pixels, for
+  1,546px of content. Three separate causes, and the one that got reported —
+  the map — was the smallest of them: a header wrapping to three rows (117px),
+  a ribbon drawn into a 1000-unit viewBox squeezed to 520 so half its height
+  was dead space (174px), and a map at 46vh whether or not anyone wanted one.
+  Measuring each region against the viewport found all three in one pass;
+  fixing the reported one alone would have moved 34px to about 120px and felt
+  like a fix.
 - **A Leaflet tooltip is not panned into view and is not flipped.** It is
   drawn beside its marker and left there, so a pin near an edge puts its label
   outside the map frame, where the container's overflow cuts it off — and

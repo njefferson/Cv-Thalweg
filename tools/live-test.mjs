@@ -82,6 +82,13 @@ check('a tide curve was drawn', await page.evaluate(() => !!document.querySelect
 check('highs and lows listed', /High ·|Low ·/.test(water), water.slice(0, 300));
 
 /* ---- layers, enumerated live ---- */
+/* Depth is per river and the app opens on All, so pick one. */
+check('a first run opens on All rivers',
+  await page.evaluate(() => document.getElementById('riverpick').value) === '',
+  await page.evaluate(() => document.getElementById('riverpick').value));
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(12000);
+water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
 await page.click('#tab-layers');
 await page.waitForTimeout(30000);
 let layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');

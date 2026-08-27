@@ -151,6 +151,14 @@ await page.waitForTimeout(3000);
 await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
 await page.waitForTimeout(1500);
 
+/* The app opens on All rivers. These checks are about one river's data, so
+   pick one; the All view has its own checks at the end. */
+check('a first run opens on All rivers',
+  await page.evaluate(() => document.getElementById('riverpick').value) === '',
+  await page.evaluate(() => document.getElementById('riverpick').value));
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(2000);
+
 /* --- gauges and the ribbon --- */
 const water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
 check('site name comes from the API', water.includes('SACRAMENTO R A RIO VISTA CA'), water.slice(0, 200));

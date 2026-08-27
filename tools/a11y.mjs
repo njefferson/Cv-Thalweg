@@ -53,6 +53,39 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
 
   /* State 0: the first-run orientation, before anything is pressed. */
   await audit(page, `${name}: first run`);
+
+  /* The readings have to fit on the screen they are read on. On a 667px
+     phone this app once gave its data panel thirty-four pixels: a 117px
+     header, a ribbon squeezed into a viewBox four times its width, and a
+     map taking 46vh whether or not anyone had asked for one. */
+  if (name === 'phone') {
+    await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
+    await page.waitForTimeout(400);
+    const box = await page.evaluate(() => {
+      const panel = document.querySelector('[role=tabpanel]:not([hidden])');
+      const mapEl = document.getElementById('map');
+      return { vh: window.innerHeight, panel: panel ? panel.clientHeight : 0,
+               header: Math.round(document.querySelector('header').getBoundingClientRect().height),
+               ribbon: Math.round(document.getElementById('ribbonwrap').getBoundingClientRect().height),
+               mapShown: mapEl.getBoundingClientRect().height > 0 };
+    });
+    check('phone: the map is not shown until it is asked for', !box.mapShown, JSON.stringify(box));
+    check('phone: the readings get at least 40% of the screen',
+      box.panel >= box.vh * 0.4, JSON.stringify(box));
+    check('phone: chrome above the readings is under half the screen',
+      (box.header + box.ribbon) < box.vh * 0.5, JSON.stringify(box));
+
+    /* And the map, once asked for, believes it is the size it is. */
+    await page.click('#maptoggle');
+    await page.waitForTimeout(900);
+    const mapBox = await page.evaluate(() => ({
+      rect: Math.round(document.getElementById('map').getBoundingClientRect().height),
+      leaflet: state.map.getSize().y }));
+    check('phone: the map fills the stage and Leaflet agrees',
+      mapBox.rect > 200 && Math.abs(mapBox.rect - mapBox.leaflet) < 2, JSON.stringify(mapBox));
+    await page.click('#maptoggle');
+    await page.waitForTimeout(400);
+  }
   await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
   await page.waitForTimeout(300);
 
@@ -72,9 +105,13 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
      it on purpose. */
   /* A dropped mark, rather than a gauge, so this runs with no network:
      the popup chrome being measured is the same one. */
+  /* Dropping a mark needs a river: the app opens on All, where a mark has
+     nowhere to belong. */
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(800);
   await page.click('#tab-marks');
   await page.waitForTimeout(300);
-  await page.click('text=Add at map centre');
+  await page.click('#panel-marks button:text-is("Add at map centre")');
   await page.waitForTimeout(500);
   const opened = await page.evaluate(() => {
     const layers = state.markLayer ? state.markLayer.getLayers() : [];
