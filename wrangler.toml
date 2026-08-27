@@ -1,6 +1,14 @@
-# Only needed to run the bathymetry proxy as a standalone Worker.
-# Deploying the site to Pages already serves it at /bathy via
-# functions/bathy/[[path]].js, which is the arrangement the app expects.
-name = "cv-thalweg-bathy"
-main = "worker.js"
+# Cloudflare Pages configuration.
+#
+# public/ is the site; functions/ beside it is the bathymetry proxy and the
+# /version endpoint, which Pages compiles and serves alongside it. There is
+# no build step: pages_build_output_dir names a directory of files that are
+# already what they will be.
+name = "cv-thalweg"
 compatibility_date = "2026-08-01"
+pages_build_output_dir = "public"
+
+# The proxy can also run as a standalone Worker, which does not use this
+# file — see the README. That route is:
+#   npx wrangler deploy worker.js --name cv-thalweg-bathy \
+#     --compatibility-date 2026-08-01 --no-bundle

@@ -1,0 +1,133 @@
+name: Deploy
+
+# main -> production (cv-thalweg.pages.dev)
+# Deploys public/ to Cloudflare Pages, with functions/ beside it, via
+# wrangler. Needs two repo secrets: CLOUDFLARE_API_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID. There is no Cloudflare dashboard step: the
+# workflow creates the project if it does not exist.
+#
+# Actions are pinned by SHA, not tag — a tag is a mutable pointer someone
+# else controls, and these steps execute holding a live Pages:Edit token.
+#
+# A push is not a release, so this workflow does not end at the deploy. It
+# asks the live site what it is serving and fails if the answer is not this
+# commit, or if the proxy did not go out with it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this job pushes. Leaving the token in .git/config makes
+          # it available to every later step, including whatever action gets
+          # added next year. zizmor: artipacked.
+          persist-credentials: false
+
+      # The allow-list is the one thing here that must not regress: it is what
+      # stands between a survey proxy and an open proxy. No network, no
+      # browser, no credentials — so it runs before anything is deployed.
+      - name: Check the proxy's allow-list
+        run: node tools/test-worker.mjs
+
+      # Wrangler is pinned through the lockfile and run with --no-install, so
+      # nothing in this job resolves a package version at runtime. It matters
+      # here more than usual: later steps hold a live Pages:Edit token.
+      - name: Install pinned tooling
+        run: npm ci
+
+      # Compile functions/ before deploying rather than discovering at the far
+      # end that the proxy did not go out. functions/bathy/[[path]].js imports
+      # worker.js from outside its own directory, which is how there is one
+      # allow-list rather than two, and this is what holds that arrangement up.
+      # No credentials are in scope yet, deliberately.
+      - name: Compile the Pages functions
+        run: npx --no-install wrangler pages functions build --outdir=.functions-build
+
+      - name: Prepare Cloudflare credentials
+        id: cf
+        env:
+          RAW_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Strip whitespace that sneaks in when a secret is pasted. A trailing
+          # newline corrupts the Authorization header (Cloudflare 6111).
+          TOKEN=$(printf '%s' "$RAW_TOKEN" | tr -d '[:space:]')
+          ACCOUNT=$(printf '%s' "$RAW_ACCOUNT" | tr -d '[:space:]')
+          echo "::add-mask::$TOKEN"
+          echo "::add-mask::$ACCOUNT"
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare secrets not configured yet - skipping deploy."
+          fi
+          # The cleaned values go to the job environment, never to step outputs:
+          # outputs persist in the run's stored output and are readable through
+          # the API. Only the non-secret `ready` flag is an output.
+          echo "CF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "CF_ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
+
+      - name: Ensure the Pages project exists
+        if: steps.cf.outputs.ready == 'true'
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ env.CF_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT }}
+          wranglerVersion: '4.127.0'
+          command: pages project create cv-thalweg --production-branch=main
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.cf.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ env.CF_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT }}
+          wranglerVersion: '4.127.0'
+          command: >-
+            pages deploy public
+            --project-name=cv-thalweg
+            --branch=${{ github.ref_name }}
+            --commit-hash=${{ github.sha }}
+            --commit-dirty=true
+
+      # The step that makes this a release rather than a push. It asks the live
+      # site which commit it is serving, and whether DWR still comes through
+      # /bathy. A deploy that reports success and serves the previous build
+      # fails here instead of being discovered weeks later.
+      - name: Verify the live site is serving this commit
+        if: steps.cf.outputs.ready == 'true'
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            echo "--- attempt $attempt"
+            if node tools/check-deploy.mjs https://cv-thalweg.pages.dev "$GITHUB_SHA"; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "The deploy did not become live and correct within 90 seconds."
+          exit 1
+
+      - name: How to roll this back
+        if: always() && steps.cf.outputs.ready == 'true'
+        run: |
+          # The rollback path is printed on every deploy so it is known BEFORE
+          # it is needed, not looked up during an outage.
+          echo "If this deploy is bad:"
+          echo "  Cloudflare dashboard -> Workers & Pages -> cv-thalweg -> Deployments"
+          echo "  -> pick the last good one -> Manage deployment -> Rollback."
+          echo "That is instant. A git revert is also fine but waits for a fresh"
+          echo "deploy, and concurrency cancel-in-progress can cancel one in flight."

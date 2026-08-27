@@ -14,10 +14,11 @@
     "icons": "node tools/render-icons.mjs",
     "test:live": "node tools/live-test.mjs",
     "check:deploy": "node tools/check-deploy.mjs",
-    "check:functions": "npx --yes wrangler@4 pages functions build --outdir=.functions-build"
+    "check:functions": "npx --no-install wrangler pages functions build --outdir=.functions-build"
   },
   "devDependencies": {
     "axe-core": "4.10.2",
-    "playwright-core": "1.56.0"
+    "playwright-core": "1.56.0",
+    "wrangler": "4.127.0"
   }
 }

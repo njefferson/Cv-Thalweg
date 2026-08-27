@@ -33,13 +33,39 @@ list.
 
 ## Deploying
 
-Connect the repository to Cloudflare Pages. That is the whole deploy.
+Push to `main`. `.github/workflows/deploy.yml` does the rest, and there is no
+Cloudflare dashboard step at any point — the workflow creates the Pages project
+if it does not exist.
 
-- Build command: none. Build output directory: `public`.
-- Nothing is compiled, so what you read in `public/index.html` is what runs.
-- The proxy deploys with it, as a Pages Function. There is no second thing to
-  deploy and no origin to paste anywhere.
-- Production is `cv-thalweg.pages.dev`.
+It needs two repository secrets, and nothing else:
+
+- `CLOUDFLARE_API_TOKEN`, with Pages:Edit on the account.
+- `CLOUDFLARE_ACCOUNT_ID`.
+
+Without them the workflow says so and skips the deploy rather than failing red.
+Both are stripped of stray whitespace before use: a trailing newline in a pasted
+token corrupts the Authorization header and Cloudflare answers 6111.
+
+What the workflow does, in order, and why that order:
+
+- Runs the proxy's allow-list tests. No network, no browser, no credentials —
+  it is what stands between a survey proxy and an open proxy, so it runs before
+  anything is deployed.
+- Compiles `functions/` with wrangler, still before the credentials are in
+  scope. `functions/bathy/[[path]].js` imports `worker.js` from outside its own
+  directory, which is how there is one allow-list rather than two, and this is
+  the step that holds that arrangement up.
+- Creates the Pages project if needed, then deploys `public/` with the commit
+  SHA attached.
+- Asks the live site what it is serving, and fails the job if the answer is not
+  this commit or if the proxy did not go out with it.
+
+Actions are pinned by SHA and wrangler by the lockfile, run with
+`--no-install`. Nothing in a job that holds a live Pages:Edit token resolves a
+version at runtime. `zizmor --strict-collection` passes with no findings.
+
+Production is `cv-thalweg.pages.dev`. Nothing is compiled, so what you read in
+`public/index.html` is what runs.
 
 Before the first deploy, and after any change to `functions/`, it is worth
 building them the way Cloudflare does:

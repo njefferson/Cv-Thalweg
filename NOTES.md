@@ -15,17 +15,27 @@ session needs before it touches anything.
 
 - Connect the repository to Cloudflare Pages: build command none, output
   directory `public`. That is the entire deploy.
-- Connect Pages. `*.pages.dev` is allowed on the session network as of
-  27 August 2026, and `cv-thalweg.pages.dev` answers 502 — the same answer a
-  deliberately invented `*.pages.dev` host gives, and not the 403 a blocked
-  host gives. The network is fine; the project does not exist yet.
+- Add two repository secrets: `CLOUDFLARE_API_TOKEN` and
+  `CLOUDFLARE_ACCOUNT_ID`. That is the whole setup. Pushing to `main` then
+  creates the Pages project and deploys it; there is no dashboard step.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.
 
-The Cloudflare MCP server in these sessions is authenticated to the account but
-is read-only for Workers: it can list and read them, and cannot deploy one or
-create a Pages project. Do not offer to.
+**Deploying is CI's job, not a session's.** This was got wrong once, at the
+cost of three round trips asking for dashboard steps and network allowances
+that were never needed. The pattern across these repos is a GitHub Actions
+workflow holding two repo secrets, and the workflow creates the Pages project
+itself — read `noahjefferson/.github/workflows/deploy.yml` before proposing
+anything else.
+
+Two things that look like they should help and do not. The Cloudflare MCP
+server is authenticated to the account but read-only for Workers: it can list
+and read them, and cannot deploy one or create a Pages project. And this
+session's environment, "Admin Overhead", carries no Cloudflare credential and
+cannot reach `api.cloudflare.com`, so a session cannot deploy by hand either —
+every app here has its own environment, and this repo was worked from the
+general one.
 
 ## The two things still unverified
 
