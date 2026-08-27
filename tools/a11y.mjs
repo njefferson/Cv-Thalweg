@@ -69,32 +69,49 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
                ribbon: Math.round(document.getElementById('ribbonwrap').getBoundingClientRect().height),
                mapShown: mapEl.getBoundingClientRect().height > 0 };
     });
-    check('phone: the map is not shown until it is asked for', !box.mapShown, JSON.stringify(box));
+    check('phone: the map is not shown until its tab is chosen', !box.mapShown, JSON.stringify(box));
     check('phone: the readings get at least 40% of the screen',
       box.panel >= box.vh * 0.4, JSON.stringify(box));
     check('phone: chrome above the readings is under half the screen',
       (box.header + box.ribbon) < box.vh * 0.5, JSON.stringify(box));
 
-    /* All rivers has no map, so it has no Map button either. */
-    check('phone: All rivers offers no map button',
-      await page.evaluate(() => {
-        const b = document.getElementById('maptoggle');
-        return !b || b.getBoundingClientRect().height === 0;
-      }));
+    /* All rivers has no map, so it offers no Map tab either. */
+    check('phone: All rivers offers no Map tab',
+      await page.evaluate(() => document.getElementById('tab-map').getBoundingClientRect().height === 0));
 
-    /* And the map, once a river is picked and it is asked for, believes it
-       is the size it is. */
+    /* With a river picked the Map tab appears, sits with the others, and
+       the map believes the size it actually is. */
     await page.selectOption('#riverpick', 'sacramento');
-    await page.waitForTimeout(1200);
-    await page.click('#maptoggle');
+    await page.waitForTimeout(1500);
+    check('phone: picking a river adds a Map tab',
+      await page.evaluate(() => document.getElementById('tab-map').getBoundingClientRect().height > 0));
+    await page.click('#tab-map');
     await page.waitForTimeout(900);
     const mapBox = await page.evaluate(() => ({
       rect: Math.round(document.getElementById('map').getBoundingClientRect().height),
-      leaflet: state.map.getSize().y }));
+      leaflet: state.map.getSize().y,
+      selected: document.getElementById('tab-map').getAttribute('aria-selected'),
+      others: [...document.querySelectorAll('[role=tab][aria-selected=true]')].length }));
     check('phone: the map fills the stage and Leaflet agrees',
       mapBox.rect > 200 && Math.abs(mapBox.rect - mapBox.leaflet) < 2, JSON.stringify(mapBox));
-    await page.click('#maptoggle');
-    await page.waitForTimeout(400);
+    /* The map panel takes role=tabpanel here, and the panel styles that go
+       with that role once inset the map eleven pixels on every side. */
+    check('phone: the map is not inset by panel padding',
+      await page.evaluate(() => {
+        const m = document.getElementById('map').getBoundingClientRect();
+        return Math.round(m.left) === 0 && Math.round(m.width) === window.innerWidth;
+      }),
+      await page.evaluate(() => { const m = document.getElementById('map').getBoundingClientRect();
+        return Math.round(m.left) + '..' + Math.round(m.right) + ' of ' + window.innerWidth; }));
+    check('phone: exactly one tab is selected, and it is Map',
+      mapBox.selected === 'true' && mapBox.others === 1, JSON.stringify(mapBox));
+    await audit(page, 'phone: map tab open');
+    await page.click('#tab-water');
+    await page.waitForTimeout(500);
+    check('phone: the map goes away again when another tab is chosen',
+      await page.evaluate(() => document.getElementById('map').getBoundingClientRect().height === 0));
+    await page.selectOption('#riverpick', '');
+    await page.waitForTimeout(1500);
   }
   await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
   await page.waitForTimeout(300);

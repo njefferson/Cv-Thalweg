@@ -92,9 +92,19 @@ main{flex:1 1 auto; display:flex; min-height:0}
 /* The map is per-river — depth is, marks are — so on All it can only show
    ungrounded dots. All is the compare-and-choose view and gets the whole
    stage; the map returns the moment a river is picked. */
-body.all-rivers #map{display:none}
-body.all-rivers #rail{flex:1 1 auto; width:auto; border-left:0}
-body.all-rivers #maptoggle{display:none}
+/* The map panel takes role="tabpanel" under the breakpoint, which pulled in
+   the padding and the scrolling meant for a panel of prose and inset the
+   map eleven pixels on every side. Styling hung off a role reaches whatever
+   later takes that role. */
+#panel-map{flex:1 1 auto; display:flex; min-height:0; min-width:0;
+  padding:0!important; overflow:hidden!important}
+#panel-map > #map{flex:1 1 auto; min-width:0}
+/* All rivers has no map — the map is per-river, and on All it could only
+   show ungrounded dots — so neither the panel nor its tab exists there. */
+body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
+/* Wide enough for both at once: the map sits beside the rail as a column
+   rather than as one of the rail's tabs, so the tab is not offered. */
+@media (min-width:901px){ #tab-map{display:none} }
 #map{flex:1 1 auto; min-height:260px; background:#08100f}
 #rail{
   flex:0 0 var(--rail); width:var(--rail); background:var(--panel);
@@ -237,13 +247,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      stage when asked for; the readings get the screen the rest of the
      time. Above this width nothing changes: map and rail sit side by
      side as before. */
-  #map{flex:1 1 auto; min-height:0; display:none}
-  body.show-map #map{display:block}
+  /* Under the breakpoint the map is one of the tabs: selected, it takes
+     the stage and the rail shrinks to its tab strip; unselected it is not
+     there at all. */
+  #panel-map{display:none}
+  body.show-map #panel-map{display:flex}
   body.show-map #rail{flex:0 0 auto}
-  body.show-map [role=tabpanel]{display:none}
-}
-@media (min-width:901px){
-  #maptoggle{display:none}
+  body.show-map [role=tabpanel]:not(#panel-map){display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important; transition-duration:.001ms!important}
@@ -268,7 +278,6 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <select id="riverpick"></select>
   </span>
   <span class="stale" id="staleness" role="status"></span>
-  <button id="maptoggle" type="button" aria-pressed="false">Map</button>
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
@@ -291,11 +300,14 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 </div>
 
 <main>
-  <div id="map" tabindex="0" role="application"
-       aria-label="Map. Arrow keys pan, plus and minus zoom. Use the Marks tab to add a mark without a pointer."></div>
+  <div id="panel-map">
+    <div id="map" tabindex="0" role="application"
+         aria-label="Map. Arrow keys pan, plus and minus zoom. Use the Marks tab to add a mark without a pointer."></div>
+  </div>
   <div id="rail">
     <div role="tablist" aria-label="Panels">
       <button role="tab" id="tab-water"  aria-controls="panel-water"  aria-selected="true"  tabindex="0">Water</button>
+      <button role="tab" id="tab-map"    aria-controls="panel-map"    aria-selected="false" tabindex="-1">Map</button>
       <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Layers</button>
       <button role="tab" id="tab-marks"  aria-controls="panel-marks"  aria-selected="false" tabindex="-1">Marks</button>
       <button role="tab" id="tab-brief"  aria-controls="panel-brief"  aria-selected="false" tabindex="-1">Brief</button>
@@ -1924,7 +1936,7 @@ function riverCard(river){
     'Show this river.');
   card.addEventListener('click', function(){
     selectRiver(river.id);
-    selectTab(0);
+    selectTab('water');
   });
   return card;
 }
@@ -2546,7 +2558,7 @@ function renderMarks(){
         go.addEventListener('click',function(){
           selectRiver(river.id);
           state.map.setView([m.lat,m.lon], 15);
-          setMapShown(true);
+          selectTab('map');
         });
         r.appendChild(go);
         p.appendChild(r);
@@ -2731,62 +2743,89 @@ function announce(msg){
   live.textContent = msg;
 }
 
-var TABS = ['water','layers','marks','brief'];
+/* The tabs.
+ *
+ * Which tabs exist depends on the screen and on what is selected, so they
+ * are named rather than indexed: an index into a list that changes length
+ * is a bug waiting for a rotation. The map is one of them under the
+ * breakpoint, where it cannot be shown beside the rail; above it the map
+ * has its own column and the tab is not offered. On All rivers there is no
+ * map at all, so there is no tab for it either.
+ */
+var narrowMQ = window.matchMedia('(max-width:900px)');
+
+function tabNames(){
+  var names = ['water','layers','marks','brief'];
+  if (narrowMQ.matches && state.riverId) names.splice(1, 0, 'map');
+  return names;
+}
+function tabEl(name){ return document.getElementById('tab-' + name); }
+function panelEl(name){ return document.getElementById('panel-' + name); }
+
 function initTabs(){
-  TABS.forEach(function(name, i){
-    var tab = document.getElementById('tab-' + name);
-    tab.addEventListener('click', function(){ selectTab(i); });
+  ['water','map','layers','marks','brief'].forEach(function(name){
+    var tab = tabEl(name);
+    tab.addEventListener('click', function(){ selectTab(name); });
     tab.addEventListener('keydown', function(e){
-      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 :
-              e.key === 'Home' ? -99 : e.key === 'End' ? 99 : 0;
-      if (!d) return;
+      var names = tabNames(), i = names.indexOf(name);
+      var to = e.key === 'ArrowRight' ? i + 1
+             : e.key === 'ArrowLeft'  ? i - 1
+             : e.key === 'Home'       ? 0
+             : e.key === 'End'        ? names.length - 1 : null;
+      if (to === null || i === -1) return;
       e.preventDefault();
-      var next = d === -99 ? 0 : d === 99 ? TABS.length - 1
-               : (i + d + TABS.length) % TABS.length;
-      selectTab(next);
-      document.getElementById('tab-' + TABS[next]).focus();
+      to = (to + names.length) % names.length;
+      selectTab(names[to]);
+      tabEl(names[to]).focus();
     });
   });
+  var onWidth = function(){
+    /* Rotating a phone into a tablet layout must not leave the map tab
+       selected, because there is no longer a tab to be on. */
+    if (tabNames().indexOf(state.tab || 'water') === -1) selectTab('water');
+    else selectTab(state.tab || 'water');
+  };
+  if (narrowMQ.addEventListener) narrowMQ.addEventListener('change', onWidth);
+  else if (narrowMQ.addListener) narrowMQ.addListener(onWidth);
 }
-function selectTab(idx){
-  TABS.forEach(function(name, i){
-    var tab = document.getElementById('tab-' + name);
-    var panel = document.getElementById('panel-' + name);
-    var on = i === idx;
+
+function selectTab(name){
+  var names = tabNames();
+  if (names.indexOf(name) === -1) name = 'water';
+  state.tab = name;
+  ['water','map','layers','marks','brief'].forEach(function(n){
+    var tab = tabEl(n), panel = panelEl(n);
+    var live = names.indexOf(n) !== -1;
+    var on = live && n === name;
     tab.setAttribute('aria-selected', on ? 'true' : 'false');
     tab.tabIndex = on ? 0 : -1;
-    panel.hidden = !on;
+    if (n === 'map'){
+      /* The map is a tabpanel only while it is one of the tabs. Above the
+         breakpoint it is a column of the layout and carrying the role
+         there would describe a panel with no tab to reach it. */
+      if (live){
+        panel.setAttribute('role','tabpanel');
+        panel.setAttribute('aria-labelledby','tab-map');
+        panel.hidden = false;
+      } else {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-labelledby');
+        panel.hidden = false;
+      }
+    } else {
+      panel.hidden = !on;
+    }
   });
-  if (TABS[idx] === 'layers') renderLayers();
-  if (TABS[idx] === 'marks')  renderMarks();
-  if (TABS[idx] === 'brief')  renderBrief();
-}
-
-/* Showing the map after it has been display:none leaves Leaflet believing
-   it is the size it was when it was last visible, so it must be told. */
-function setMapShown(on){
-  document.body.classList.toggle('show-map', !!on);
-  var b = $('#maptoggle');
-  b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  b.textContent = on ? 'Readings' : 'Map';
-  if (on && state.map) setTimeout(function(){
-    state.map.invalidateSize();
-    drawMarks();
-  }, 60);
-  announce(on ? 'Map shown.' : 'Readings shown.');
-}
-
-function initMapToggle(){
-  var b = $('#maptoggle');
-  b.addEventListener('click', function(){
-    setMapShown(!document.body.classList.contains('show-map'));
-  });
-  /* Wide enough for both at once: the class means nothing there, but it
-     must not be left on when a phone is rotated into a tablet layout. */
-  var wide = window.matchMedia('(min-width:901px)');
-  var onChange = function(){ if (wide.matches) setMapShown(false); };
-  if (wide.addEventListener) wide.addEventListener('change', onChange);
-  else if (wide.addListener) wide.addListener(onChange);
+  /* The class the layout hangs on: the map showing means the rail is only
+     its tab strip. */
+  document.body.classList.toggle('show-map', name === 'map');
+  if (name === 'map' && state.map){
+    /* It has been display:none, so it believes the size it last had. */
+    setTimeout(function(){ state.map.invalidateSize(); drawMarks(); }, 60);
+  }
+  if (name === 'layers') renderLayers();
+  if (name === 'marks')  renderMarks();
+  if (name === 'brief')  renderBrief();
 }
 
 function initPicker(){
@@ -2818,7 +2857,6 @@ function selectRiver(id){
   updateLegend();
 
   document.body.classList.toggle('all-rivers', !state.riverId);
-  if (!state.riverId) setMapShown(false);
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -2834,6 +2872,9 @@ function selectRiver(id){
     }, [180,90,-180,-90]);
     state.map.fitBounds([[b[1],b[0]],[b[3],b[2]]]);
   }
+  /* The map tab exists only when a river does, so the strip is rebuilt
+     rather than left showing a tab that leads nowhere. */
+  selectTab(tabNames().indexOf(state.tab || 'water') === -1 ? 'water' : (state.tab || 'water'));
   announce(river ? river.name + ' selected.' : 'All rivers selected.');
   refreshData();
   renderWater(); renderMarks(); renderBrief();
@@ -3345,7 +3386,6 @@ function boot(){
   initPicker();
   initTabs();
   initMap();
-  initMapToggle();
 
   $('#aboutbtn').addEventListener('click', function(){
     renderAbout();
@@ -3356,7 +3396,7 @@ function boot(){
 
   var initial = Store.s.getItem('thalweg:_shared:river');
   selectRiver(initial === null ? '' : initial);
-  selectTab(0);
+  selectTab('water');
 
   var resizeTimer = null;
   window.addEventListener('resize', function(){

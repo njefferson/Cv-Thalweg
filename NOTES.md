@@ -76,6 +76,13 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **Styling hung off an ARIA role reaches whatever later takes that role.**
+  `[role=tabpanel]` carried the padding and scrolling meant for a panel of
+  prose. When the map became a tabpanel under the breakpoint it inherited
+  both, and sat inset eleven pixels on every side of a phone screen — small
+  enough to read as deliberate. A role is a statement about meaning; using it
+  as a style hook makes every future element of that meaning inherit a
+  decision made for something else.
 - **The furthest downstream gauge on a tidal river measures the tide.**
   Rio Vista was reading MINUS eighty-five thousand cubic feet a second while
   the river card was being built — a true measurement of a flooding tide
