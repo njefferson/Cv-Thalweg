@@ -70,8 +70,10 @@ self.addEventListener('message', function(e){
 function isLive(url){
   if (LIVE_HOSTS.indexOf(url.hostname) !== -1) return true;
   /* Gauge readings routed through this site's own proxy are live data too.
-     Same rule, different door: never cached, never replayed. */
-  return url.pathname.indexOf('/cdec/') === 0;
+     Same rule, different door: never cached, never replayed. And /version
+     exists to say which build is live — a cached answer to that question
+     is worse than no answer, because it is confidently the old one. */
+  return url.pathname.indexOf('/cdec/') === 0 || url.pathname === '/version';
 }
 function isBathy(url){
   return url.pathname.indexOf('/exportImage') !== -1 ||

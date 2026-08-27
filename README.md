@@ -28,6 +28,7 @@ list.
 - `public/vendor/` — Leaflet 1.9.4, taken from `npm pack leaflet@1.9.4`.
 - `worker.js` — the proxy that fronts DWR. Not served by Pages.
 - `functions/bathy/[[path]].js` — the same proxy, mounted inside the site.
+- `functions/version.js` — what commit the live site is actually serving.
 - `tools/` — the checks. Test-only; the app needs none of them.
 
 ## Deploying
@@ -39,6 +40,22 @@ Connect the repository to Cloudflare Pages. That is the whole deploy.
 - The proxy deploys with it, as a Pages Function. There is no second thing to
   deploy and no origin to paste anywhere.
 - Production is `cv-thalweg.pages.dev`.
+
+**A push is not a release.** Verifying a push against the remote says nothing
+about whether the deploy went out; a site can sit on an older build for
+releases while every push is correctly reported as pushed. A static file cannot
+say which commit it came from — there is no build step to stamp one in — so
+`functions/version.js` reports the commit Pages built from, and
+`node tools/check-deploy.mjs` asks the live site rather than the repository:
+
+- that it answers at all, and that it is Thalweg;
+- which commit it is serving, compared against the one checked out here;
+- that the proxy went out with it, by fetching DWR through `/bathy`;
+- that the proxy still refuses a path outside its allow-list.
+
+It exits non-zero on any of those, including when `/version` cannot say what it
+is — an endpoint that guessed at a commit would be worse than one that admits
+it does not know, because the guess is what you would then trust.
 
 ## The proxy
 
@@ -230,6 +247,9 @@ still says the printed regulations are the authority.
   machine.
 - `node tools/live-test.mjs` — the whole app end to end against the live
   services.
+- `node tools/check-deploy.mjs [url] [sha]` — ask the live site what it is
+  serving. Defaults to `https://cv-thalweg.pages.dev` and the commit checked
+  out here.
 - `node tools/render-icons.mjs` — re-rasterise the PNGs after editing
   `icon.svg`.
 

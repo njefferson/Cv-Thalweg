@@ -15,8 +15,11 @@ session needs before it touches anything.
 
 - Connect the repository to Cloudflare Pages: build command none, output
   directory `public`. That is the entire deploy.
-- Allow `cdec.water.ca.gov` on the session network if the Feather's gauges are
-  to be finished from here — see below.
+- Allow two hosts on the session network, if this is to be finished from a
+  session rather than by hand. `cdec.water.ca.gov`, to write the Feather's
+  gauge parser against what CDEC actually sends. And `cv-thalweg.pages.dev` —
+  every `pages.dev` host is currently refused by the egress policy, including
+  the hub's own site, so a session cannot check its own deploy without it.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.
@@ -74,6 +77,14 @@ Worth carrying to LESSONS in the hub; each cost real time here.
 - **A NOAA subordinate tide station answers `interval=h` with an error.** It
   publishes highs and lows and nothing between. Drawing a curve through them
   would be inventing the water in between, so the app says what it has.
+
+## Checking a deploy
+
+`node tools/check-deploy.mjs` asks the live site which commit it is serving,
+via `functions/version.js`, and checks the proxy went out with it. Run it after
+every release. A push verified against the remote is not a deploy, and the
+newest green row in a list of runs belongs to whatever ran last, not
+necessarily to this commit.
 
 ## Owed
 

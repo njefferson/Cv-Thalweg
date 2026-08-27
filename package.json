@@ -12,7 +12,8 @@
     "a11y": "node tools/a11y.mjs",
     "verify": "node tools/verify.mjs",
     "icons": "node tools/render-icons.mjs",
-    "test:live": "node tools/live-test.mjs"
+    "test:live": "node tools/live-test.mjs",
+    "check:deploy": "node tools/check-deploy.mjs"
   },
   "devDependencies": {
     "axe-core": "4.10.2",

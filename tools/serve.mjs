@@ -38,6 +38,16 @@ createServer(async (req, res) => {
     res.end(Buffer.from(await out.arrayBuffer()));
     return;
   }
+  /* Mirror the /version function too, so tools/check-deploy.mjs can be
+     run against a local server before it is run against the real one. */
+  if (req.url.split('?')[0] === '/version') {
+    const { onRequest } = await import('../functions/version.js');
+    const out = await onRequest({ request: new Request('http://127.0.0.1:' + port + '/version'), env: process.env });
+    res.writeHead(out.status, Object.fromEntries(out.headers));
+    res.end(Buffer.from(await out.arrayBuffer()));
+    return;
+  }
+
   let p = normalize(decodeURIComponent(req.url.split('?')[0]));
   if (p.includes('..')) { res.writeHead(403).end('no'); return; }
   if (p.endsWith('/')) p += 'index.html';

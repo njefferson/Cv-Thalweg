@@ -2552,11 +2552,27 @@ function diagnostic(){
       })).then(function(rows){ return rows.join('\n') || '  none'; });
     }).catch(function(e){ return '  cache read failed: ' + e; });
   }
-  return Promise.all([swPart, cachePart]).then(function(r){
+  /* Which build is actually live. The page cannot know this on its own —
+     there is no build step to stamp a commit into a static file — so it
+     asks the deployment, and says plainly when there is nothing to ask. */
+  var buildPart = fetch('version', { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j) return '  no /version endpoint on this host';
+      return '  commit ' + (j.commit || 'unknown') +
+             (j.branch ? ' on ' + j.branch : '') +
+             (j.commit ? '' : ' — ' + j.source);
+    })
+    .catch(function(){ return '  /version did not answer'; });
+
+  return Promise.all([swPart, cachePart, buildPart]).then(function(r){
     lines.push(r[0]);
     lines.push('');
     lines.push('Caches:');
     lines.push(r[1]);
+    lines.push('');
+    lines.push('Deployed build:');
+    lines.push(r[2]);
     lines.push('');
     lines.push('Last network attempts (newest last):');
     state.net.slice(-25).forEach(function(n){
