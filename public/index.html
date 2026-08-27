@@ -58,6 +58,11 @@ header{
 .brand h1{font-size:1.05rem; letter-spacing:.08em; text-transform:uppercase;
   font-weight:700; margin:0}
 .brand span{color:var(--mute); font-size:.72rem; letter-spacing:.04em}
+/* Visible on every screen and therefore in every screenshot, which is the
+   only reason it is here: a problem report that says which build it came
+   from is worth several that do not. */
+.ver{font-size:.66rem!important; letter-spacing:.06em!important;
+  font-variant-numeric:tabular-nums; white-space:nowrap}
 .notnav{
   color:var(--magenta-ink); border:1px solid var(--magenta);
   font-size:.68rem; letter-spacing:.09em; text-transform:uppercase;
@@ -195,6 +200,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      667px screen a hundred and seventeen pixels of header is a sixth of
      everything before a single reading. */
   .brand span{display:none}
+  .brand .ver{display:inline}
   header{padding:.35rem .5rem; gap:.4rem;
     padding-top:calc(.35rem + env(safe-area-inset-top))}
   .brand h1{font-size:.95rem}
@@ -232,6 +238,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 <header>
   <div class="brand">
     <h1>Thalweg</h1>
+    <span class="ver" id="verchip">v0.1.0</span>
     <span>Central Valley depth &amp; conditions</span>
   </div>
   <span class="notnav">Not for navigation</span>
@@ -2747,75 +2754,152 @@ function drawGaugeMarkers(){
    ===================================================================== */
 var RELEASES = [
   { v:'0.1.0', date:'2026-08-27', changes:[
-      'First build. Four rivers, one map, one ribbon.',
-      'Multibeam surfaces and single beam soundings, enumerated from DWR’s service directory rather than listed here, so a survey published or withdrawn next month appears without a redeploy. Twenty surfaces and eighty-one sounding layers were read this way; each one is placed by its own extent, not by its name.',
-      'Every gauge and tide station identifier was requested from the live service and answers with the name shown beside it.',
-      'The Feather reads from CDEC, because USGS publishes nothing current for that river. Those readings come through this app’s own proxy: CDEC sends no header that would let a browser read it directly.',
-      'Season dates and reach boundaries are the words of Title 14 section 7.40 as amended on 6 May 2026.',
-      'Tide predictions fetched a week ahead so they stay good with no signal.',
-      'Works offline after first load; flow and temperature say how old they are.',
-      'Tapping a pin opens a label that pans itself into view, so a pin near the edge of the map still shows its whole reading.',
-      'On a phone the readings get the screen and the map is a button away, and it opens on All rivers — four ribbons against one temperature scale, which is the comparison worth making before you drive anywhere.'
+      'First release. Four rivers on one screen, coloured by water temperature so you can tell at a glance which one is worth the drive.',
+      'Tide for the tidal water — the Sacramento and the lower Mokelumne — with the next highs and lows, fetched a week ahead so they still work with no signal.',
+      'Published depth surveys where the state has them: continuous multibeam where the bottom was mapped as a surface, and single beam soundings where it was measured along the boat’s track. Where a reach has never been surveyed it says so rather than offering an empty switch.',
+      'Flow, height and water temperature from every gauge that reports, with the name the service itself gives it, so a wrong identifier shows as an error rather than a plausible wrong reading.',
+      'The Feather reads from the state’s own gauges rather than USGS, which publishes nothing current for that river.',
+      'Season dates and reach boundaries in the words of the regulation, with a note where the printed rules are the last word.',
+      'Drop marks for holes, hazards, ramps and fish; export them as a file. They never leave your device.',
+      'Works offline once loaded, and can be installed to a home screen.'
     ],
     broken:[
-      'The Feather has two gauges where the Sacramento has six. Only Gridley and Boyd’s Landing sit on the mainstem in water a salmon can reach; Boyd’s Landing has no temperature sensor, so that reading is a dash rather than a number.',
-      'The NOAA raster chart tiles could not be reached from the machine this was built on, so that layer switches itself off if the tiles do not arrive. If it disappears when you turn it on, that is what happened.',
-      'The CARTO dark basemap is in the same position. Esri imagery and topo were both fetched and drew.',
-      'Season dates are each reach’s standing open season. The Commission kept the discretion to start a reach later or end it earlier, and the final per-reach dates were given in a presentation this build could not read.',
-      'On a phone, depth and marks both need a river picked; the All view has neither. It shows the marks you already dropped and says so.',
-      'Depth values are drawn as published. Thalweg does not restate a vertical datum it has not checked, so the sounding legend gives numbers without one.'
+      'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number.',
+      'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
+      'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
+      'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',
+      'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.'
     ] }
 ];
+
+/* Which device this is, so the install instructions lead with the one that
+   applies. iPadOS Safari calls itself macOS, so the touch count is what
+   separates an iPad from a Mac. */
+function platformGuess(){
+  var ua = navigator.userAgent || '', touch = (navigator.maxTouchPoints || 0) > 1;
+  if (/iPhone|iPod/.test(ua)) return 'iphone';
+  if (/iPad/.test(ua) || (touch && /Macintosh/.test(ua))) return 'ipad';
+  if (/Android/.test(ua)) return 'android';
+  return 'desktop';
+}
+var INSTALL = [
+  { id:'iphone',  label:'iPhone, in Safari',
+    how:'Tap the Share button at the bottom, scroll down, then Add to Home Screen.' },
+  { id:'ipad',    label:'iPad, in Safari',
+    how:'Tap the Share button at the top right, then Add to Home Screen.' },
+  { id:'android', label:'Android, in Chrome',
+    how:'Tap the three-dot menu, then Install app, or Add to home screen.' },
+  { id:'desktop', label:'On a computer, in Chrome or Edge',
+    how:'Click the install icon at the right-hand end of the address bar.' }
+];
+function installList(){
+  var here = platformGuess();
+  var ul = el('ul',{class:'tight'});
+  INSTALL.slice().sort(function(a,b){
+    return (a.id === here ? -1 : 0) - (b.id === here ? -1 : 0);
+  }).forEach(function(p){
+    var li = el('li',{});
+    li.appendChild(el('b',{ text:p.label + (p.id === here ? ' — this device. ' : '. ') }));
+    li.appendChild(document.createTextNode(p.how));
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
+/* Somewhere to send a problem, with the build already in it. */
+var REPO = 'https://github.com/njefferson/Cv-Thalweg';
+function reportUrl(){
+  var body = 'What I expected:\n\nWhat happened instead:\n\n' +
+    'Which river and which panel:\n\n' +
+    '--- paste the diagnostic report here (the button next to this link copies it) ---\n';
+  return REPO + '/issues/new?title=' +
+    encodeURIComponent('Thalweg ' + VERSION + ': ') +
+    '&body=' + encodeURIComponent(body);
+}
 
 function renderAbout(){
   var b = $('#aboutbody'); b.innerHTML = '';
   function h(t){ b.appendChild(el('h3',{text:t})); }
   function para(t){ b.appendChild(el('p',{text:t})); }
 
+  /* The build, first, because the commonest reason to open this panel is
+     that something looked wrong and somebody needs to know which Thalweg
+     you were looking at. */
+  var build = el('p',{class:'note'});
+  build.appendChild(el('b',{text:'Version ' + VERSION}));
+  build.appendChild(document.createTextNode(' · '));
+  build.appendChild(el('span',{id:'aboutbuild',text:'checking which build…'}));
+  b.appendChild(build);
+  buildLine().then(function(txt){
+    var n = document.getElementById('aboutbuild');
+    if (n) n.textContent = txt;
+  });
+
   h('What Thalweg is');
-  para('A depth and conditions tool for the Central Valley fall-run Chinook fishery: the Sacramento, Feather, American and Mokelumne rivers and the Delta. It answers three questions in one place — how deep is the water here, when does the tide turn, and how much water is coming down — because on a Saturday morning you are choosing between rivers, not reading one.');
+  para('Three numbers for four rivers, in one place: how deep the water is, when the tide turns, and how much water is coming down. The Sacramento, the Feather, the American and the Mokelumne, plus the Delta they run into.');
+  para('It opens on all four at once because that is usually the real question — not what the Feather is doing, but which of the four is worth the drive. The stacked bars put every gauge where it sits on its river, downstream on the left, coloured by water temperature on one scale so the rivers can be compared at a glance. Pick a single river for its tide, its depth and your own marks.');
 
-  h('What Thalweg is not');
-  para('It does not tell you where fish are being caught. No live catch feed exists for these rivers, so there is nothing honest to show; there is no bite forecast and no spot predictor, and there will not be. It is not a navigation aid — DWR’s own metadata says its bathymetry is not for use as one, and that constraint travels with the data.');
-  para('It has no account, no sign-up, no login, no analytics and no third-party scripts. Your marks are on this device and are sent nowhere.');
+  h('What it will not do');
+  para('It will not tell you where fish are being caught. There is no live catch feed for these rivers, so there is nothing honest to show, and a made-up one would be worse than nothing. No bite forecast, no spot predictor, and none is coming.');
+  para('It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.');
+  para('It does not want an account, cannot be logged in to, and carries no analytics, no tracking and no third-party code of any kind. Your marks live on your device and are sent nowhere.');
 
-  h('Install it on your home screen');
-  var ul = el('ul',{class:'tight'});
-  [ 'iPhone and iPad, Safari: the Share button, then Add to Home Screen.',
-    'Android, Chrome: the three-dot menu, then Install app or Add to home screen.',
-    'Desktop Chrome or Edge: the install icon at the right of the address bar.',
-    'Firefox on Android: the three-dot menu, then Install.'
-  ].forEach(function(t){ ul.appendChild(el('li',{text:t})); });
-  b.appendChild(ul);
-  para('Once installed it opens full screen and works with no signal, on whatever it had already loaded.');
+  h('Put it on your home screen');
+  para('Worth doing. Installed, it opens full screen with no browser chrome, and it keeps working with no signal — which on most of this water is the normal condition rather than the exception. Everything it had already loaded stays: the map you looked at, the depth you switched on, the tide for the week ahead, and all your marks.');
+  b.appendChild(installList());
+  para('Flow and water temperature are the exception: those need a signal, and when they are old the top of the screen says so in orange rather than letting a stale number sit there looking current.');
 
   h('What changed');
   RELEASES.forEach(function(r){
     b.appendChild(el('p',{style:'font-weight:600;margin-bottom:.2rem',
-      text:r.v + ' — ' + r.date}));
+      text:'Version ' + r.v + ' — ' + r.date}));
     var u1 = el('ul',{class:'tight'});
     r.changes.forEach(function(c){ u1.appendChild(el('li',{text:c})); });
     b.appendChild(u1);
     if (r.broken && r.broken.length){
       b.appendChild(el('p',{class:'note',style:'margin-bottom:.2rem',
-        text:'Still broken or unproven in ' + r.v + ':'}));
+        text:'What is still not right in ' + r.v + ':'}));
       var u2 = el('ul',{class:'tight'});
       r.broken.forEach(function(c){ u2.appendChild(el('li',{text:c})); });
       b.appendChild(u2);
     }
   });
 
-  h('Where the data comes from');
+  h('Something looks wrong');
+  para('Two taps. Copy the diagnostic, then open a report and paste it in. The diagnostic is plain text you can read before you send it: it says which build you have, what kind of device, which of the services answered and which did not, and how old the readings are. It contains nothing you typed and none of your marks — only how many you have.');
+  var btn = el('button',{type:'button',text:'Copy diagnostic report'});
+  var ta = el('textarea',{readonly:'readonly','aria-label':'Diagnostic report'});
+  btn.addEventListener('click', function(){
+    diagnostic().then(function(txt){
+      ta.value = txt; ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch(e){}
+      if (!ok && navigator.clipboard) navigator.clipboard.writeText(ta.value);
+      btn.textContent = 'Copied';
+      setTimeout(function(){ btn.textContent = 'Copy diagnostic report'; }, 2500);
+      announce('Diagnostic report copied.');
+    });
+  });
+  var row = el('div',{class:'rowline'});
+  row.appendChild(btn);
+  row.appendChild(el('a',{ href:reportUrl(), target:'_blank', rel:'noopener noreferrer',
+    text:'Open a report' }));
+  b.appendChild(row);
+  diagnostic().then(function(t){ ta.value = t; });
+  b.appendChild(ta);
+
+  h('Where the numbers come from');
+  para('Nothing here is measured by this app. It redraws what four public services publish, and says which one each number came from.');
   var u3 = el('ul',{class:'tight'});
-  [ ['California DWR bathymetry, multibeam rasters and single beam soundings',
-     'https://data.cnra.ca.gov/'],
-    ['USGS National Water Information System, instantaneous values',
-     'https://waterservices.usgs.gov/'],
-    ['NOAA CO-OPS tide predictions, MLLW datum',
+  [ ['River flow, height and temperature — the US Geological Survey',
+     'https://waterdata.usgs.gov/ca/nwis/current/?type=flow'],
+    ['The Feather River’s gauges — California DWR, through CDEC, because USGS publishes nothing current for that river',
+     'https://cdec.water.ca.gov/'],
+    ['Tide predictions — NOAA, to the MLLW datum',
      'https://tidesandcurrents.noaa.gov/'],
-    ['NOAA Office of Coast Survey raster charts',
-     'https://charts.noaa.gov/'],
-    ['CDFW freshwater sport fishing regulations',
+    ['Depth surveys — California DWR',
+     'https://data.cnra.ca.gov/dataset/i06-singlebeam-bathymetry'],
+    ['Season and limits — CDFW, Title 14 section 7.40',
      'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing']
   ].forEach(function(s){
     var li = el('li',{});
@@ -2823,32 +2907,30 @@ function renderAbout(){
     u3.appendChild(li);
   });
   b.appendChild(u3);
-  para('Each of those publishes its own terms of use and each is the authority on its own data. Thalweg redraws what they publish and adds nothing to it.');
+  para('Each of those sets its own terms and is the authority on its own data. Where a reading is missing you get a dash, never a zero.');
 
   h('Reading depth honestly');
-  para('Dense aquatic vegetation defeats a sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom, and in vegetated water a return may be the top of the weed rather than the bed. Single beam data are points along a boat’s track; the water between two tracks was never measured. Surveys are also snapshots — a sand bed moves.');
+  para('Weed beats a depth sounder. Where the growth is thick the survey boat gets no return from the bottom, and those patches are dropped — so a blank space beside a tule edge is water nobody measured, not flat ground. In weedy water a reading may be the top of the weed rather than the bed.');
+  para('The single beam surveys are lines, not sheets: dots along the track the boat drove. Between two tracks nothing was measured, and nothing is drawn. And every survey is a photograph of one day — sand moves.');
+  para('Where a reach has no published survey at all, the Layers panel says so in words instead of offering you a switch that turns nothing on.');
 
-  h('Report a problem');
-  para('Open an issue on the repository, or send the diagnostic report below with a sentence about what you expected to see. The report is text, so it travels in a message; it contains nothing you typed and none of your marks.');
-  var btn = el('button',{type:'button',text:'Copy diagnostic report'});
-  var ta = el('textarea',{readonly:'readonly','aria-label':'Diagnostic report'});
-  btn.addEventListener('click', function(){
-    diagnostic().then(function(txt){
-      ta.value = txt; ta.select();
-      try { document.execCommand('copy'); } catch(e){}
-      announce('Diagnostic report copied.');
-    });
-  });
-  b.appendChild(btn);
-  diagnostic().then(function(t){ ta.value = t; });
-  b.appendChild(ta);
-
-  h('Accessibility');
-  para('Every control is reachable by keyboard with a visible focus ring, the panels are a proper tab list driven by the arrow keys, form controls are labelled, and the map can be panned and zoomed from the keyboard. A mark can be dropped without a pointer using Add at map centre in the Marks panel. Colour is never the only carrier: every temperature dot has its number beside it and every provenance flag is a word. Reduced motion is honoured.');
-  para('The one thing colour still carries alone is the sounding ramp on the map, where a value also appears on tap. If something here is unusable for you, that is a defect — please report it.');
+  h('Getting around it without a pointer');
+  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus, and a mark can be dropped without a pointer at all using Add at map centre in the Marks panel.');
+  para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
 
   h('Licence');
-  para('PolyForm Noncommercial 1.0.0. Free to use, study and modify for any purpose that is not a commercial one. Leaflet 1.9.4 is vendored into this app under its own BSD-2-Clause licence.');
+  para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');
+}
+
+/* Which build is live, for the panel and for a screenshot. */
+function buildLine(){
+  return fetch('version', { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.commit) return 'build not identified on this host';
+      return 'build ' + j.commit.slice(0,7) + (j.branch ? ' (' + j.branch + ')' : '');
+    })
+    .catch(function(){ return 'build unknown — offline'; });
 }
 
 /* Doctrine §7f: a text report that carries what the browser string hides.
@@ -2953,11 +3035,36 @@ function maybeWelcome(){
   var dlg = $('#welcome');
   if (seen === VERSION || !dlg.showModal) return;
   var b = $('#welcomebody'); b.innerHTML = '';
-  b.appendChild(el('p',{text:'Depth, tide and flow for four Central Valley rivers and the Delta. It opens on All rivers: the four stacked against one temperature scale, downstream on the left, which is the comparison worth making before you drive anywhere. Pick a single river for its tide, its depth and its marks.'}));
-  b.appendChild(el('p',{text:'The Layers panel is where depth lives. Coverage is uneven — where nothing has been surveyed it says so instead of showing you an empty switch. On a phone the map is behind the Map button, so the readings get the screen.'}));
-  b.appendChild(el('p',{text:'It does not know where fish are being caught, and it is not a navigation aid.'}));
-  b.appendChild(el('div',{class:'warnbox',
-    text:'This is the first build. Every number in it comes from USGS, NOAA or DWR and is labelled with where it came from — but it is a first build, so treat what you see as new until it has agreed with something you trust.'}));
+  function para(t, cls){ b.appendChild(el('p', cls ? {class:cls, text:t} : {text:t})); }
+  function head(t){ b.appendChild(el('h3',{text:t})); }
+
+  para('Three numbers for four rivers, in one place: how deep the water is, when the tide turns, and how much water is coming down. The Sacramento, the Feather, the American and the Mokelumne, and the Delta they run into.');
+
+  head('What you are looking at');
+  para('It opens on all four rivers at once, because that is usually the real question — not what the Feather is doing, but which of the four is worth the drive. Each bar is one river with its gauges where they sit along it, downstream on the left, and every dot is coloured by water temperature on the same scale, so the four can be read against each other.');
+  para('Pick a single river from the top and you get its tide, its published depth surveys, and somewhere to drop your own marks.');
+
+  head('Worth knowing before you rely on it');
+  var u = el('ul',{class:'tight'});
+  [ 'It works with no signal once it has loaded, which on most of this water is the normal condition. Tide predictions are fetched a week ahead so they stay good in your pocket.',
+    'Flow and temperature are the exception — those need a signal, and when they go stale the top of the screen says so in orange rather than letting an old number sit there looking current.',
+    'No account, no sign-up, no tracking, no third-party code. Your marks stay on this device.',
+    'Depth is only where the state has actually surveyed. Where nothing has been surveyed it says so, rather than showing you an empty switch.'
+  ].forEach(function(t){ u.appendChild(el('li',{text:t})); });
+  b.appendChild(u);
+
+  var installed = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  if (!installed){
+    head('Put it on your home screen');
+    para('It opens full screen, loses the browser chrome, and keeps everything it had already loaded when you are out of signal.');
+    b.appendChild(installList());
+  }
+
+  b.appendChild(el('div',{class:'magbox',
+    text:'It does not know where fish are being caught and will not guess — no live catch feed exists for these rivers. It is not a navigation aid: the depth surveys come from the state, whose own notes say they are not for navigating by.'}));
+
+  para('This is the first release. Every number comes from USGS, NOAA, DWR or CDFW and is labelled with which one — but it is a first release, so treat what you see as new until it has agreed with something you trust.', 'note');
+
   var row = el('div',{class:'rowline'});
   var ok = el('button',{type:'button',text:'Start'});
   ok.addEventListener('click', function(){
@@ -2966,7 +3073,7 @@ function maybeWelcome(){
   });
   row.appendChild(ok);
   row.appendChild(el('span',{class:'note',
-    text:'All of this stays available under the (i) button.'}));
+    text:'All of this, the install steps and what changed since last time live under the (i) button.'}));
   b.appendChild(row);
   dlg.showModal();
 }
@@ -3061,6 +3168,14 @@ function boot(){
   window.addEventListener('offline', function(){ updateStaleness(); announce('Offline. Stored readings only.'); });
   setInterval(function(){ if (navigator.onLine) refreshData(); }, 10 * 60 * 1000);
   setInterval(updateStaleness, 60 * 1000);
+
+  buildLine().then(function(txt){
+    var chip = document.getElementById('verchip');
+    if (!chip) return;
+    var m = /build ([0-9a-f]{7})/.exec(txt);
+    if (m) chip.textContent = 'v' + VERSION + ' · ' + m[1];
+    chip.title = 'Thalweg ' + VERSION + ' · ' + txt;
+  });
 
   initSW();
   maybeWhatChanged();
