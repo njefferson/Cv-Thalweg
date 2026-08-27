@@ -3084,6 +3084,12 @@ function renderAbout(){
   para('Three numbers for four rivers, in one place: how deep the water is, when the tide turns, and how much water is coming down. The Sacramento, the Feather, the American and the Mokelumne, plus the Delta they run into.');
   para('It opens on all four at once because that is usually the real question — not what the Feather is doing, but which of the four is worth the drive. The stacked bars put every gauge where it sits on its river, downstream on the left, coloured by water temperature on one scale so the rivers can be compared at a glance. Pick a single river for its tide, its depth and your own marks.');
 
+  var againRow = el('div',{class:'rowline'});
+  var again = el('button',{type:'button',text:'Show the first-visit page again'});
+  again.addEventListener('click', function(){ $('#about').close(); showWelcome(); });
+  againRow.appendChild(again);
+  b.appendChild(againRow);
+
   h('What it will not do');
   para('It will not tell you where fish are being caught. There is no live catch feed for these rivers, so there is nothing honest to show, and a made-up one would be worse than nothing. No bite forecast, no spot predictor, and none is coming.');
   para('It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.');
@@ -3275,21 +3281,31 @@ function diagnostic(){
    moved into the About panel, not copied there, so there is one copy of
    these words in the app.
    ===================================================================== */
-function maybeWelcome(){
-  var seen = Store.s.getItem('thalweg:_shared:welcomed');
+/* The way out is wired at start-up, before there is any content for it to
+   depend on, and it is one handler on the dialog rather than one per button,
+   so Close, Start and the Escape key cannot drift into meaning different
+   things. A dismiss that depends on the panel's own content is a trap the
+   moment that content fails. */
+function initWelcome(){
   var dlg = $('#welcome');
-  if (seen === VERSION || !dlg.showModal) return;
-
-  /* The way out is wired before a single word of this is rendered, and it
-     is one handler on the dialog rather than one per button, so Close,
-     Start and the Escape key cannot drift into meaning different things.
-     A dismiss that depends on the panel's own content is a trap the
-     moment that content fails. */
+  if (!dlg.showModal) return;
   dlg.addEventListener('close', function(){
     try { Store.s.setItem('thalweg:_shared:welcomed', VERSION); } catch(e){}
   });
   $('#welcomeclose').addEventListener('click', function(){ dlg.close(); });
+}
 
+function maybeWelcome(){
+  var seen = Store.s.getItem('thalweg:_shared:welcomed');
+  if (seen === VERSION || !$('#welcome').showModal) return;
+  showWelcome();
+}
+
+/* Also reachable from the (i) afterwards, which is what makes the panel
+   testable more than once per device: dismissing it is remembered, so
+   without a way back the only way to see it again is to clear storage. */
+function showWelcome(){
+  var dlg = $('#welcome');
   var b = $('#welcomebody'); b.innerHTML = '';
   function para(t, cls){ b.appendChild(el('p', cls ? {class:cls, text:t} : {text:t})); }
   function head(t){ b.appendChild(el('h3',{text:t})); }
@@ -3405,6 +3421,7 @@ function boot(){
   initTabs();
   initMap();
 
+  initWelcome();
   $('#aboutbtn').addEventListener('click', function(){
     renderAbout();
     var d = $('#about');

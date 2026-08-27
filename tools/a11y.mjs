@@ -189,6 +189,23 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
   await page.click('#aboutbtn');
   await page.waitForTimeout(500);
   await audit(page, `${name}: about panel`);
+  check(`${name}: the About panel opens at the top of itself`,
+    await page.evaluate(() => document.getElementById('aboutbody').scrollTop === 0 &&
+      document.activeElement.id === 'abouttitle'),
+    await page.evaluate(() => document.getElementById('aboutbody').scrollTop + ' / ' +
+      document.activeElement.id));
+
+  /* Dismissing the first-run panel is remembered, so without a way back the
+     only route to it is clearing storage — which makes the one surface a new
+     reader sees the one surface nobody can look at twice. */
+  await page.click('#aboutbody button:text-is("Show the first-visit page again")');
+  await page.waitForTimeout(500);
+  check(`${name}: the first-visit page can be opened again from the (i)`,
+    await page.evaluate(() => document.getElementById('welcome').open &&
+      !document.getElementById('about').open));
+  await welcomeChecks(page, `${name}: reopened`);
+  await page.click('#aboutbtn');
+  await page.waitForTimeout(400);
   await page.click('#aboutclose');
 
   /* A map label. It exists only while a pin is tapped, so like the update
