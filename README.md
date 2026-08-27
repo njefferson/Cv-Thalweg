@@ -26,36 +26,55 @@ list.
 - `public/sw.js` — the service worker.
 - `public/manifest.webmanifest`, `public/icon*.png`, `public/icon.svg` — the PWA.
 - `public/vendor/` — Leaflet 1.9.4, taken from `npm pack leaflet@1.9.4`.
-- `worker.js` — the Cloudflare Worker that fronts DWR. Not served by Pages.
+- `worker.js` — the proxy that fronts DWR. Not served by Pages.
+- `functions/bathy/[[path]].js` — the same proxy, mounted inside the site.
 - `tools/` — the checks. Test-only; the app needs none of them.
 
 ## Deploying
 
-- Cloudflare Pages, connected to this repository.
+Connect the repository to Cloudflare Pages. That is the whole deploy.
+
 - Build command: none. Build output directory: `public`.
 - Nothing is compiled, so what you read in `public/index.html` is what runs.
+- The proxy deploys with it, as a Pages Function. There is no second thing to
+  deploy and no origin to paste anywhere.
 - Production is `cv-thalweg.pages.dev`.
 
-## The Worker
+## The proxy
 
 The DWR services are California's public GIS infrastructure, not a tile API.
 Without a proxy in front of them, every visitor's pan and zoom lands on
 `gis.water.ca.gov`, one request per 256-pixel tile.
 
-- Deploy it: `npx wrangler deploy worker.js --name cv-thalweg-bathy`.
-- Then set `BATHY_PROXY` at the top of the script block in
-  `public/index.html` to the Worker's origin.
-- While `BATHY_PROXY` is empty the app talks to DWR directly and says so, in
-  orange, in the Layers panel. That is fine for local work and not fine in
-  public.
-- Two service paths are proxied and nothing else: the `Bathymetry` image
-  folder and the `i06_Singlebeam_Bathymetry` map service. The allow-list is by
-  prefix so a survey published next month needs no redeploy, and it is anchored
-  at a path separator so it cannot become an open proxy for the rest of the
-  host. Everything else gets a 403.
-- Tiles cache for a year because a finished survey does not change. Feature
-  queries and service metadata cache for a day.
-- `node tools/test-worker.mjs` covers all of that with the upstream stubbed.
+There is one implementation, in `worker.js`, because two copies of an
+allow-list is how an allow-list goes wrong. It runs two ways:
+
+- **With the site.** `functions/bathy/[[path]].js` mounts it at `/bathy`, so
+  Pages serves it alongside the app: same origin, no CORS, one deploy. This is
+  the default and `BATHY_PROXY` is already set to `/bathy`.
+- **On its own.** `npx wrangler deploy` uses the default export and
+  `wrangler.toml`. Then point `BATHY_PROXY` at that Worker's origin instead.
+
+What it will forward, and nothing else:
+
+- The DWR `Bathymetry` image folder and the `i06_Singlebeam_Bathymetry` map
+  service. Allow-listed by prefix so a survey published next month needs no
+  redeploy, and anchored at a path separator so `BathymetryX` does not match.
+- CDEC's read-only data servlets, under a separate `/cdec` namespace that is
+  stripped before forwarding. The namespaces cannot reach each other's host.
+
+Everything else gets a 403 — wrong path, wrong method, percent-encoding in the
+path, or a traversal attempt. Tiles cache for a year because a finished survey
+does not change; feature queries and service metadata cache for a day; gauge
+readings are never cached at all, because a reading served from an edge cache is
+the exact failure this app is arranged against.
+
+Set `BATHY_PROXY` to an empty string to talk to DWR directly. Fine on a laptop,
+and the Layers panel says so in orange; not fine in public.
+
+`node tools/test-worker.mjs` covers all of that — 52 checks, upstream stubbed,
+no network. `node tools/serve.mjs` runs the same handler locally, so local work
+and production take the same path through the same allow-list.
 
 ## Survey coverage, as enumerated on 27 August 2026
 
@@ -126,6 +145,7 @@ be allowed to read it, and whether the response is the shape the code expects.
 Two things could not be verified, because the network this was built on cannot
 reach them. Both are handled by the app rather than assumed:
 
+- **CDEC**, `cdec.water.ca.gov`. Nothing in the app reads it yet; see above.
 - **NOAA raster chart tiles** at `tileservice.charts.noaa.gov`. The layer is
   offered, marked unverified, and switches itself off with a message if the
   first tiles do not arrive.
@@ -147,13 +167,27 @@ it. That is what ships.
 No USGS site on the Feather mainstem publishes instantaneous values. Checked on
 27 August 2026 against Oroville, Gridley, Yuba City, Shanghai Bend and
 Nicolaus: the sites exist, the historical records are there, and the current
-series are empty. The Feather is gauged by DWR through CDEC, which this app does
-not read.
+series are empty. The Feather is gauged by DWR through CDEC.
 
 So the Feather's Water panel says that in words and shows the two tributaries
 that join it — the Yuba at Marysville and the Bear at Wheatland — clearly marked
 as tributaries and kept off the ribbon, which is positions along one river.
-Adding CDEC is the obvious next move and would need its own verification pass.
+
+**CDEC is half-built and deliberately stopped short.** The proxy already
+namespaces it at `/cdec`, forwards only its read-only data servlets, never
+caches them, and the service worker treats that path as live data. What is
+missing is the part that could not be written honestly: `cdec.water.ca.gov` is
+unreachable from the network this was built on, its response schema is not
+documented anywhere reachable either, and a parser written from memory against
+an unseen shape is the one thing this app exists not to do — it would either
+fail visibly, which is no better than today, or pick the wrong field and show a
+confident wrong flow, which is worse.
+
+`node tools/verify.mjs --only=cdec` is the missing step. It is a discovery tool
+rather than a set of assertions: run it from a network that can reach CDEC and
+it prints the station search result, the top-level shape, and the field names of
+the first record for several candidate stations and sensors. The parser gets
+written against that.
 
 ## Regulations
 
@@ -192,7 +226,8 @@ still says the printed regulations are the authority.
   phone, including the first-run dialog and the update strip, plus an offline
   reload.
 - `node tools/verify.mjs` — every network call, executed. Add `--only=usgs`,
-  `tide`, `dwr`, `base` or `worker` to narrow it, `--json` for the machine.
+  `tide`, `dwr`, `cdec`, `base` or `worker` to narrow it, `--json` for the
+  machine.
 - `node tools/live-test.mjs` — the whole app end to end against the live
   services.
 - `node tools/render-icons.mjs` — re-rasterise the PNGs after editing

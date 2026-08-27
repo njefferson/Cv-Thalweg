@@ -5,20 +5,25 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.1.0, first build, on branch `claude/thalweg-fishery-app-yuq6s3`.
+- Version 0.1.0, on `main`.
 - Not deployed yet. Not linked from the hub, and it must not be until the owner
   says so — that is his call and nobody else's.
-- `BATHY_PROXY` is empty, so the app talks to DWR directly and says so on
-  screen. Deploy `worker.js` and set it before this is public.
+- The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
+  it too. There is no separate Worker to stand up and no origin to paste.
 
 ## What only the owner can do
 
 - Connect the repository to Cloudflare Pages: build command none, output
-  directory `public`.
-- Deploy the Worker and paste its origin into `BATHY_PROXY`.
+  directory `public`. That is the entire deploy.
+- Allow `cdec.water.ca.gov` on the session network if the Feather's gauges are
+  to be finished from here — see below.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.
+
+The Cloudflare MCP server in these sessions is authenticated to the account but
+is read-only for Workers: it can list and read them, and cannot deploy one or
+create a Pages project. Do not offer to.
 
 ## The two things still unverified
 
@@ -72,9 +77,16 @@ Worth carrying to LESSONS in the hub; each cost real time here.
 
 ## Owed
 
-- CDEC for the Feather. It is the only river here with no live gauge, and the
-  gap is DWR's data being on a service this app does not read. It needs its own
-  verification pass before it goes in.
+- **CDEC for the Feather, stopped one step short on purpose.** The proxy
+  namespaces it at `/cdec`, forwards only the read-only data servlets, never
+  caches them, and the service worker treats that path as live; all of that is
+  unit-tested. What is not written is the parser, because
+  `cdec.water.ca.gov` is unreachable from here and its schema is not documented
+  anywhere reachable either. Writing one from memory would risk the single
+  worst outcome this app has: a confident wrong flow. Run
+  `node tools/verify.mjs --only=cdec` from a network that can reach it — it
+  prints the station search, the top-level shape and the first record's field
+  names — then write the parser against that.
 - The final per-reach 2026 season dates, if the Department's May presentation
   is ever published. The reaches and their standing windows are read from the
   Commission's filings; the possibility that a reach was shortened is stated in

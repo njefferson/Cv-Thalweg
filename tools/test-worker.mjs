@@ -13,8 +13,11 @@ let upstreamCalls = [];
 globalThis.caches = {
   default: {
     _m: new Map(),
-    async match(req) { return this._m.get(req.url) || undefined; },
-    async put(req, res) { this._m.set(req.url, res); }
+    /* The edge hands back a fresh Response each time. Storing and
+       returning clones is what makes a double-read show up here instead
+       of on the second visitor to a tile. */
+    async match(req) { const hit = this._m.get(req.url); return hit ? hit.clone() : undefined; },
+    async put(req, res) { this._m.set(req.url, res.clone()); }
   }
 };
 
@@ -31,8 +34,14 @@ globalThis.fetch = async (url) => {
   });
 };
 
-const worker = (await import('../worker.js')).default;
+const mod = await import('../worker.js');
+const worker = mod.default;
 const ctx = { waitUntil(p) { return p; } };
+
+/* The Pages Function is a mount point, not a second implementation. These
+   run the same allow-list through the /bathy prefix to prove that mounting
+   it inside the site cannot widen what it forwards. */
+const pages = (await import('../functions/bathy/[[path]].js')).onRequest;
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -129,12 +138,93 @@ for (const m of ['POST', 'PUT', 'DELETE']) {
     a.res.headers.get('x-thalweg-cache') + ' then ' + b.res.headers.get('x-thalweg-cache'));
 }
 
+/* --- the second upstream: namespaced, read-only, never cached --- */
+{
+  const ok = await call('/cdec/dynamicapp/req/JSONDataServlet?Stations=GRL&SensorNums=20&dur_code=E');
+  check('forwards a CDEC data request', ok.res.status === 200 && ok.upstream.length === 1,
+    'status ' + ok.res.status + ', upstream ' + ok.upstream.length);
+  check('strips the /cdec namespace and switches host',
+    ok.upstream[0] === 'https://cdec.water.ca.gov/dynamicapp/req/JSONDataServlet?Stations=GRL&SensorNums=20&dur_code=E',
+    ok.upstream[0]);
+  check('a gauge reading is never cached', /no-store/.test(ok.res.headers.get('cache-control') || ''),
+    ok.res.headers.get('cache-control'));
+
+  const again = await call('/cdec/dynamicapp/req/JSONDataServlet?Stations=GRL&SensorNums=20&dur_code=E');
+  check('an uncached rule goes upstream every time', again.upstream.length === 1,
+    'upstream ' + again.upstream.length);
+
+  /* The two upstreams must not be able to reach each other. */
+  for (const p of [
+    '/cdec/arcgisimg/rest/services/Bathymetry?f=json',
+    '/cdec/dynamicapp/staMeta?station_id=GRL',
+    '/cdec/',
+    '/dynamicapp/req/JSONDataServlet?Stations=GRL',
+    '/cdec/dynamicapp/req/JSONDataServlet/../../admin'
+  ]) {
+    const bad = await call(p);
+    check('refuses ' + p.slice(0, 58), bad.res.status === 403 && bad.upstream.length === 0,
+      'status ' + bad.res.status + ', upstream ' + bad.upstream.length);
+  }
+  const cross = await call('/arcgisimg/rest/services/Bathymetry/CrossCheck/ImageServer?f=json');
+  check('a bathymetry path still goes to DWR, not CDEC',
+    cross.upstream[0] && cross.upstream[0].startsWith('https://gis.water.ca.gov/'),
+    cross.upstream[0]);
+}
+
+/* --- a cache hit must be readable more than once --- */
+{
+  const path = '/arcgisimg/rest/services/Bathymetry/ReadTwice/ImageServer?f=json';
+  const first  = await call(path);
+  const second = await call(path);
+  const third  = await call(path);
+  check('a cached response can be served repeatedly',
+    second.res.status === 200 && third.res.status === 200 &&
+    (await third.res.text()) === '{"ok":true}',
+    'first ' + first.res.status + ', second ' + second.res.status + ', third ' + third.res.status);
+}
+
 /* --- query string survives, including the rendering rule --- */
 {
   const { upstream } = await call(
     '/arcgisimg/rest/services/Bathymetry/L/ImageServer/exportImage?bbox=1,2,3,4&f=image&renderingRule=%7B%22rasterFunction%22%3A%22Stretch%22%7D');
   check('query string is forwarded intact',
     upstream[0].includes('renderingRule=%7B%22rasterFunction%22%3A%22Stretch%22%7D'), upstream[0]);
+}
+
+/* --- the same rules through the Pages mount --- */
+async function viaPages(path, init) {
+  upstreamCalls = [];
+  const request = new Request('https://site.example' + path, init);
+  const res = await pages({ request, waitUntil(p) { return p; } });
+  return { res, upstream: upstreamCalls.slice() };
+}
+{
+  /* A path nothing above has already fetched, or the edge cache answers it
+     and there is no upstream call left to inspect. */
+  const ok = await viaPages('/bathy/arcgisimg/rest/services/Bathymetry/PagesMountProbe/ImageServer?f=json');
+  check('pages mount forwards an allowed path',
+    ok.res.status === 200 && ok.upstream.length === 1,
+    'status ' + ok.res.status + ', upstream ' + ok.upstream.length);
+  check('pages mount strips its own prefix before forwarding',
+    ok.upstream[0] === 'https://gis.water.ca.gov/arcgisimg/rest/services/Bathymetry/PagesMountProbe/ImageServer?f=json',
+    ok.upstream[0]);
+
+  for (const p of [
+    '/bathy/arcgis/rest/services/Boundaries/MapServer?f=json',
+    '/bathy/../arcgisimg/rest/services/Bathymetry?f=json',
+    '/notbathy/arcgisimg/rest/services/Bathymetry?f=json',
+    '/bathy/arcgisimg/rest/services/BathymetryX/ImageServer?f=json'
+  ]) {
+    const bad = await viaPages(p);
+    check('pages mount refuses ' + p.slice(0, 58),
+      bad.res.status === 403 && bad.upstream.length === 0,
+      'status ' + bad.res.status + ', upstream ' + bad.upstream.length);
+  }
+
+  const tile = await viaPages('/bathy/arcgisimg/rest/services/Bathymetry/L/ImageServer/exportImage?bbox=1,2,3,4&f=image');
+  check('pages mount keeps the year-long tile lifetime',
+    /max-age=31536000/.test(tile.res.headers.get('cache-control') || ''),
+    tile.res.headers.get('cache-control'));
 }
 
 globalThis.fetch = realFetch;

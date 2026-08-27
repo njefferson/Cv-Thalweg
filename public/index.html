@@ -255,12 +255,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    ===================================================================== */
 'use strict';
 
-/* Origin of the bathymetry proxy Worker (worker.js in this repo).
-   Empty string means talk to gis.water.ca.gov directly, which is fine for
-   local work and NOT fine for a public deploy — every visitor's pan and zoom
-   would land on California's public GIS infrastructure. The Layers panel
-   says so out loud while this is empty. */
-var BATHY_PROXY = '';
+/* Where the bathymetry proxy lives.
+   The default is same-origin, because functions/bathy/[[path]].js ships the
+   proxy with the site: deploying to Pages deploys the proxy too, and there
+   is nothing to paste in here. Set it to a standalone Worker's origin if you
+   would rather run it separately. Set it to an empty string to talk to
+   gis.water.ca.gov directly — fine on a laptop, and not fine in public,
+   because then every visitor's pan and zoom lands on California's GIS
+   infrastructure one tile at a time. The Layers panel says so if you do. */
+var BATHY_PROXY = '/bathy';
 
 var VERSION = '0.1.0';
 
@@ -1082,6 +1085,7 @@ function loadCatalog(force){
     }).then(function(rows){ return rows.filter(Boolean); });
   }).catch(function(e){
     logNet('DWR bathymetry folder', folderUrl, false, String(e && e.message || e));
+    if (BATHY_PROXY && BATHY_PROXY.charAt(0) === '/') state.proxyMissing = true;
     return { error: String(e && e.message || e) };
   });
 
@@ -1679,7 +1683,10 @@ function renderLayers(){
 
   if (!BATHY_PROXY){
     p.appendChild(el('div',{class:'warnbox',
-      text:'BATHY_PROXY is empty, so bathymetry requests go straight to gis.water.ca.gov. That is California’s public GIS infrastructure, not a tile API. Deploy worker.js and set BATHY_PROXY before this is public.'}));
+      text:'BATHY_PROXY is empty, so bathymetry requests go straight to gis.water.ca.gov. That is California’s public GIS infrastructure, not a tile API. Fine on a laptop; not fine in public.'}));
+  } else if (state.proxyMissing){
+    p.appendChild(el('div',{class:'warnbox',
+      text:'The bathymetry proxy at ' + BATHY_PROXY + ' did not answer, so no depth is available. If this is a static deploy, the site was published without its functions directory.'}));
   }
 
   p.appendChild(el('h2',{class:'sec',text:'Bathymetry'}));

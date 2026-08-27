@@ -297,7 +297,56 @@ async function checkWorker() {
 }
 
 /* ------------------------------------------------------------------ */
-const groups = { usgs: checkUsgs, tide: checkTide, dwr: checkDwr, base: checkBase, worker: checkWorker };
+/* CDEC — the Feather River's gauges.
+ *
+ * No USGS site on the Feather mainstem publishes instantaneous values, so
+ * the only live readings for that river are DWR's, on CDEC. This group is
+ * a discovery tool rather than an assertion: it was written on a network
+ * that cannot reach cdec.water.ca.gov, so nothing in the app parses these
+ * responses yet. Run it from a network that can, read what it prints, and
+ * the parser can then be written against what CDEC actually sends instead
+ * of against somebody's memory of it.
+ */
+async function checkCdec() {
+  const base = 'https://cdec.water.ca.gov';
+
+  /* Which stations exist on the Feather at all. */
+  const search = `${base}/dynamicapp/staSearch?sta=&sensor_chk=on&collect=NONE+SPECIFIED&dur=&active=Y&loc_chk=on&lon1=&lon2=&lat1=&lat2=&elev1=-5&elev2=99000&nearby=&basin=FEATHER+R&hydro=NONE+SPECIFIED&county=NONE+SPECIFIED&agency_num=160&display=sta`;
+  const st = await hit(search, { expect: 'bin' });
+  record('cdec', 'station search answers', !st.err && st.res?.ok,
+    st.err || `HTTP ${st.res?.status} ${st.ct} ${st.body?.bytes ?? 0} bytes; ${corsNote(st.acao)}`);
+
+  /* And what a data request actually returns. Several candidate station
+     identifiers and sensor numbers, because neither is confirmed. */
+  for (const sta of ['GRL', 'NIC', 'FSB', 'ORO', 'YUB']) {
+    for (const sensor of ['20', '25']) {
+      const url = `${base}/dynamicapp/req/JSONDataServlet?Stations=${sta}&SensorNums=${sensor}&dur_code=E&Start=${isoDaysAgo(1)}&End=${isoDaysAgo(0)}`;
+      const r = await hit(url);
+      if (r.err) { record('cdec', `${sta} sensor ${sensor}`, false, r.err); continue; }
+      if (!r.res.ok) { record('cdec', `${sta} sensor ${sensor}`, false, `HTTP ${r.res.status}`); continue; }
+      const body = r.body;
+      const rows = Array.isArray(body) ? body : (body && body.data) || null;
+      const first = Array.isArray(rows) && rows[0];
+      record('cdec', `${sta} sensor ${sensor}`, Array.isArray(rows) && rows.length > 0,
+        (Array.isArray(rows)
+          ? `${rows.length} record(s); fields: ${first ? Object.keys(first).join(', ') : 'none'}`
+          : `top-level shape: ${body === null ? 'null' : (Array.isArray(body) ? 'array' : typeof body)}` +
+            (body && typeof body === 'object' ? `, keys: ${Object.keys(body).join(', ')}` : '')) +
+        `; ${corsNote(r.acao)}`);
+      if (first) record('cdec', `  ${sta} first record`, null, JSON.stringify(first).slice(0, 260));
+    }
+  }
+  record('cdec', 'what to do with this', null,
+    'Nothing in the app reads CDEC yet. The Worker already namespaces it at /cdec and never caches it; once the fields above are known, the Feather panel can use them.');
+}
+function isoDaysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ------------------------------------------------------------------ */
+const groups = { usgs: checkUsgs, tide: checkTide, dwr: checkDwr, cdec: checkCdec, base: checkBase, worker: checkWorker };
 for (const [name, fn] of Object.entries(groups)) {
   if (only && only !== name) continue;
   if (!asJson) console.log(`\n=== ${name} ===`);

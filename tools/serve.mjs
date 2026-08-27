@@ -3,9 +3,20 @@
  * Cloudflare Pages serves these files as-is; nothing here is a build step.
  */
 import { createServer } from 'node:http';
+import { handle } from '../worker.js';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/* Workers have caches.default; Node does not. A Map is enough for local
+   work — it is the same code path, just without the edge. */
+if (!globalThis.caches) {
+  const store = new Map();
+  globalThis.caches = { default: {
+    async match(req) { const hit = store.get(req.url); return hit && hit.clone(); },
+    async put(req, res) { store.set(req.url, res.clone()); }
+  } };
+}
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const port = Number(process.argv[2] || 8787);
@@ -17,6 +28,16 @@ const TYPES = {
 };
 
 createServer(async (req, res) => {
+  /* Serve the bathymetry proxy at /bathy, exactly as Pages does through
+     functions/bathy/[[path]].js, so local work and production take the
+     same path through the same allow-list. */
+  if (req.url.startsWith('/bathy/') || req.url === '/bathy') {
+    const ctx = { waitUntil(p) { return p; } };
+    const out = await handle(new Request('http://127.0.0.1:' + port + req.url), ctx, '/bathy');
+    res.writeHead(out.status, Object.fromEntries(out.headers));
+    res.end(Buffer.from(await out.arrayBuffer()));
+    return;
+  }
   let p = normalize(decodeURIComponent(req.url.split('?')[0]));
   if (p.includes('..')) { res.writeHead(403).end('no'); return; }
   if (p.endsWith('/')) p += 'index.html';

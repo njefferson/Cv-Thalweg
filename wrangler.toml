@@ -1,0 +1,6 @@
+# Only needed to run the bathymetry proxy as a standalone Worker.
+# Deploying the site to Pages already serves it at /bathy via
+# functions/bathy/[[path]].js, which is the arrangement the app expects.
+name = "cv-thalweg-bathy"
+main = "worker.js"
+compatibility_date = "2026-08-01"

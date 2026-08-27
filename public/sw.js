@@ -68,7 +68,10 @@ self.addEventListener('message', function(e){
 });
 
 function isLive(url){
-  return LIVE_HOSTS.indexOf(url.hostname) !== -1;
+  if (LIVE_HOSTS.indexOf(url.hostname) !== -1) return true;
+  /* Gauge readings routed through this site's own proxy are live data too.
+     Same rule, different door: never cached, never replayed. */
+  return url.pathname.indexOf('/cdec/') === 0;
 }
 function isBathy(url){
   return url.pathname.indexOf('/exportImage') !== -1 ||
