@@ -1,0 +1,2682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Thalweg — Central Valley depth &amp; conditions</title>
+<meta name="description" content="Depth, tide and flow for the Sacramento, Feather, American and Mokelumne rivers and the Delta. Not for navigation.">
+<meta name="theme-color" content="#0A1214">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+:root{
+  --bg:#0A1214; --panel:#11201F; --panel-2:#0D1A19;
+  --teal:#1F5B57; --teal-line:#2E7C76; --teal-bright:#3E8F88;
+  --cyan:#7BD5D9; --buff:#C9A96A; --magenta:#DA4A85; --magenta-ink:#E76F9F;
+  --ink:#E6F0EF; --mute:#9FB3B1; --warn:#F2A65A;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --water:Georgia,"Iowan Old Style","Palatino Linotype","Book Antiqua","Times New Roman",serif;
+  --rail:340px;
+}
+*{box-sizing:border-box}
+/* The hidden attribute has to beat every display rule below it, or a panel
+   that is switched off still draws. It cost a strip announcing an update
+   on a first load, before there was anything to update from. */
+[hidden]{display:none!important}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--sans);
+  font-size:15px; line-height:1.45;
+  display:flex; flex-direction:column;
+  -webkit-text-size-adjust:100%;
+}
+/* Sloping serif for anything in or on the water; upright sans for fixed
+   features and system chrome. Cartographic lettering convention, used here
+   to say which numbers are readings and which are furniture. */
+.water{font-family:var(--water); font-style:italic}
+h1,h2,h3{font-weight:600; line-height:1.25; margin:0}
+a{color:var(--cyan)}
+a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,
+[tabindex]:focus-visible,.leaflet-container:focus-visible{
+  outline:3px solid var(--cyan); outline-offset:2px; border-radius:2px;
+}
+.skip{position:absolute; left:-9999px; top:0; z-index:2000; background:var(--panel);
+  color:var(--ink); padding:.6rem .9rem; border:1px solid var(--teal-line)}
+.skip:focus{left:.5rem; top:.5rem}
+
+/* ---------- header ---------- */
+header{
+  flex:0 0 auto; background:var(--panel-2);
+  border-bottom:1px solid var(--teal); padding:.45rem .7rem;
+  display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+  padding-top:calc(.45rem + env(safe-area-inset-top));
+}
+.brand{display:flex; align-items:baseline; gap:.45rem; margin-right:auto}
+.brand h1{font-size:1.05rem; letter-spacing:.08em; text-transform:uppercase;
+  font-weight:700; margin:0}
+.brand span{color:var(--mute); font-size:.72rem; letter-spacing:.04em}
+.notnav{
+  color:var(--magenta-ink); border:1px solid var(--magenta);
+  font-size:.68rem; letter-spacing:.09em; text-transform:uppercase;
+  padding:.18rem .45rem; white-space:nowrap; font-weight:600;
+}
+.stale{color:var(--warn); font-size:.72rem; max-width:100%}
+.stale:empty{display:none}
+button{font-family:inherit; font-size:inherit; color:inherit; background:none;
+  border:1px solid var(--teal-line); padding:.3rem .55rem; cursor:pointer; border-radius:2px}
+button:hover{background:#16302e}
+button[aria-pressed=true]{background:var(--teal); border-color:var(--teal-bright)}
+.iconbtn{width:2rem; height:2rem; line-height:1; padding:0; font-weight:700}
+label{font-size:.8rem; color:var(--mute)}
+select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
+  background:var(--panel); border:1px solid var(--teal-line); padding:.3rem .4rem; border-radius:2px}
+
+/* ---------- ribbon ---------- */
+#ribbonwrap{flex:0 0 auto; background:var(--panel-2); border-bottom:1px solid var(--teal);
+  padding:.35rem .5rem .1rem; overflow-x:auto}
+#ribbon{display:block; width:100%; min-width:520px}
+.ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
+
+/* ---------- main ---------- */
+main{flex:1 1 auto; display:flex; min-height:0}
+#map{flex:1 1 auto; min-height:260px; background:#08100f}
+#rail{
+  flex:0 0 var(--rail); width:var(--rail); background:var(--panel);
+  border-left:1px solid var(--teal); display:flex; flex-direction:column;
+  min-height:0; min-width:0;
+}
+/* DWR service names are one unbroken word sixty characters long. Without
+   this they push the whole rail wider than its column and the panel
+   headings slide off the left edge of the screen. */
+#rail, #rail * { min-width:0 }
+#rail button, #rail h2, #rail h3, #rail p, #rail .rdg-name, #rail .markrow{
+  overflow-wrap:anywhere; word-break:break-word;
+}
+#rail button{ text-align:left; max-width:100% }
+[role=tablist]{display:flex; border-bottom:1px solid var(--teal); flex:0 0 auto}
+[role=tab]{flex:1 1 0; border:0; border-bottom:2px solid transparent; border-radius:0;
+  padding:.5rem .2rem; color:var(--mute); font-size:.8rem; letter-spacing:.04em}
+[role=tab][aria-selected=true]{color:var(--ink); border-bottom-color:var(--cyan); background:#16302e}
+[role=tabpanel]{padding:.7rem; overflow-y:auto; flex:1 1 auto; min-height:0}
+[role=tabpanel][hidden]{display:none}
+h2.sec{font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--mute); margin:1.1rem 0 .35rem; border-bottom:1px solid var(--teal); padding-bottom:.2rem}
+h2.sec:first-child{margin-top:0}
+
+/* ---------- readings ---------- */
+.rdg{border-bottom:1px solid #16302e; padding:.45rem 0}
+.rdg:last-child{border-bottom:0}
+.rdg-name{font-size:.85rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap}
+.rdg-id{color:var(--mute); font-size:.7rem; font-variant-numeric:tabular-nums}
+.rdg-vals{display:flex; gap:1rem; flex-wrap:wrap; margin-top:.15rem}
+.v{font-family:var(--water); font-style:italic; font-size:1.05rem; white-space:nowrap}
+.v small{font-style:normal; font-family:var(--sans); font-size:.62rem;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin-left:.2rem}
+.err{color:var(--warn); font-size:.78rem}
+.flag{font-size:.62rem; letter-spacing:.07em; text-transform:uppercase;
+  border:1px solid currentColor; padding:.05rem .3rem; border-radius:2px; white-space:nowrap}
+.flag-unver{color:var(--warn)}
+.flag-ver{color:var(--cyan)}
+.flag-found{color:var(--buff)}
+.note{color:var(--mute); font-size:.78rem; margin:.4rem 0}
+.warnbox{border:1px solid var(--warn); color:var(--warn); padding:.45rem .55rem;
+  font-size:.78rem; margin:.5rem 0; background:#1a150c}
+.magbox{border:1px solid var(--magenta); color:var(--magenta-ink); padding:.45rem .55rem;
+  font-size:.78rem; margin:.5rem 0; background:#1a0e15}
+ul.tight{margin:.3rem 0; padding-left:1.1rem}
+ul.tight li{margin:.2rem 0; font-size:.82rem}
+.rowline{display:flex; gap:.5rem; align-items:center; margin:.35rem 0; flex-wrap:wrap}
+.grow{flex:1 1 auto}
+input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
+.layer{border:1px solid #16302e; padding:.45rem .5rem; margin:.4rem 0}
+.layer h3{font-size:.82rem; font-weight:600}
+.layer p{margin:.25rem 0 0; font-size:.74rem; color:var(--mute)}
+.swatch{display:inline-block; width:.7rem; height:.7rem; border-radius:50%; vertical-align:-1px}
+#tidechart{display:block; width:100%; height:110px}
+.hilo{display:flex; justify-content:space-between; font-size:.8rem;
+  border-bottom:1px solid #16302e; padding:.22rem 0}
+.hilo b{font-family:var(--water); font-style:italic; font-weight:400}
+.markrow{display:flex; gap:.4rem; align-items:center; border-bottom:1px solid #16302e; padding:.3rem 0}
+.markrow .grow{font-size:.8rem}
+textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink);
+  border:1px solid var(--teal-line); font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ---------- dialogs / strips ---------- */
+.strip{background:var(--teal); color:var(--ink); padding:.5rem .7rem; display:flex;
+  gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; flex:0 0 auto}
+dialog{background:var(--panel); color:var(--ink); border:1px solid var(--teal-line);
+  max-width:min(46rem,94vw); width:100%; padding:0; border-radius:3px}
+dialog::backdrop{background:rgba(4,9,10,.8)}
+.dlg-head{display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem;
+  border-bottom:1px solid var(--teal); position:sticky; top:0; background:var(--panel)}
+.dlg-body{padding:.8rem; max-height:min(70vh,44rem); overflow-y:auto}
+.dlg-body h3{font-size:.9rem; margin:1.1rem 0 .3rem; color:var(--cyan)}
+.dlg-body h3:first-child{margin-top:0}
+.dlg-body p,.dlg-body li{font-size:.85rem}
+.leaflet-container{background:#08100f; font-family:var(--sans)}
+.leaflet-control-attribution{background:rgba(10,18,20,.82)!important; color:var(--mute)!important}
+/* The attribution sits on a photograph. An underline is what makes the
+   link a link there without depending on the colour surviving it. */
+.leaflet-control-attribution a{color:var(--cyan)!important; text-decoration:underline}
+.leaflet-bar a{background:var(--panel)!important; color:var(--ink)!important;
+  border-bottom-color:var(--teal)!important}
+.legend{background:rgba(13,26,25,.9); border:1px solid var(--teal-line); padding:.4rem .5rem;
+  font-size:.7rem; color:var(--ink); line-height:1.35}
+.legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--mute); font-size:.62rem}
+
+@media (max-width:900px){
+  main{flex-direction:column}
+  #rail{flex:1 1 auto; width:auto; border-left:0; border-top:1px solid var(--teal)}
+  #map{flex:0 0 46vh; min-height:220px}
+  :root{--rail:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important; transition-duration:.001ms!important}
+}
+@media (prefers-contrast:more){
+  :root{--mute:#C3D4D2}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#map">Skip to map</a>
+
+<header>
+  <div class="brand">
+    <h1>Thalweg</h1>
+    <span>Central Valley depth &amp; conditions</span>
+  </div>
+  <span class="notnav">Not for navigation</span>
+  <label for="riverpick">River</label>
+  <select id="riverpick"></select>
+  <span class="stale" id="staleness" role="status"></span>
+  <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
+          aria-label="About Thalweg, data sources, install and accessibility">i</button>
+</header>
+
+<div id="updatestrip" class="strip" role="region" aria-label="App update" hidden>
+  <span class="grow" id="updatetext">A new version of Thalweg is ready.</span>
+  <button id="updatebtn">Load it</button>
+  <button id="updatedismiss">Later</button>
+</div>
+
+<!-- Focusable because it scrolls sideways on a narrow screen, and a
+     region you can only reach by dragging it is a region a keyboard
+     cannot read. -->
+<div id="ribbonwrap" role="region" aria-label="River ribbon" tabindex="0">
+  <svg id="ribbon" role="img" aria-labelledby="ribbontitle ribbondesc" preserveAspectRatio="xMidYMid meet">
+    <title id="ribbontitle">River ribbon</title>
+    <desc id="ribbondesc">Gauges plotted at their latitude, downstream on the left, coloured by water temperature.</desc>
+  </svg>
+  <p class="ribbon-note" id="ribbonnote"></p>
+</div>
+
+<main>
+  <div id="map" tabindex="0" role="application"
+       aria-label="Map. Arrow keys pan, plus and minus zoom. Use the Marks tab to add a mark without a pointer."></div>
+  <div id="rail">
+    <div role="tablist" aria-label="Panels">
+      <button role="tab" id="tab-water"  aria-controls="panel-water"  aria-selected="true"  tabindex="0">Water</button>
+      <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Layers</button>
+      <button role="tab" id="tab-marks"  aria-controls="panel-marks"  aria-selected="false" tabindex="-1">Marks</button>
+      <button role="tab" id="tab-brief"  aria-controls="panel-brief"  aria-selected="false" tabindex="-1">Brief</button>
+    </div>
+    <div role="tabpanel" id="panel-water"  aria-labelledby="tab-water"  tabindex="0"></div>
+    <div role="tabpanel" id="panel-layers" aria-labelledby="tab-layers" tabindex="0" hidden></div>
+    <div role="tabpanel" id="panel-marks"  aria-labelledby="tab-marks"  tabindex="0" hidden></div>
+    <div role="tabpanel" id="panel-brief"  aria-labelledby="tab-brief"  tabindex="0" hidden></div>
+  </div>
+</main>
+
+<dialog id="about">
+  <div class="dlg-head">
+    <h2 class="grow" style="font-size:1rem">About Thalweg</h2>
+    <button id="aboutclose" aria-label="Close">Close</button>
+  </div>
+  <div class="dlg-body" id="aboutbody"></div>
+</dialog>
+
+<dialog id="welcome">
+  <div class="dlg-head">
+    <h2 class="grow" style="font-size:1rem">Thalweg</h2>
+  </div>
+  <div class="dlg-body" id="welcomebody"></div>
+</dialog>
+
+<script src="vendor/leaflet.js"></script>
+<script>
+/* =====================================================================
+   Thalweg — depth and conditions for the Central Valley fall-run fishery.
+   No build step. No framework. No CDN. No account. No analytics.
+   ===================================================================== */
+'use strict';
+
+/* Origin of the bathymetry proxy Worker (worker.js in this repo).
+   Empty string means talk to gis.water.ca.gov directly, which is fine for
+   local work and NOT fine for a public deploy — every visitor's pan and zoom
+   would land on California's public GIS infrastructure. The Layers panel
+   says so out loud while this is empty. */
+var BATHY_PROXY = '';
+
+var VERSION = '0.1.0';
+
+/* Provenance. Every fact carried by this app declares where it came from,
+   and the UI renders the three weaker kinds differently from the strong one.
+   VERIFIED     checked against the live service and known good
+   CORROBORATED supported by published documentation, not executed here
+   UNCONFIRMED  recalled, guessed, or contradicted — never shown as fact
+   FOUND        returned by the live API during this session */
+var PROV = { VERIFIED:'verified', CORROBORATED:'corroborated',
+             UNCONFIRMED:'unconfirmed', FOUND:'found' };
+
+/* ---------------------------------------------------------------------
+   RIVERS — the only place river-specific values live.
+
+   Map centres and bounding boxes are viewport and query extents, not
+   measurements: they decide what you look at, they are not presented as
+   data. No gauge, station or reach coordinate is written here. Gauge
+   positions come back from the USGS response and station positions from
+   NOAA's own index, so a wrong identifier cannot put a dot in a field,
+   and reach boundaries are given in the words the regulation uses rather
+   than as coordinates nobody checked.
+
+   Every identifier below was requested from the live service on
+   2026-08-27 and answered with the name shown. tools/verify.mjs is how
+   that is repeated.
+   --------------------------------------------------------------------- */
+var RIVERS = [
+{
+  id:'sacramento', name:'Sacramento River', short:'Sacramento',
+  center:[38.60,-121.65], zoom:9,
+  /* Extends south through the Delta: the lower river is Delta water. */
+  bbox:[-122.40,37.95,-121.30,40.40],
+  axis:'lat', axisLabel:'latitude — downstream (south) on the left',
+  tidal:true,
+  gauges:[
+    { id:'11455420', status:PROV.VERIFIED, hint:'Rio Vista' },
+    { id:'11447650', status:PROV.VERIFIED, hint:'Freeport' },
+    { id:'11425500', status:PROV.VERIFIED, hint:'Verona' },
+    { id:'11390500', status:PROV.VERIFIED, hint:'below Wilkins Slough' },
+    { id:'11389500', status:PROV.VERIFIED, hint:'Colusa' },
+    { id:'11377100', status:PROV.VERIFIED, hint:'above Bend Bridge' }
+  ],
+  discover:{ match:'sacramento r' },
+  tideStations:[
+    { id:'9415316', status:PROV.VERIFIED, hint:'Rio Vista' },
+    { id:'9416174', status:PROV.VERIFIED, hint:'Sacramento' }
+  ],
+  tideDiscover:true,
+  reaches:[
+    { code:'7.40(b)(80)(C)', name:'Deschutes Road bridge to Woodson Bridge',
+      windows:[['2026-08-01','2026-10-31'],['2026-11-01','2026-12-31']],
+      status:PROV.VERIFIED,
+      bounds:'Sacramento River from the Deschutes Road bridge to Woodson Bridge.' },
+    { code:'7.40(b)(80)(D)', name:'Woodson Bridge to Knights Landing',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'Sacramento River from Woodson Bridge to the Highway 113 bridge near Knights Landing.' },
+    { code:'7.40(b)(80)(E)', name:'Knights Landing to the Carquinez Bridge',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'Sacramento River from the Highway 113 bridge near Knights Landing to the Carquinez Bridge, including Suisun Bay, Grizzly Bay and all tributary sloughs west of Highway 160.' }
+  ],
+  conflicts:[]
+},
+{
+  id:'feather', name:'Feather River', short:'Feather',
+  center:[39.10,-121.60], zoom:10,
+  bbox:[-121.90,38.68,-121.35,39.58],
+  axis:'lat', axisLabel:'latitude — downstream (south) on the left',
+  tidal:false,
+  gauges:[],
+  /* No USGS site on the Feather mainstem returns instantaneous values.
+     Checked on 2026-08-27 against Oroville, Gridley, Yuba City, Shanghai
+     Bend and Nicolaus: the sites exist, the records are there, and the
+     current series are empty. The Feather's live gauges are DWR's, on
+     CDEC, which this build does not read. Saying nothing here would have
+     read as a broken app; saying why is the only honest option. */
+  noLiveGauges:'No USGS gauge on the Feather mainstem publishes instantaneous values. The Feather is gauged by DWR through CDEC, which Thalweg does not read. The two gauges below are the tributaries that join it, not the Feather.',
+  contextGauges:[
+    { id:'11421000', status:PROV.VERIFIED, hint:'Yuba River near Marysville — joins the Feather at Marysville' },
+    { id:'11424000', status:PROV.VERIFIED, hint:'Bear River near Wheatland — joins the Feather near Nicolaus' }
+  ],
+  discover:{ match:'feather r' },
+  tideStations:[],
+  tideDiscover:false,
+  reaches:[
+    { code:'7.40(b)(43)(D)', name:'Thermalito Afterbay Outfall to Live Oak',
+      windows:[['2026-07-16','2026-10-31']],
+      status:PROV.VERIFIED,
+      bounds:'From the unimproved boat ramp above the Thermalito Afterbay Outfall to 200 yards above the Live Oak boat ramp.' },
+    { code:'7.40(b)(43)(E)', name:'Live Oak to the Highway 99 bridge',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'From 200 yards above the Live Oak boat ramp to the Highway 99 bridge.' },
+    { code:'7.40(b)(43)(F)', name:'Highway 99 bridge to the mouth',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'From the Highway 99 bridge to the mouth. The lower boundary is a straight line drawn from the peninsula point on the west bank to the Verona Marina boat ramp.' }
+  ],
+  conflicts:[]
+},
+{
+  id:'american', name:'American River', short:'American',
+  center:[38.615,-121.35], zoom:11,
+  bbox:[-121.60,38.52,-121.05,38.72],
+  /* The American runs east to west. Plotted by latitude it would be a
+     single stack of dots, so this ribbon uses longitude, downstream
+     (west) still on the left. The axis is named on screen. */
+  axis:'lon', axisLabel:'longitude — downstream (west) on the left',
+  tidal:false,
+  gauges:[
+    { id:'11446220', status:PROV.VERIFIED, hint:'below Folsom Dam' },
+    { id:'11446500', status:PROV.VERIFIED, hint:'Fair Oaks' },
+    { id:'11446700', status:PROV.VERIFIED, hint:'William B Pond Park' },
+    { id:'11446980', status:PROV.VERIFIED, hint:'below Watt Avenue bridge' }
+  ],
+  discover:{ match:'american r' },
+  tideStations:[],
+  tideDiscover:false,
+  reaches:[
+    { code:'7.40(b)(4)(B)', name:'Nimbus to Ancil Hoffman Park',
+      windows:[['2026-07-16','2026-10-31']],
+      status:PROV.VERIFIED,
+      bounds:'From the USGS gauging station cable crossing about 300 yards downstream from the Nimbus Hatchery fish rack site to the SMUD power line crossing at the southwest boundary of Ancil Hoffman Park.' },
+    { code:'7.40(b)(4)(C)', name:'Ancil Hoffman Park to the Jibboom Street bridge',
+      windows:[['2026-07-16','2026-12-31']],
+      status:PROV.VERIFIED,
+      bounds:'From the SMUD power line crossing at the southwest boundary of Ancil Hoffman Park downstream to the Jibboom Street bridge.' },
+    { code:'7.40(b)(4)(D)', name:'Jibboom Street bridge to the mouth',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'From the Jibboom Street bridge to the mouth.' }
+  ],
+  conflicts:[
+    { subject:'Ancil Hoffman Park to the Jibboom Street bridge',
+      status:'resolved',
+      a:'A third-party aggregator lists this reach as closed to Chinook Salmon.',
+      b:'This reach is subsection 7.40(b)(4)(C), one of the four subsections amended on 6 May 2026. Before that amendment its text read "July 16 through December 31. No take or possession of Chinook Salmon." The amendment is what removed that sentence.',
+      resolution:'The listing appears to be the reach’s pre-2026 rule. Read against the amended section it is out of date, not a second opinion. The printed regulations are still the authority — check them before you fish it.' }
+  ]
+},
+{
+  id:'mokelumne', name:'Mokelumne River', short:'Mokelumne',
+  center:[38.15,-121.40], zoom:11,
+  bbox:[-121.70,37.95,-120.90,38.35],
+  axis:'lon', axisLabel:'longitude — downstream (west) on the left',
+  tidal:true,
+  gauges:[
+    { id:'11336680', status:PROV.VERIFIED, hint:'South Fork at New Hope Bridge' },
+    { id:'11336685', status:PROV.VERIFIED, hint:'North Fork near Walnut Grove' },
+    { id:'11336930', status:PROV.VERIFIED, hint:'Andrus Island near Terminous' }
+  ],
+  discover:{ match:'mokelumne' },
+  tideStations:[
+    { id:'9415478', status:PROV.VERIFIED, hint:'New Hope Bridge' },
+    { id:'9415257', status:PROV.VERIFIED, hint:'Terminous, South Fork' }
+  ],
+  tideDiscover:true,
+  reaches:[
+    { code:'7.40(b)(66)(A)', name:'Camanche Dam to Elliott Road',
+      windows:[['2026-07-16','2026-10-15']],
+      status:PROV.VERIFIED,
+      bounds:'From Camanche Dam to Elliott Road.' },
+    { code:'7.40(b)(66)(B)', name:'Elliott Road to Woodbridge Dam',
+      windows:[['2026-07-16','2026-12-31']],
+      status:PROV.VERIFIED,
+      bounds:'From Elliott Road to the Woodbridge Irrigation District Dam, including Lodi Lake.' },
+    { code:'7.40(b)(66)(D)', name:'Lower Sacramento Road bridge to the mouth',
+      windows:[['2026-07-16','2026-12-16']],
+      status:PROV.VERIFIED,
+      bounds:'From the Lower Sacramento Road bridge to the mouth: the Mokelumne and its tributary sloughs downstream of that bridge, east of Highway 160 and north of Highway 12.' }
+  ],
+  conflicts:[]
+}
+];
+
+/* Where to read the rules and the readings for yourself. Not river
+   specific — the same four documents cover all of them. */
+var SOURCES = [
+  { label:'CDFW freshwater sport fishing regulations',
+    url:'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing' },
+  { label:'Fish and Game Commission, Final Statement of Reasons, Central Valley Sport Fishing 2026 (PDF)',
+    url:'https://nrm.dfg.ca.gov/FileHandler.ashx?DocumentID=246761' },
+  { label:'Fish and Game Commission, Item 9 staff summary, May 5–6 2026, with the noticed regulatory language (PDF)',
+    url:'https://nrm.dfg.ca.gov/FileHandler.ashx?DocumentID=245120' },
+  { label:'USGS NWIS current conditions, California',
+    url:'https://waterdata.usgs.gov/ca/nwis/current/?type=flow' },
+  { label:'NOAA CO-OPS tide predictions',
+    url:'https://tidesandcurrents.noaa.gov/' },
+  { label:'California DWR bathymetry, CNRA open data',
+    url:'https://data.cnra.ca.gov/dataset/i06-singlebeam-bathymetry' }
+];
+
+/* Bag and possession limits were adopted for the Central Valley as a whole.
+   Held once, outside RIVERS, because it is not a river-specific value. */
+var SEASON_ADOPTION = {
+  daily:2, possession:4, size:'any size',
+  adopted:'6 May 2026',
+  status:PROV.VERIFIED,
+  note:'Two fish daily, four in possession, any size. The Fish and Game Commission adopted Option 1 for the Central Valley on 6 May 2026, amending subsections (b)(4), (b)(43), (b)(66) and (b)(80) of Title 14 section 7.40 — the American, Feather, Mokelumne and Sacramento rivers.',
+  dateNote:'The reach boundaries below are the words of the amended section. The dates are each reach’s own open season, which the amendment did not change; the Commission kept the discretion to start a reach later or end it earlier, and the final per-reach dates were given in a Department presentation this build could not read. Treat the dates as the outer window and the printed regulations as the authority.'
+};
+
+/* Temperature reading, 55F cyan through 75F red. */
+var TEMP_MIN = 55, TEMP_MAX = 75;
+var TEMP_STOPS = [
+  [55,'#7BD5D9'], [60,'#8FD9B4'], [64,'#9BD98C'],
+  [68,'#E8C56A'], [72,'#E8874A'], [75,'#D94B3F']
+];
+var TEMP_READING = [
+  { under:60, text:'Under 60F — fish moving.' },
+  { under:68, text:'60 to 68F — workable.' },
+  { under:72, text:'Over 68F — holding deep and cold.' },
+  { under:999,text:'Over 72F — stressed. A first-light proposition.' }
+];
+
+/* Feature query hard cap. Never request a whole layer. */
+var FEATURE_CAP = 3000;
+
+/* =====================================================================
+   Storage. Tries window.storage, falls back to localStorage, falls back
+   to memory. Nothing here assumes any of them exists or will accept a
+   write: a private window, a full quota and an embedded webview all fail
+   in different places, and none of them should cost you the app.
+   ===================================================================== */
+var Store = (function(){
+  function usable(s){
+    try { var k='__thalweg_probe'; s.setItem(k,'1'); s.removeItem(k); return true; }
+    catch(e){ return false; }
+  }
+  try { if (window.storage && usable(window.storage))
+          return { kind:'window.storage', s:window.storage }; } catch(e){}
+  try { if (window.localStorage && usable(window.localStorage))
+          return { kind:'localStorage', s:window.localStorage }; } catch(e){}
+  var mem = {};
+  return { kind:'memory (not persisted)', s:{
+    getItem:function(k){ return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null; },
+    setItem:function(k,v){ mem[k]=String(v); },
+    removeItem:function(k){ delete mem[k]; }
+  }};
+})();
+
+/* Keys are namespaced by river so two rivers never share a slot. */
+function skey(riverId, name){ return 'thalweg:' + riverId + ':' + name; }
+function sget(riverId, name){
+  try { var raw = Store.s.getItem(skey(riverId,name));
+        return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+}
+function sput(riverId, name, value){
+  try { Store.s.setItem(skey(riverId,name), JSON.stringify(value)); return true; }
+  catch(e){ return false; }
+}
+
+/* =====================================================================
+   Small helpers
+   ===================================================================== */
+function $(sel, root){ return (root||document).querySelector(sel); }
+function el(tag, attrs, kids){
+  var n = document.createElement(tag), k;
+  if (attrs) for (k in attrs){
+    if (k === 'class') n.className = attrs[k];
+    else if (k === 'text') n.textContent = attrs[k];
+    else if (k === 'html') n.innerHTML = attrs[k];
+    else if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, attrs[k]);
+  }
+  (kids||[]).forEach(function(c){ if (c) n.appendChild(c); });
+  return n;
+}
+/* isFinite(null) is true, because null converts to zero. Every position
+   and every reading in this app arrives from JSON where a missing value is
+   null, so "is this a number" has to mean the type as well as the value —
+   the loose test drew a gauge that had answered with nothing at latitude
+   zero, in the Gulf of Guinea, coloured as though it had a temperature. */
+function isNum(v){ return typeof v === 'number' && isFinite(v); }
+function cToF(c){ return c * 9 / 5 + 32; }
+function fmt(n, dp){
+  if (n === null || n === undefined || !isFinite(n)) return '—';
+  return Number(n).toFixed(dp === undefined ? 0 : dp);
+}
+function commas(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function ageText(ms){
+  if (!isFinite(ms)) return 'unknown age';
+  var m = Math.round(ms / 60000);
+  if (m < 1)  return 'seconds old';
+  if (m < 60) return m + ' min old';
+  var h = Math.round(m / 60);
+  if (h < 48) return h + ' h old';
+  return Math.round(h / 24) + ' days old';
+}
+function clockLocal(iso){
+  var d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+}
+function dayLocal(iso){
+  var d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
+}
+
+/* Temperature colour. Below the floor clamps cyan, above the ceiling clamps
+   red; the ramp itself is linear between the declared stops so the same
+   degree is the same colour on every river, which is the point of the
+   stacked view. */
+function tempColour(f){
+  if (f === null || f === undefined || !isFinite(f)) return '#4A5F5E';
+  var i, a, b, t;
+  if (f <= TEMP_STOPS[0][0]) return TEMP_STOPS[0][1];
+  for (i = 0; i < TEMP_STOPS.length - 1; i++){
+    a = TEMP_STOPS[i]; b = TEMP_STOPS[i+1];
+    if (f <= b[0]){
+      t = (f - a[0]) / (b[0] - a[0]);
+      return mixHex(a[1], b[1], t);
+    }
+  }
+  return TEMP_STOPS[TEMP_STOPS.length-1][1];
+}
+function mixHex(x, y, t){
+  function p(h,i){ return parseInt(h.slice(i,i+2),16); }
+  var r = Math.round(p(x,1) + (p(y,1) - p(x,1)) * t),
+      g = Math.round(p(x,3) + (p(y,3) - p(x,3)) * t),
+      b = Math.round(p(x,5) + (p(y,5) - p(x,5)) * t);
+  return '#' + [r,g,b].map(function(v){ return ('0'+v.toString(16)).slice(-2); }).join('');
+}
+function tempReading(f){
+  if (f === null || f === undefined || !isFinite(f)) return null;
+  for (var i = 0; i < TEMP_READING.length; i++)
+    if (f < TEMP_READING[i].under) return TEMP_READING[i].text;
+  return null;
+}
+
+function flagEl(status){
+  if (status === PROV.VERIFIED)     return el('span',{class:'flag flag-ver',  text:'verified'});
+  if (status === PROV.FOUND)        return el('span',{class:'flag flag-found',text:'found live'});
+  if (status === PROV.CORROBORATED) return el('span',{class:'flag flag-found',text:'documented'});
+  return el('span',{class:'flag flag-unver', text:'unconfirmed'});
+}
+
+/* Fetch with a timeout, because a hung request on a boat is worse than a
+   failed one: a failure can fall back to the stored payload, a hang cannot. */
+function getJSON(url, ms){
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var timer = setTimeout(function(){ if (ctrl) ctrl.abort(); }, ms || 15000);
+  return fetch(url, { signal: ctrl ? ctrl.signal : undefined, credentials:'omit' })
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .finally(function(){ clearTimeout(timer); });
+}
+
+/* =====================================================================
+   Session state
+   ===================================================================== */
+var state = {
+  riverId: null,          /* null means the All view */
+  map: null,
+  layers: {},             /* live Leaflet layers keyed by id */
+  catalog: null,          /* enumerated DWR bathymetry, or an error */
+  gauges: {},             /* riverId -> { rows, fetchedAt, stale } */
+  tides:  {},             /* riverId -> { hourly, hilo, fetchedAt, station } */
+  marks:  [],             /* marks for the selected river */
+  markLayer: null,
+  soundingLayer: null,
+  soundingNote: '',
+  ramp: false,            /* the depth ramp, off until asked for */
+  expanded: {},
+  chartUsable: null,
+  net: []                 /* what actually happened on the wire, for the diagnostic */
+};
+
+function logNet(label, url, ok, detail){
+  state.net.push({ at:new Date().toISOString(), label:label, url:url,
+                   ok:!!ok, detail:detail || '' });
+  if (state.net.length > 60) state.net.shift();
+}
+
+/* =====================================================================
+   USGS instantaneous values.
+   Two requests per river: the declared identifiers, and a bounding-box
+   sweep that returns whatever active gauges actually exist in the reach.
+   The sweep is why no gauge identifier in this app has to be a guess —
+   anything the app did not already know arrives with the name the API
+   gives it, and a declared identifier that answers with nothing is shown
+   as an error row rather than quietly disappearing.
+   ===================================================================== */
+var USGS = 'https://waterservices.usgs.gov/nwis/iv/';
+var USGS_PARAMS = '00060,00065,00010';
+
+function usgsBySites(ids){
+  var url = USGS + '?format=json&sites=' + ids.join(',') +
+            '&parameterCd=' + USGS_PARAMS + '&siteStatus=all';
+  return getJSON(url).then(function(j){
+    logNet('USGS sites', url, true, ids.length + ' requested');
+    return parseUsgs(j);
+  }, function(e){
+    logNet('USGS sites', url, false, String(e && e.message || e));
+    throw e;
+  });
+}
+
+function usgsByBox(bbox){
+  var url = USGS + '?format=json&bBox=' + bbox.map(function(v){ return v.toFixed(3); }).join(',') +
+            '&parameterCd=' + USGS_PARAMS + '&siteStatus=active';
+  return getJSON(url).then(function(j){
+    logNet('USGS bBox', url, true, '');
+    return parseUsgs(j);
+  }, function(e){
+    logNet('USGS bBox', url, false, String(e && e.message || e));
+    return {};   /* discovery is a bonus; its failure must not cost the panel */
+  });
+}
+
+/* NWIS returns one timeSeries per site per parameter. Fold them into one
+   row per site, keyed by site code, carrying the name the API supplied. */
+function parseUsgs(j){
+  var out = {};
+  var ts = j && j.value && j.value.timeSeries;
+  if (!Array.isArray(ts)) return out;
+  ts.forEach(function(t){
+    var si = t.sourceInfo || {};
+    var code = si.siteCode && si.siteCode[0] && si.siteCode[0].value;
+    if (!code) return;
+    var geo = si.geoLocation && si.geoLocation.geogLocation;
+    var row = out[code] || (out[code] = {
+      id: code,
+      name: si.siteName || '',
+      lat: geo ? Number(geo.latitude) : null,
+      lon: geo ? Number(geo.longitude) : null,
+      flow: null, stage: null, tempC: null, at: null
+    });
+    var pc = t.variable && t.variable.variableCode && t.variable.variableCode[0]
+             && t.variable.variableCode[0].value;
+    var vals = t.values && t.values[0] && t.values[0].value;
+    if (!Array.isArray(vals) || !vals.length) return;
+    var last = vals[vals.length - 1];
+    var v = Number(last.value);
+    /* NWIS sends -999999 for "no reading". A missing temperature must show
+       a dash, never a zero, and never a minus one million. */
+    if (!isFinite(v) || v <= -999998) return;
+    if (pc === '00060') row.flow  = v;
+    if (pc === '00065') row.stage = v;
+    if (pc === '00010') row.tempC = v;
+    if (last.dateTime && (!row.at || last.dateTime > row.at)) row.at = last.dateTime;
+  });
+  return out;
+}
+
+function loadGauges(river){
+  var all = river.gauges.concat(river.contextGauges || []);
+  var declared = all.map(function(g){ return g.id; });
+  var jobs = [];
+  jobs.push(declared.length ? usgsBySites(declared).catch(function(){ return null; })
+                            : Promise.resolve({}));
+  jobs.push(river.discover ? usgsByBox(river.bbox) : Promise.resolve({}));
+
+  return Promise.all(jobs).then(function(res){
+    var byId = res[0], found = res[1] || {};
+    var rows = [], seen = {};
+
+    /* Declared identifiers first, in the order they were declared, each
+       keeping its own provenance flag whatever the API said. */
+    var contextIds = {};
+    (river.contextGauges || []).forEach(function(g){ contextIds[g.id] = true; });
+    all.forEach(function(g){
+      var hit = byId && byId[g.id];
+      seen[g.id] = true;
+      if (hit){
+        hit.status = g.status;
+        hit.declared = true;
+        hit.hint = g.hint;
+        /* A tributary is shown because it tells you what is arriving, and
+           it is marked because it is not this river. It never goes on the
+           ribbon: the ribbon is positions along one river. */
+        hit.context = !!contextIds[g.id];
+        rows.push(hit);
+      } else {
+        rows.push({ id:g.id, name:'', status:g.status, declared:true,
+                    context: !!contextIds[g.id],
+                    error: byId === null ? 'request failed'
+                                         : 'no data returned for this identifier',
+                    hint:g.hint, flow:null, stage:null, tempC:null, at:null,
+                    lat:null, lon:null });
+      }
+    });
+
+    /* Then whatever the sweep turned up whose name names this river. */
+    var re = river.discover ? new RegExp(river.discover.match, 'i') : null;
+    Object.keys(found).forEach(function(id){
+      if (seen[id]) return;
+      if (re && !re.test(found[id].name || '')) return;
+      found[id].status = PROV.FOUND;
+      rows.push(found[id]);
+    });
+
+    /* A round in which every site errored is the network failing, not six
+       new facts about six gauges. It must not overwrite a payload that had
+       real readings in it, or one bad minute on a levee road costs you the
+       last reading you had. */
+    var anyData = rows.some(function(r){ return !r.error; });
+    var payload = { rows:rows, fetchedAt:Date.now(), noData:!anyData };
+    if (anyData){ sput(river.id, 'gauges', payload); return payload; }
+    var kept = sget(river.id, 'gauges');
+    if (kept){ kept.stale = true; return kept; }
+    return payload;
+  }).catch(function(){
+    /* Everything failed. Fall back to the last good payload and let the
+       header say how old it is; flow and temperature go stale and must
+       say so rather than sitting there looking current. */
+    var cached = sget(river.id, 'gauges');
+    if (cached){ cached.stale = true; return cached; }
+    return { rows:[], fetchedAt:null, failed:true };
+  });
+}
+
+/* =====================================================================
+   NOAA CO-OPS tide predictions.
+   Seven days of hourly heights and of highs and lows are fetched at once
+   and stored, so the curve and the table stay valid with no network. A
+   prediction is arithmetic about the future; unlike flow it does not go
+   stale sitting in a pocket.
+   ===================================================================== */
+var COOPS = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
+var COOPS_MD = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions&units=english';
+
+function ymd(d){
+  return d.getFullYear() +
+    ('0'+(d.getMonth()+1)).slice(-2) +
+    ('0'+d.getDate()).slice(-2);
+}
+
+function coopsUrl(station, interval, days){
+  var begin = new Date(); begin.setDate(begin.getDate() - 1);
+  var end   = new Date(); end.setDate(end.getDate() + (days || 7));
+  return COOPS + '?product=predictions&application=thalweg' +
+    '&begin_date=' + ymd(begin) + '&end_date=' + ymd(end) +
+    '&datum=MLLW&station=' + station + '&time_zone=lst_ldt' +
+    '&units=english&interval=' + interval + '&format=json';
+}
+
+/* CO-OPS answers an unusable request with HTTP 200 and an error object,
+   so the body has to be read rather than the status. */
+function coopsPredictions(url){
+  return getJSON(url).then(function(j){
+    if (j && j.error) return { error: j.error.message || 'no data' };
+    return { rows: j.predictions || [] };
+  });
+}
+
+function loadTide(river, station){
+  if (!station) return Promise.resolve(null);
+  var uH = coopsUrl(station, 'h'), uL = coopsUrl(station, 'hilo');
+  /* The highs and lows are the part that matters and every prediction
+     station has them. The hourly curve is a reference-station luxury:
+     a subordinate station — New Hope Bridge, Terminous — answers
+     interval=h with an error, and drawing an interpolated line through
+     its highs and lows would be inventing the water in between. So the
+     curve is optional and its absence is said out loud. */
+  return Promise.all([
+    coopsPredictions(uH).catch(function(e){ return { error:String(e && e.message || e) }; }),
+    coopsPredictions(uL)
+  ]).then(function(r){
+    var hourly = r[0].rows || [], hilo = r[1].rows || [];
+    if (!hilo.length) throw new Error(r[1].error || 'no predictions in response');
+    logNet('CO-OPS predictions', uL, true, 'station ' + station +
+      (hourly.length ? '' : ', highs and lows only'));
+    var payload = {
+      station: station,
+      hourly: hourly.map(function(p){ return { t:p.t, v:Number(p.v) }; }),
+      hourlyUnavailable: !hourly.length,
+      hilo: hilo.map(function(p){ return { t:p.t, v:Number(p.v), type:p.type }; }),
+      fetchedAt: Date.now()
+    };
+    sput(river.id, 'tide:' + station, payload);
+    return payload;
+  }).catch(function(e){
+    logNet('CO-OPS predictions', uH, false, String(e && e.message || e));
+    var cached = sget(river.id, 'tide:' + station);
+    if (cached){ cached.offline = true; return cached; }
+    return { station:station, failed:String(e && e.message || e) };
+  });
+}
+
+/* Station discovery. The lower Mokelumne is tidal and its prediction
+   stations were not known when this was written, so they are looked up
+   from NOAA's own station index by position rather than typed in from
+   memory. The index is large and changes rarely, so it is stored once. */
+function discoverTideStations(river){
+  if (!river.tideDiscover) return Promise.resolve([]);
+  var cached = sget(river.id, 'tidestations');
+  if (cached && (Date.now() - cached.at) < 30 * 24 * 3600 * 1000)
+    return Promise.resolve(cached.list);
+  return getJSON(COOPS_MD, 25000).then(function(j){
+    logNet('CO-OPS station index', COOPS_MD, true, '');
+    var b = river.bbox, list = [];
+    (j.stations || []).forEach(function(s){
+      var lat = Number(s.lat), lon = Number(s.lng);
+      if (!isFinite(lat) || !isFinite(lon)) return;
+      if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) return;
+      list.push({ id:String(s.id), name:s.name, lat:lat, lon:lon, status:PROV.FOUND });
+    });
+    sput(river.id, 'tidestations', { at:Date.now(), list:list });
+    return list;
+  }).catch(function(e){
+    logNet('CO-OPS station index', COOPS_MD, false, String(e && e.message || e));
+    return (cached && cached.list) || [];
+  });
+}
+
+/* =====================================================================
+   DWR bathymetry.
+   Two different data types, and the difference is the product. A
+   multibeam raster is a continuous surface and draws as tiles. Single
+   beam soundings are discrete points along the boat's track and are not
+   a surface; drawing them as one would invent bottom between the lines.
+   ===================================================================== */
+var DWR_DIRECT = 'https://gis.water.ca.gov';
+var IMG_FOLDER = '/arcgisimg/rest/services/Bathymetry';
+var SBM_SERVICE = '/arcgis/rest/services/Elevation/i06_Singlebeam_Bathymetry/MapServer';
+
+function dwr(path){ return (BATHY_PROXY || DWR_DIRECT) + path; }
+
+/* The depth ramp.
+ *
+ * This rule was run against the live ImageServer before it was written
+ * down, which is the only way to know: a rendering rule ArcGIS does not
+ * understand does NOT come back as an error. It comes back as HTTP 200,
+ * content-type image/png, and a hundred-odd bytes of empty picture. So
+ * there is no probe that can tell a working rule from a broken one by
+ * watching for a failure — the failure looks exactly like clear water.
+ *
+ * Two things were measured and both are load-bearing. An explicit
+ * ColorRamp object is silently ignored, so the ramp has to be named.
+ * "Elevation #2" over a percent-clip stretch with dynamic range
+ * adjustment is the one that picks the thalweg out from the flats either
+ * side of it, which is the line this app is named after.
+ */
+var RAMP = encodeURIComponent(JSON.stringify({
+  rasterFunction:'Colormap',
+  rasterFunctionArguments:{
+    ColorrampName:'Elevation #2',
+    Raster:{ rasterFunction:'Stretch',
+      rasterFunctionArguments:{ StretchType:6, MinPercent:0.5, MaxPercent:0.5,
+        DRA:true, UseGamma:false } }
+  }
+}));
+
+var EsriImg = L.TileLayer.extend({
+  options:{ opacity:0.8, maxZoom:19, ramp:false },
+  getTileUrl:function(coords){
+    var b  = this._tileCoordsToBounds(coords);
+    var sw = L.CRS.EPSG3857.project(b.getSouthWest());
+    var ne = L.CRS.EPSG3857.project(b.getNorthEast());
+    var u = this._baseUrl + '/exportImage?bbox=' + [sw.x,sw.y,ne.x,ne.y].join(',')
+          + '&bboxSR=3857&imageSR=3857&size=256,256&format=png32'
+          + '&transparent=true&f=image';
+    if(this.options.ramp) u += '&renderingRule=' + RAMP;
+    return u;
+  },
+  initialize:function(baseUrl,opts){
+    this._baseUrl = baseUrl;
+    L.TileLayer.prototype.initialize.call(this,'',opts);
+  }
+});
+
+/* --- extents -------------------------------------------------------- */
+/* ArcGIS reports each service's extent in that service's own projection,
+   and DWR's bathymetry is published in State Plane California — usually
+   as a WKT string with no EPSG code at all, occasionally as wkid 2226 or
+   2227. Every one of the twenty multibeam services is Lambert Conformal
+   Conic; every one of the eighty-one single beam layers is Web Mercator.
+   So both are converted here rather than guessed at: an extent placed in
+   the wrong projection puts a survey in the wrong river, which is the
+   class of mistake this whole app is arranged to refuse. */
+function extentToLatLng(ext){
+  if (!ext || !isNum(ext.xmin) || !isNum(ext.ymin) ||
+      !isNum(ext.xmax) || !isNum(ext.ymax)) return null;
+  var sr = ext.spatialReference || {};
+  var wkid = sr.latestWkid || sr.wkid;
+  if (wkid === 4326 || wkid === 4269){
+    /* NAD83 and WGS84 differ by about a metre here. That is far inside the
+       tolerance of "does this survey touch this river". */
+    return { w:ext.xmin, s:ext.ymin, e:ext.xmax, n:ext.ymax,
+             approx: wkid === 4269, wkid:wkid };
+  }
+  if (wkid === 3857 || wkid === 102100 || wkid === 900913){
+    var a = invMercator(ext.xmin, ext.ymin), b = invMercator(ext.xmax, ext.ymax);
+    return { w:a.lon, s:a.lat, e:b.lon, n:b.lat, approx:false, wkid:wkid };
+  }
+  var lcc = sr.wkt ? parseWkt(sr.wkt) : STATE_PLANE[wkid];
+  if (lcc && lcc.projection === 'Lambert_Conformal_Conic' && isNum(lcc.lon0)){
+    var c = lccInverse(lcc, ext.xmin, ext.ymin),
+        d = lccInverse(lcc, ext.xmax, ext.ymax);
+    return { w:c.lon, s:c.lat, e:d.lon, n:d.lat, approx:false,
+             wkid: wkid || (lcc.name || 'WKT'), unit:lcc.toMetre };
+  }
+  return { unknownWkid: wkid === undefined ? (sr.wkt ? 'WKT this build cannot read' : 'absent') : wkid };
+}
+function invMercator(x, y){
+  var R = 6378137;
+  return { lon: x / R * 180 / Math.PI,
+           lat: (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI };
+}
+
+/* The two State Plane zones DWR publishes without a WKT. */
+var STATE_PLANE = {
+  2226:{ name:'CA State Plane II (US ft)', projection:'Lambert_Conformal_Conic',
+    a:6378137, invf:298.257222101, fe:6561666.667, fn:1640416.667, lon0:-122,
+    lat1:38.3333333333333, lat2:39.8333333333333, lat0:37.6666666666667,
+    toMetre:0.3048006096012192 },
+  2227:{ name:'CA State Plane III (US ft)', projection:'Lambert_Conformal_Conic',
+    a:6378137, invf:298.257222101, fe:6561666.667, fn:1640416.667, lon0:-120.5,
+    lat1:37.0666666666667, lat2:38.4333333333333, lat0:36.5,
+    toMetre:0.3048006096012192 }
+};
+
+/* Esri WKT carries every parameter the inverse needs, so it is read
+   rather than matched to an EPSG code. */
+function parseWkt(wkt){
+  function num(k){
+    var m = wkt.match(new RegExp('PARAMETER\\["' + k + '",(-?[\\d.eE+]+)\\]', 'i'));
+    return m ? Number(m[1]) : null;
+  }
+  var sph = wkt.match(/SPHEROID\["[^"]*",([\d.]+),([\d.]+)\]/);
+  var proj = wkt.match(/PROJECTION\["([^"]+)"\]/);
+  var name = wkt.match(/PROJCS\["([^"]+)"/);
+  /* The horizontal unit is the LAST UNIT inside PROJCS. A WKT that also
+     carries a VERTCS ends with the VERTICAL unit, and reading that one
+     runs a survey measured in feet through a metre conversion — which put
+     two Delta surveys in the Trinity Alps before it was noticed. */
+  var horiz = wkt.split(/,\s*VERTCS\[/)[0];
+  var units = horiz.match(/UNIT\["[^"]+",[\d.]+\]/g) || [];
+  var last = units.length ? units[units.length - 1].match(/,([\d.]+)\]$/) : null;
+  return {
+    name: name ? name[1] : null,
+    projection: proj ? proj[1] : null,
+    a: sph ? Number(sph[1]) : 6378137,
+    invf: sph ? Number(sph[2]) : 298.257222101,
+    fe:num('False_Easting'), fn:num('False_Northing'),
+    lon0:num('Central_Meridian'), lat1:num('Standard_Parallel_1'),
+    lat2:num('Standard_Parallel_2'), lat0:num('Latitude_Of_Origin'),
+    toMetre: last ? Number(last[1]) : 1
+  };
+}
+
+/* Snyder's inverse for the two-standard-parallel case. */
+function lccInverse(p, x, y){
+  var D = Math.PI / 180, f = 1 / p.invf, e = Math.sqrt(2 * f - f * f), a = p.a;
+  var X = (x - p.fe) * p.toMetre, Y = (y - p.fn) * p.toMetre;
+  function m(phi){ return Math.cos(phi) / Math.sqrt(1 - e * e * Math.pow(Math.sin(phi), 2)); }
+  function t(phi){
+    return Math.tan(Math.PI / 4 - phi / 2) /
+           Math.pow((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi)), e / 2);
+  }
+  var p1 = p.lat1 * D, p2 = p.lat2 * D, p0 = p.lat0 * D;
+  var n = Math.abs(p1 - p2) < 1e-12 ? Math.sin(p1)
+        : (Math.log(m(p1)) - Math.log(m(p2))) / (Math.log(t(p1)) - Math.log(t(p2)));
+  var F = m(p1) / (n * Math.pow(t(p1), n));
+  var rho0 = a * F * Math.pow(t(p0), n);
+  var rho = (n < 0 ? -1 : 1) * Math.sqrt(X * X + Math.pow(rho0 - Y, 2));
+  var tp = Math.pow(rho / (a * F), 1 / n);
+  var lon = Math.atan2(X, rho0 - Y) / n + p.lon0 * D;
+  var phi = Math.PI / 2 - 2 * Math.atan(tp);
+  for (var i = 0; i < 12; i++){
+    var es = e * Math.sin(phi);
+    phi = Math.PI / 2 - 2 * Math.atan(tp * Math.pow((1 - es) / (1 + es), e / 2));
+  }
+  return { lat: phi / D, lon: lon / D };
+}
+function boxesIntersect(a, b){
+  return !(a.e < b[0] || a.w > b[2] || a.n < b[1] || a.s > b[3]);
+}
+
+/* --- enumeration ---------------------------------------------------- */
+/* The layer list is never typed into this file. It is read from the REST
+   directory, each layer's own extent decides which rivers it belongs to,
+   and a layer whose extent cannot be placed is listed separately rather
+   than assigned to a river on a hunch. */
+function pool(items, n, fn){
+  var out = new Array(items.length), i = 0;
+  function next(){
+    if (i >= items.length) return Promise.resolve();
+    var k = i++;
+    return Promise.resolve(fn(items[k], k)).then(function(v){ out[k] = v; }, function(){ out[k] = null; })
+      .then(next);
+  }
+  var runners = [];
+  for (var r = 0; r < Math.min(n, items.length); r++) runners.push(next());
+  return Promise.all(runners).then(function(){ return out; });
+}
+
+function loadCatalog(force){
+  if (state.catalog && !force) return Promise.resolve(state.catalog);
+  var cached = sget('_shared', 'catalog');
+  if (cached && !force && (Date.now() - cached.at) < 7 * 24 * 3600 * 1000){
+    state.catalog = cached; return Promise.resolve(cached);
+  }
+  var folderUrl = dwr(IMG_FOLDER + '?f=json');
+  var sbmUrl    = dwr(SBM_SERVICE + '/layers?f=json');
+
+  var raster = getJSON(folderUrl, 25000).then(function(j){
+    logNet('DWR bathymetry folder', folderUrl, true,
+           ((j.services||[]).length) + ' services');
+    var svcs = (j.services || []).filter(function(s){ return s.type === 'ImageServer'; });
+    return pool(svcs, 5, function(s){
+      var u = dwr('/arcgisimg/rest/services/' + s.name + '/ImageServer?f=json');
+      return getJSON(u, 20000).then(function(m){
+        return {
+          kind:'raster',
+          name:s.name.replace(/^Bathymetry\//, ''),
+          path:'/arcgisimg/rest/services/' + s.name + '/ImageServer',
+          title: String(m.name || s.name).replace(/^Bathymetry\//, ''),
+          description: plainText(m.description || m.serviceDescription).slice(0, 400),
+          pixel: (m.pixelSizeX && m.pixelSizeY) ? [m.pixelSizeX, m.pixelSizeY] : null,
+          box: extentToLatLng(m.extent)
+        };
+      });
+    }).then(function(rows){ return rows.filter(Boolean); });
+  }).catch(function(e){
+    logNet('DWR bathymetry folder', folderUrl, false, String(e && e.message || e));
+    return { error: String(e && e.message || e) };
+  });
+
+  var single = getJSON(sbmUrl, 25000).then(function(j){
+    logNet('DWR singlebeam layers', sbmUrl, true, ((j.layers||[]).length) + ' layers');
+    return (j.layers || []).filter(function(l){
+      return l.type !== 'Group Layer';
+    }).map(function(l){
+      return {
+        kind:'single',
+        id:l.id,
+        name:l.name,
+        title:l.name,
+        description: plainText(l.description).slice(0, 400),
+        depthField: pickDepthField(l.fields),
+        fields:(l.fields || []).map(function(f){ return f.name; }),
+        box: extentToLatLng(l.extent)
+      };
+    });
+  }).catch(function(e){
+    logNet('DWR singlebeam layers', sbmUrl, false, String(e && e.message || e));
+    return { error: String(e && e.message || e) };
+  });
+
+  return Promise.all([raster, single]).then(function(r){
+    var cat = { at:Date.now(),
+                raster: Array.isArray(r[0]) ? r[0] : [],
+                rasterError: Array.isArray(r[0]) ? null : r[0].error,
+                single: Array.isArray(r[1]) ? r[1] : [],
+                singleError: Array.isArray(r[1]) ? null : r[1].error };
+    state.catalog = cat;
+    sput('_shared', 'catalog', cat);
+    return cat;
+  });
+}
+
+/* The depth attribute is whatever the layer calls it, so it is read from
+   the layer's own field list rather than assumed. If nothing looks like a
+   depth the points still draw, in one colour, saying why. */
+/* ArcGIS publishes descriptions as HTML fragments. They go into the page
+   as text, so the markup has to come off first or the reader gets a
+   paragraph of DIV tags. */
+function plainText(html){
+  if (!html) return '';
+  var d = document.createElement('div');
+  d.innerHTML = String(html);
+  return (d.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function pickDepthField(fields){
+  if (!Array.isArray(fields)) return null;
+  var numeric = fields.filter(function(f){
+    return /Double|Single|Integer|Float/i.test(f.type || '') &&
+           !/^(OBJECTID|FID|Shape)/i.test(f.name || '');
+  });
+  var order = [/^z$/i, /elev/i, /depth/i, /bed/i, /bottom/i, /sounding/i, /_z$/i];
+  for (var i = 0; i < order.length; i++){
+    for (var k = 0; k < numeric.length; k++)
+      if (order[i].test(numeric[k].name)) return numeric[k].name;
+  }
+  return null;
+}
+
+/* Layers whose extent places them inside this river's box. */
+/* Overlap area, so a survey that sits squarely in this reach comes before
+   one that clips its corner. Both are honestly "in the box"; only one is
+   what you were looking for. */
+function overlapArea(box, b){
+  var w = Math.min(box.e, b[2]) - Math.max(box.w, b[0]);
+  var h = Math.min(box.n, b[3]) - Math.max(box.s, b[1]);
+  return (w > 0 && h > 0) ? w * h : 0;
+}
+function catalogFor(cat, river){
+  function rank(rows){
+    return rows.filter(function(row){
+        return row.box && !row.box.unknownWkid && boxesIntersect(row.box, river.bbox);
+      })
+      .map(function(row){
+        row.overlap = overlapArea(row.box, river.bbox);
+        return row;
+      })
+      .sort(function(a, b){ return b.overlap - a.overlap; });
+  }
+  function unplaced(row){ return row.box && row.box.unknownWkid; }
+  return {
+    raster: rank(cat.raster),
+    single: rank(cat.single),
+    unplaced: cat.raster.filter(unplaced).concat(cat.single.filter(unplaced))
+  };
+}
+
+/* --- single beam query ---------------------------------------------- */
+/* Queried by the current map bounds and hard capped. The whole layer is
+   never requested: these are point clouds, and one of them at full extent
+   would be tens of megabytes onto a phone on a levee road. */
+function querySoundings(layer, bounds){
+  var b = bounds;
+  var env = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
+  var url = dwr(SBM_SERVICE + '/' + layer.id + '/query' +
+    '?f=json&where=1%3D1' +
+    '&geometry=' + encodeURIComponent(env) +
+    '&geometryType=esriGeometryEnvelope&inSR=4326' +
+    '&spatialRel=esriSpatialRelIntersects' +
+    '&outFields=' + encodeURIComponent(layer.depthField || '*') +
+    '&returnGeometry=true&outSR=4326' +
+    '&resultRecordCount=' + FEATURE_CAP);
+  return getJSON(url, 30000).then(function(j){
+    if (j.error) throw new Error(j.error.message || 'service error');
+    var feats = j.features || [];
+    logNet('DWR soundings', url, true, feats.length + ' features');
+    return {
+      features: feats,
+      truncated: !!j.exceededTransferLimit || feats.length >= FEATURE_CAP,
+      field: layer.depthField
+    };
+  }, function(e){
+    logNet('DWR soundings', url, false, String(e && e.message || e));
+    throw e;
+  });
+}
+
+/* =====================================================================
+   The ribbon.
+   Gauges at their true position along the river's axis, downstream on the
+   left, each dot coloured by water temperature, with the tidal reach
+   drawn as a fade rather than a line because that is what it is. On the
+   All view the four rivers stack against one temperature scale, which is
+   the comparison this app exists to make.
+   ===================================================================== */
+var SVGNS = 'http://www.w3.org/2000/svg';
+function svg(tag, attrs){
+  var n = document.createElementNS(SVGNS, tag);
+  for (var k in attrs) if (attrs[k] !== null && attrs[k] !== undefined)
+    n.setAttribute(k, attrs[k]);
+  return n;
+}
+function axisValue(river, row){
+  return river.axis === 'lon' ? row.lon : row.lat;
+}
+
+/* The upstream end of tidal influence is not a fixed point and this app
+   will not draw it as one. What it draws instead is a fact: the furthest
+   upstream place NOAA publishes a tide prediction for this river. That is
+   a real limit with a real name, and it comes from the station index
+   rather than from anybody's memory of where the tide stops. */
+function tidalEdge(river){
+  var t = state.tides[river.id];
+  if (!t || !t.stations || !t.stations.length) return null;
+  var best = null;
+  t.stations.forEach(function(st){
+    var v = river.axis === 'lon' ? st.lon : st.lat;
+    if (!isNum(v)) return;
+    if (best === null || v > best.v) best = { v:v, name:st.name || st.id };
+  });
+  return best;
+}
+
+function ribbonRow(g, river, rows, x0, x1, y, showName){
+  var edge = river.tidal ? tidalEdge(river) : null;
+  rows = rows.filter(function(r){ return !r.context; });
+  var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
+  var vals = pts.map(function(r){ return axisValue(river, r); });
+  var lo, hi;
+  if (vals.length){
+    lo = Math.min.apply(null, vals); hi = Math.max.apply(null, vals);
+  } else { lo = 0; hi = 1; }
+  if (edge){ lo = Math.min(lo, edge.v); hi = Math.max(hi, edge.v); }
+  if (hi - lo < 1e-6){ lo -= 0.05; hi += 0.05; }
+  var pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  var sx = function(v){ return x0 + (v - lo) / (hi - lo) * (x1 - x0); };
+
+  /* the channel */
+  g.appendChild(svg('rect', { x:x0, y:y-5, width:(x1-x0), height:10,
+    fill:'#16302e', stroke:'#1F5B57' }));
+
+  /* tidal reach, fading out where the influence is said to stop */
+  if (edge){
+    var gid = 'tidegrad-' + river.id;
+    var defs = svg('defs', {});
+    var lg = svg('linearGradient', { id:gid, x1:'0', x2:'1', y1:'0', y2:'0' });
+    lg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
+    lg.appendChild(svg('stop', { offset:'.55', 'stop-color':'#7BD5D9', 'stop-opacity':'.28' }));
+    lg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+    defs.appendChild(lg); g.appendChild(defs);
+    var tx = sx(edge.v);
+    var left = Math.min(x0, tx), right = Math.max(x0, tx);
+    g.appendChild(svg('rect', { x:left, y:y-5, width:Math.max(0, right-left),
+      height:10, fill:'url(#' + gid + ')' }));
+    var lab = svg('text', { x:tx, y:y+30, fill:'#9FB3B1', 'font-size':'9',
+      'text-anchor':'middle' });
+    lab.textContent = 'tide predicted to ' + edge.name;
+    g.appendChild(lab);
+  }
+
+  if (showName){
+    var rn = svg('text', { x:6, y:y+4, fill:'#E6F0EF', 'font-size':'11',
+      'font-weight':'600' });
+    rn.textContent = river.short;
+    g.appendChild(rn);
+  }
+
+  /* Gauges bunch up — three of them sit within a few miles on the lower
+     river — so the figures stagger rather than print on top of each
+     other. Sorted first so "the one before me" means the one to my left. */
+  pts.sort(function(a, b){ return axisValue(river, a) - axisValue(river, b); });
+  var lastX = -1e9, high = true;
+  pts.forEach(function(r){
+    var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+    var x = sx(axisValue(river, r));
+    high = (x - lastX < 26) ? !high : true;
+    lastX = x;
+    var c = svg('circle', { cx:x, cy:y, r:6, fill:tempColour(f),
+      stroke:'#0A1214', 'stroke-width':'1.5' });
+    var ttl = svg('title');
+    ttl.textContent = (r.name || r.id) + (f === null ? ' — no temperature'
+      : ' — ' + fmt(f,1) + 'F');
+    c.appendChild(ttl);
+    g.appendChild(c);
+    var t = svg('text', { x:x, y: high ? y-11 : y+19, fill:'#E6F0EF', 'font-size':'11',
+      'text-anchor':'middle', 'font-family':'Georgia,serif', 'font-style':'italic' });
+    t.textContent = f === null ? '—' : fmt(f,0);
+    g.appendChild(t);
+  });
+  return pts.length;
+}
+
+function tempScale(g, x, y, w){
+  var id = 'tempscale';
+  var defs = svg('defs', {});
+  var lg = svg('linearGradient', { id:id, x1:'0', x2:'1', y1:'0', y2:'0' });
+  TEMP_STOPS.forEach(function(s){
+    lg.appendChild(svg('stop', {
+      offset: ((s[0]-TEMP_MIN)/(TEMP_MAX-TEMP_MIN)*100) + '%', 'stop-color':s[1] }));
+  });
+  defs.appendChild(lg); g.appendChild(defs);
+  g.appendChild(svg('rect', { x:x, y:y, width:w, height:8, fill:'url(#'+id+')',
+    stroke:'#1F5B57' }));
+  [[TEMP_MIN, x, 'start'], [TEMP_MAX, x+w, 'end']].forEach(function(p){
+    var t = svg('text', { x:p[1], y:y+19, fill:'#9FB3B1', 'font-size':'9',
+      'text-anchor':p[2] });
+    t.textContent = p[0] + 'F';
+    g.appendChild(t);
+  });
+}
+
+function drawRibbon(){
+  var host = $('#ribbon');
+  /* Keep the title and desc; they are the accessible name of the figure. */
+  Array.prototype.slice.call(host.childNodes).forEach(function(n){
+    if (n.nodeName !== 'title' && n.nodeName !== 'desc') host.removeChild(n);
+  });
+
+  var W = 1000, list = state.riverId ? [byId(state.riverId)] : RIVERS;
+  var rowH = 52, top = 24;
+  var H = top + list.length * rowH + 30;
+  host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  host.setAttribute('height', H);
+  var g = svg('g', {});
+  var plotted = 0, missing = 0;
+
+  list.forEach(function(river, i){
+    var payload = state.gauges[river.id];
+    var rows = (payload && payload.rows) || [];
+    var onRiver = rows.filter(function(r){ return !r.context; });
+    var n = ribbonRow(g, river, rows, list.length > 1 ? 96 : 30, W - 20,
+                      top + i * rowH, list.length > 1);
+    plotted += n;
+    missing += onRiver.length - n;
+  });
+  tempScale(g, W - 190, H - 26, 170);
+  host.appendChild(g);
+
+  var note = 'Downstream on the left; ' +
+    (state.riverId ? byId(state.riverId).axisLabel
+                   : 'each river on its own axis, one temperature scale') + '. ' +
+    plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
+  if (missing) note += ', ' + missing + ' not plotted (no position or no data)';
+  $('#ribbonnote').textContent = note + '.';
+  $('#ribbondesc').textContent = note + '. Readings are listed in the Water panel.';
+}
+
+function byId(id){
+  for (var i = 0; i < RIVERS.length; i++) if (RIVERS[i].id === id) return RIVERS[i];
+  return null;
+}
+
+/* =====================================================================
+   Map
+   ===================================================================== */
+var BASEMAPS = [
+  { id:'imagery', label:'Esri imagery',
+    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr:'Imagery: Esri, Maxar, Earthstar Geographics' },
+  { id:'topo', label:'Esri topo',
+    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attr:'Topography: Esri' },
+  { id:'dark', label:'CARTO dark',
+    url:'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attr:'&copy; OpenStreetMap contributors, &copy; CARTO' }
+];
+var NOAA_CHART = {
+  url:'https://tileservice.charts.noaa.gov/tiles/50000_1/{z}/{x}/{y}.png',
+  attr:'Charts: NOAA Office of Coast Survey',
+  /* Chart coverage of these waters ends upstream of about Verona. Drawn as
+     a band rather than a line because the exact end was not confirmed. */
+  limitBand: [[38.74,-121.75],[38.82,-121.45]],
+  limitStatus: PROV.UNCONFIRMED
+};
+
+var reduceMotion = window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function initMap(){
+  var m = L.map('map', {
+    zoomControl: true,
+    fadeAnimation: !reduceMotion,
+    zoomAnimation: !reduceMotion,
+    markerZoomAnimation: !reduceMotion,
+    keyboard: true,
+    attributionControl: true
+  });
+  state.map = m;
+  setBasemap(sget('_shared','basemap') || 'imagery');
+
+  state.markLayer = L.layerGroup().addTo(m);
+  state.gaugeLayer = L.layerGroup().addTo(m);
+  state.soundingLayer = L.layerGroup().addTo(m);
+
+  m.on('click', function(e){
+    if (!state.riverId) return;           /* marks belong to a river */
+    addMark(e.latlng.lat, e.latlng.lng);
+  });
+  m.on('moveend', function(){
+    if (state.soundingActive) refreshSoundings();
+  });
+
+  var legend = L.control({ position:'bottomleft' });
+  legend.onAdd = function(){
+    var d = L.DomUtil.create('div', 'legend');
+    d.id = 'maplegend';
+    d.setAttribute('aria-live','polite');
+    return d;
+  };
+  legend.addTo(m);
+  return m;
+}
+
+function setBasemap(id){
+  var def = BASEMAPS.filter(function(b){ return b.id === id; })[0] || BASEMAPS[0];
+  if (state.layers.base) state.map.removeLayer(state.layers.base);
+  var lyr = L.tileLayer(def.url, {
+    maxZoom: 19, attribution: def.attr,
+    crossOrigin: true
+  });
+  /* A basemap that answers with nothing leaves a black rectangle and no
+     explanation. If the first tiles do not arrive, the Layers panel says
+     which host did not answer rather than leaving you to guess. */
+  var got = false;
+  state.basemapError = null;
+  lyr.on('tileload', function(){ got = true; });
+  lyr.on('tileerror', function(){
+    if (got || state.basemapId !== def.id) return;
+    state.basemapError = def.label + ' did not return tiles. Its host may be unreachable from this network.';
+    logNet('basemap ' + def.id, def.url, false, 'tile error');
+    if (!document.getElementById('panel-layers').hidden) renderLayers();
+  });
+  lyr.addTo(state.map);
+  lyr.setZIndex(0);
+  state.layers.base = lyr;
+  state.basemapId = def.id;
+  sput('_shared','basemap', def.id);
+}
+
+/* =====================================================================
+   Water panel — tide where the water is tidal, gauge readings always.
+   A river that is not tidal shows no tide section at all rather than an
+   empty chart: an empty chart reads as "no tide today".
+   ===================================================================== */
+function renderWater(){
+  var p = $('#panel-water'); p.innerHTML = '';
+  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+
+  rivers.forEach(function(river){
+    if (rivers.length > 1) p.appendChild(el('h2',{class:'sec',text:river.name}));
+
+    if (river.tidal){
+      if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Tide'}));
+      p.appendChild(tideSection(river));
+    }
+
+    if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Gauges'}));
+    var payload = state.gauges[river.id];
+    if (!payload){
+      p.appendChild(el('p',{class:'note',text:'Loading…'}));
+    } else if (payload.failed){
+      p.appendChild(el('div',{class:'warnbox',
+        text:'No reading reached this device and nothing was stored earlier. Flow, stage and temperature are unknown, not zero.'}));
+    } else {
+      if (payload.noData) p.appendChild(el('div',{class:'warnbox',
+        text:'Nothing answered this time. Every row below is what the request came back with, not a reading.'}));
+      if (payload.stale) p.appendChild(el('div',{class:'warnbox',
+        text:'Stored readings, ' + ageText(Date.now() - payload.fetchedAt) +
+             '. The network did not answer, so these are the last that arrived.'}));
+      var onRiver = payload.rows.filter(function(r){ return !r.context; });
+      var tribs   = payload.rows.filter(function(r){ return r.context; });
+      if (!onRiver.length && river.noLiveGauges)
+        p.appendChild(el('div',{class:'warnbox', text:river.noLiveGauges}));
+      onRiver.forEach(function(r){ p.appendChild(gaugeRow(r)); });
+      if (!onRiver.length && !river.noLiveGauges)
+        p.appendChild(el('p',{class:'note',text:'No gauge answered for this reach.'}));
+      if (tribs.length){
+        p.appendChild(el('h2',{class:'sec',text:'Tributaries, not this river'}));
+        tribs.forEach(function(r){ p.appendChild(gaugeRow(r)); });
+      }
+      var temps = onRiver.map(function(r){
+        return r.tempC === null || r.tempC === undefined ? null : cToF(r.tempC);
+      }).filter(function(v){ return v !== null; });
+      if (temps.length){
+        var avg = temps.reduce(function(a,b){ return a+b; },0)/temps.length;
+        var read = tempReading(avg);
+        if (read){
+          var box = el('p',{class:'note'});
+          box.appendChild(el('span',{class:'swatch',style:'background:'+tempColour(avg)}));
+          box.appendChild(document.createTextNode(' ' + read +
+            ' (mean of ' + temps.length + ' gauge' + (temps.length===1?'':'s') +
+            ', ' + fmt(avg,1) + 'F)'));
+          p.appendChild(box);
+        }
+      }
+    }
+  });
+}
+
+function gaugeRow(r){
+  var wrap = el('div',{class:'rdg'});
+  var name = el('div',{class:'rdg-name'});
+  /* The name shown is the one the API returned. A wrong identifier cannot
+     look like a plausible reading from somewhere else. */
+  name.appendChild(el('span',{ text: r.name || (r.hint ? '(' + r.hint + ')' : 'unknown site') }));
+  name.appendChild(flagEl(r.status));
+  name.appendChild(el('span',{class:'rdg-id',text:'#'+r.id}));
+  wrap.appendChild(name);
+
+  if (r.error){
+    wrap.appendChild(el('div',{class:'err',
+      text: r.error + '. Nothing is shown for this site because nothing is known.'}));
+    return wrap;
+  }
+  var vals = el('div',{class:'rdg-vals'});
+  function v(value, dp, unit){
+    var s = el('span',{class:'v'});
+    s.appendChild(document.createTextNode(fmt(value, dp)));
+    s.appendChild(el('small',{text:unit}));
+    return s;
+  }
+  vals.appendChild(v(r.flow, 0, 'cfs'));
+  vals.appendChild(v(r.stage, 2, 'ft'));
+  var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+  var tv = v(f, 1, 'F');
+  if (f !== null) tv.style.color = tempColour(f);
+  vals.appendChild(tv);
+  wrap.appendChild(vals);
+  if (r.at) wrap.appendChild(el('div',{class:'rdg-id',
+    text: 'reading ' + clockLocal(r.at) + ', ' + dayLocal(r.at)}));
+  return wrap;
+}
+
+function tideSection(river){
+  var box = el('div',{});
+  var t = state.tides[river.id];
+  if (!t){ box.appendChild(el('p',{class:'note',text:'Loading tide…'})); return box; }
+  if (t.failed){
+    box.appendChild(el('div',{class:'warnbox',
+      text:'No tide prediction available: ' + t.failed}));
+    return box;
+  }
+  if (t.stations && t.stations.length > 1){
+    var row = el('div',{class:'rowline'});
+    var lab = el('label',{for:'tidestation-'+river.id,text:'Station'});
+    var sel = el('select',{id:'tidestation-'+river.id});
+    t.stations.forEach(function(s){
+      var o = el('option',{value:s.id,text:(s.name||s.id)+' — '+s.id});
+      if (s.id === t.station) o.setAttribute('selected','selected');
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', function(){ switchTideStation(river, sel.value); });
+    row.appendChild(lab); row.appendChild(sel);
+    box.appendChild(row);
+  }
+  var st = (t.stations||[]).filter(function(s){ return s.id === t.station; })[0];
+  var head = el('p',{class:'note'});
+  head.appendChild(document.createTextNode(
+    (st ? st.name + ' — ' : '') + 'station ' + t.station + ', MLLW. '));
+  head.appendChild(flagEl(st ? st.status : PROV.VERIFIED));
+  box.appendChild(head);
+
+  if (t.hourlyUnavailable){
+    box.appendChild(el('p',{class:'note',
+      text:'This station publishes highs and lows only, not an hourly curve. The times below are the turns; the water between them is not published and is not drawn.'}));
+  } else {
+    box.appendChild(tideChart(t));
+  }
+  if (t.offline) box.appendChild(el('p',{class:'note',
+    text:'Predictions from store. A prediction is arithmetic about the future, so it is still good; the flow and temperature above are not.'}));
+
+  var now = Date.now(), shown = 0;
+  (t.hilo||[]).forEach(function(h){
+    var when = new Date(h.t.replace(' ','T'));
+    if (when.getTime() < now - 3600000 || shown >= 6) return;
+    shown++;
+    var r = el('div',{class:'hilo'});
+    r.appendChild(el('span',{text:(h.type==='H'?'High':'Low')+' · '+dayLocal(h.t.replace(' ','T'))}));
+    var b = el('b',{text:clockLocal(h.t.replace(' ','T'))+'  '+fmt(h.v,1)+' ft'});
+    r.appendChild(b);
+    box.appendChild(r);
+  });
+  if (!shown) box.appendChild(el('p',{class:'note',
+    text:'No high or low water in the stored window. Reconnect to extend it.'}));
+  return box;
+}
+
+function tideChart(t){
+  var W = 320, H = 110, pad = 16;
+  var now = Date.now();
+  var pts = (t.hourly||[]).map(function(p){
+    return { x:new Date(p.t.replace(' ','T')).getTime(), y:p.v };
+  }).filter(function(p){
+    return p.x >= now - 6*3600000 && p.x <= now + 24*3600000 && isFinite(p.y);
+  });
+  var s = svg('svg',{ id:'tidechart', viewBox:'0 0 '+W+' '+H, role:'img' });
+  var ttl = svg('title'); ttl.textContent =
+    'Predicted tide height, six hours back and twenty-four hours forward, MLLW.';
+  s.appendChild(ttl);
+  if (pts.length < 2){
+    var e = svg('text',{x:W/2,y:H/2,fill:'#9FB3B1','font-size':'11','text-anchor':'middle'});
+    e.textContent = 'No prediction in this window.';
+    s.appendChild(e); return s;
+  }
+  var xs = pts.map(function(p){ return p.x; }), ys = pts.map(function(p){ return p.y; });
+  var x0 = Math.min.apply(null,xs), x1 = Math.max.apply(null,xs);
+  var y0 = Math.min.apply(null,ys), y1 = Math.max.apply(null,ys);
+  if (y1 - y0 < 0.5){ y0 -= 0.25; y1 += 0.25; }
+  var sx = function(v){ return pad + (v-x0)/(x1-x0)*(W-2*pad); };
+  var sy = function(v){ return H-pad - (v-y0)/(y1-y0)*(H-2*pad); };
+  var d = pts.map(function(p,i){ return (i?'L':'M')+sx(p.x).toFixed(1)+' '+sy(p.y).toFixed(1); }).join(' ');
+  s.appendChild(svg('path',{ d:d, fill:'none', stroke:'#7BD5D9', 'stroke-width':'2' }));
+  s.appendChild(svg('path',{ d:d+' L'+sx(x1)+' '+(H-pad)+' L'+sx(x0)+' '+(H-pad)+' Z',
+    fill:'#7BD5D9', opacity:'.13', stroke:'none' }));
+  if (now >= x0 && now <= x1){
+    s.appendChild(svg('line',{ x1:sx(now), x2:sx(now), y1:pad-6, y2:H-pad,
+      stroke:'#DA4A85','stroke-width':'1.5' }));
+    var nl = svg('text',{ x:sx(now), y:pad-8, fill:'#E76F9F','font-size':'9','text-anchor':'middle' });
+    nl.textContent = 'now'; s.appendChild(nl);
+  }
+  [[y1,pad+2],[y0,H-pad-2]].forEach(function(p){
+    var t2 = svg('text',{x:2,y:p[1],fill:'#9FB3B1','font-size':'9'});
+    t2.textContent = fmt(p[0],1); s.appendChild(t2);
+  });
+  return s;
+}
+
+function switchTideStation(river, id){
+  var stations = (state.tides[river.id] || {}).stations || [];
+  sput(river.id,'tidestation',id);
+  loadTide(river, id).then(function(t){
+    if (t) t.stations = stations;
+    state.tides[river.id] = t;
+    renderWater();
+  });
+}
+
+/* =====================================================================
+   Layers panel.
+   Coverage is uneven and the honest thing is to say where it stops. A
+   reach with no published survey says so in words; it does not get an
+   empty toggle that turns nothing on.
+   ===================================================================== */
+function renderLayers(){
+  var p = $('#panel-layers'); p.innerHTML = '';
+
+  p.appendChild(el('h2',{class:'sec',text:'Basemap'}));
+  BASEMAPS.forEach(function(b){
+    var row = el('div',{class:'rowline'});
+    var id = 'base-'+b.id;
+    var r = el('input',{type:'radio',name:'basemap',id:id,value:b.id});
+    if (state.basemapId === b.id) r.checked = true;
+    r.addEventListener('change', function(){ if (r.checked) setBasemap(b.id); });
+    row.appendChild(r);
+    row.appendChild(el('label',{for:id,text:b.label,class:'grow'}));
+    p.appendChild(row);
+  });
+
+  if (state.basemapError)
+    p.appendChild(el('div',{class:'warnbox', text:state.basemapError}));
+
+  if (!BATHY_PROXY){
+    p.appendChild(el('div',{class:'warnbox',
+      text:'BATHY_PROXY is empty, so bathymetry requests go straight to gis.water.ca.gov. That is California’s public GIS infrastructure, not a tile API. Deploy worker.js and set BATHY_PROXY before this is public.'}));
+  }
+
+  p.appendChild(el('h2',{class:'sec',text:'Bathymetry'}));
+
+  if (!state.catalog){
+    p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
+    return;
+  }
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (!river){
+    p.appendChild(el('p',{class:'note',
+      text:'Pick a single river to load depth. The All view is for comparing conditions, not for reading bottom.'}));
+    return;
+  }
+  var cat = catalogFor(state.catalog, river);
+
+  if (state.catalog.rasterError)
+    p.appendChild(el('div',{class:'warnbox',
+      text:'The multibeam service directory did not answer: ' + state.catalog.rasterError}));
+  if (state.catalog.singleError)
+    p.appendChild(el('div',{class:'warnbox',
+      text:'The single beam service did not answer: ' + state.catalog.singleError}));
+
+  /* --- multibeam raster --- */
+  p.appendChild(el('h2',{class:'sec',text:'Multibeam surface'}));
+  if (!cat.raster.length && !state.catalog.rasterError){
+    p.appendChild(el('p',{class:'note',
+      text:'No published multibeam survey for this reach.'}));
+  } else if (cat.raster.length){
+    var rampRow = el('div',{class:'rowline'});
+    var rampBtn = el('button',{type:'button','aria-pressed':state.ramp?'true':'false',
+      text:'Depth ramp'});
+    rampBtn.addEventListener('click', function(){
+      state.ramp = !state.ramp;
+      /* Rebuild whatever is on, because the rule is part of the tile URL. */
+      Object.keys(state.layers).forEach(function(k){
+        if (k.indexOf('r:') !== 0) return;
+        var lyr = state.layers[k];
+        var base = lyr._baseUrl;
+        state.map.removeLayer(lyr);
+        var next = new EsriImg(base, { opacity: state.opacity || 0.8,
+          ramp: state.ramp, attribution:'Bathymetry: California DWR' });
+        next.addTo(state.map); next.setZIndex(300);
+        state.layers[k] = next;
+      });
+      renderLayers();
+    });
+    rampRow.appendChild(rampBtn);
+    rampRow.appendChild(el('span',{class:'note',
+      text:'Colours the surface by depth instead of grey. Applies to every surface below.'}));
+    p.appendChild(rampRow);
+  }
+  collapsible(p, cat.raster, 'raster', 'surface', rasterControl);
+
+  /* --- single beam points --- */
+  p.appendChild(el('h2',{class:'sec',text:'Single beam soundings'}));
+  if (!cat.single.length && !state.catalog.singleError){
+    p.appendChild(el('p',{class:'note',
+      text:'No published single beam survey for this reach.'}));
+  }
+  collapsible(p, cat.single, 'single', 'survey', singleControl);
+
+  if (cat.unplaced.length){
+    p.appendChild(el('h2',{class:'sec',text:'Could not be placed'}));
+    p.appendChild(el('p',{class:'note',
+      text:cat.unplaced.length + ' published survey' + (cat.unplaced.length===1?'':'s') +
+      ' report an extent in a projection this build does not convert, so they are not assigned to a river rather than assigned to the wrong one. Their names are in the diagnostic report.'}));
+  }
+
+  /* --- charts --- */
+  p.appendChild(el('h2',{class:'sec',text:'NOAA raster chart'}));
+  if (state.chartUsable === false){
+    p.appendChild(el('p',{class:'note',
+      text:'The chart tile path in this build did not return an image, so the toggle is not offered. The path is recorded in the README as unverified.'}));
+  } else {
+    var crow = el('div',{class:'layer'});
+    var cb = el('button',{type:'button','aria-pressed':state.layers.chart?'true':'false',
+      text:'Show chart'});
+    cb.addEventListener('click', function(){ toggleChart(cb); });
+    crow.appendChild(cb);
+    crow.appendChild(el('p',{text:'Chart coverage of these waters ends upstream of about Verona; the limit is drawn on the map when the layer is on. Soundings on a chart are for navigation and this app is not.' +
+      (state.chartUsable === null ? ' The tile path has not been confirmed against the live service; the first time you switch it on, it checks.' : '')}));
+    p.appendChild(crow);
+  }
+
+  p.appendChild(el('h2',{class:'sec',text:'Reading the gaps'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Single beam data are points along the boat’s track. The water between two tracks was never measured and is not drawn.'}));
+}
+
+/* Ranked lists get long — eighty-one single beam layers touch the Delta.
+   The first few are the ones that sit squarely in this reach; the rest
+   are behind a button, counted, never hidden. */
+var LIST_SHOWN = 8;
+function collapsible(p, rows, key, noun, make){
+  var open = state.expanded && state.expanded[key];
+  var shown = open ? rows : rows.slice(0, LIST_SHOWN);
+  shown.forEach(function(row){ p.appendChild(make(row)); });
+  if (rows.length > LIST_SHOWN){
+    var b = el('button',{type:'button',
+      text: open ? 'Show the closest ' + LIST_SHOWN + ' only'
+                 : 'Show all ' + rows.length + ' ' + noun + 's in this reach'});
+    b.addEventListener('click', function(){
+      state.expanded = state.expanded || {};
+      state.expanded[key] = !open;
+      renderLayers();
+    });
+    p.appendChild(b);
+    if (!open) p.appendChild(el('p',{class:'note',
+      text:'Showing the ' + LIST_SHOWN + ' whose extent overlaps this reach most. ' +
+           (rows.length - LIST_SHOWN) + ' more touch it.'}));
+  }
+}
+
+function rasterControl(row){
+  var wrap = el('div',{class:'layer'});
+  var key = 'r:' + row.name;
+  var on = !!state.layers[key];
+  var b = el('button',{type:'button','aria-pressed':on?'true':'false',text:row.title || row.name});
+  wrap.appendChild(b);
+  var opWrap = el('div',{class:'rowline'});
+  var opId = 'op-' + row.name.replace(/\W/g,'');
+  opWrap.appendChild(el('label',{for:opId,text:'Opacity'}));
+  var op = el('input',{type:'range',id:opId,min:'10',max:'100',
+    value:String(Math.round((state.opacity||0.8)*100))});
+  op.addEventListener('input', function(){
+    var v = Number(op.value)/100;
+    state.opacity = v;
+    if (state.layers[key]) state.layers[key].setOpacity(v);
+  });
+  opWrap.appendChild(op);
+  wrap.appendChild(opWrap);
+  b.addEventListener('click', function(){
+    if (state.layers[key]){
+      state.map.removeLayer(state.layers[key]);
+      delete state.layers[key];
+      b.setAttribute('aria-pressed','false');
+    } else {
+      var lyr = new EsriImg(dwr(row.path), {
+        opacity: state.opacity || 0.8,
+        ramp: !!state.ramp,
+        attribution:'Bathymetry: California DWR'
+      });
+      lyr.addTo(state.map); lyr.setZIndex(300);
+      state.layers[key] = lyr;
+      b.setAttribute('aria-pressed','true');
+    }
+  });
+  var bits = [];
+  if (row.pixel){
+    var unit = (row.box && row.box.unit && Math.abs(row.box.unit - 1) > 0.01)
+      ? 'ft' : 'm';
+    bits.push('cell about ' + fmt(row.pixel[0],2) + ' by ' + fmt(row.pixel[1],2) + ' ' + unit);
+  }
+  if (row.box && row.box.approx) bits.push('extent in NAD83, placed to within a metre');
+  wrap.appendChild(el('p',{text:(row.description || 'No description published.') +
+    (bits.length ? ' — ' + bits.join('; ') + '.' : '')}));
+  return wrap;
+}
+
+function singleControl(row){
+  var wrap = el('div',{class:'layer'});
+  var on = state.soundingLayerId === row.id;
+  var b = el('button',{type:'button','aria-pressed':on?'true':'false',text:row.name});
+  b.addEventListener('click', function(){
+    if (state.soundingLayerId === row.id){
+      state.soundingActive = false; state.soundingLayerId = null;
+      state.soundingLayer.clearLayers();
+      state.soundingNote = '';
+      renderLayers(); updateLegend();
+    } else {
+      state.soundingActive = true; state.soundingLayerId = row.id;
+      state.soundingLayerDef = row;
+      renderLayers();
+      refreshSoundings();
+    }
+  });
+  wrap.appendChild(b);
+  var txt = row.description || 'No description published.';
+  if (!row.depthField) txt += ' — no depth attribute could be identified in this layer, so the points draw in one colour.';
+  else txt += ' — depth attribute "' + row.depthField + '", as published; the vertical datum is whatever DWR published and is not restated here.';
+  wrap.appendChild(el('p',{text:txt}));
+  if (on && state.soundingNote) wrap.appendChild(el('p',{class:'err',text:state.soundingNote}));
+  return wrap;
+}
+
+function refreshSoundings(){
+  if (!state.soundingActive || !state.soundingLayerDef) return;
+  var def = state.soundingLayerDef;
+  if (state.map.getZoom() < 12){
+    state.soundingLayer.clearLayers();
+    state.soundingNote = 'Zoom in to at least z12 to load soundings. At this scale the request would be the whole survey.';
+    renderLayers(); updateLegend();
+    return;
+  }
+  querySoundings(def, state.map.getBounds()).then(function(res){
+    drawSoundings(res, def);
+  }, function(e){
+    state.soundingLayer.clearLayers();
+    state.soundingNote = 'Sounding query failed: ' + (e && e.message || e);
+    renderLayers(); updateLegend();
+  });
+}
+
+function drawSoundings(res, def){
+  state.soundingLayer.clearLayers();
+  var field = res.field;
+  var vals = [];
+  res.features.forEach(function(f){
+    var v = attrNumber(f, field);
+    if (isNum(v)) vals.push(v);
+  });
+  vals.sort(function(a,b){ return a-b; });
+  var lo = vals.length ? vals[Math.floor(vals.length*0.02)] : 0;
+  var hi = vals.length ? vals[Math.floor(vals.length*0.98)] : 1;
+  if (hi - lo < 1e-6) hi = lo + 1;
+  state.soundingRange = vals.length ? [lo,hi] : null;
+
+  res.features.forEach(function(f){
+    var g = f.geometry;
+    if (!g || !isNum(g.x) || !isNum(g.y)) return;
+    var v = attrNumber(f, field);
+    var col = isNum(v) ? depthColour(v, lo, hi) : '#7BD5D9';
+    var m = L.circleMarker([g.y, g.x], {
+      radius:3, weight:0, fillColor:col, fillOpacity:.9, interactive:true
+    });
+    m.bindTooltip((isNum(v) ? fmt(v,2) + ' (' + field + ')' : 'no value'),
+      { direction:'top' });
+    state.soundingLayer.addLayer(m);
+  });
+  state.soundingTruncated = res.truncated;
+  state.soundingNote = res.truncated
+    ? 'Showing ' + commas(res.features.length) + ' soundings — the ' +
+      commas(FEATURE_CAP) + ' cap truncated this view. Zoom in to see the rest; what is drawn is not all that was surveyed here.'
+    : commas(res.features.length) + ' soundings in view.';
+  renderLayers(); updateLegend();
+}
+
+/* A null attribute must not become a zero depth on the way through. */
+function attrNumber(f, field){
+  if (!field || !f.attributes) return NaN;
+  var raw = f.attributes[field];
+  if (raw === null || raw === undefined || raw === '') return NaN;
+  var v = Number(raw);
+  return isFinite(v) ? v : NaN;
+}
+
+/* Shallow reads warm, deep reads cold, whichever direction the published
+   values run: an elevation goes down as depth goes up. */
+function depthColour(v, lo, hi){
+  var t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  return mixHex('#0B3A4A', '#7BD5D9', t);
+}
+
+function updateLegend(){
+  var d = document.getElementById('maplegend');
+  if (!d) return;
+  if (!state.soundingActive || !state.soundingRange){ d.innerHTML = ''; return; }
+  d.innerHTML = '';
+  d.appendChild(el('b',{text:'Sounding value'}));
+  var bar = el('div',{style:'height:8px;width:120px;background:linear-gradient(90deg,#0B3A4A,#7BD5D9);border:1px solid #2E7C76'});
+  d.appendChild(bar);
+  d.appendChild(el('div',{text:fmt(state.soundingRange[0],1)+'  to  '+fmt(state.soundingRange[1],1)}));
+  /* The full sentence lives in the Layers panel; over the map it only has
+     to say that what you are looking at is not all of it. */
+  if (state.soundingTruncated)
+    d.appendChild(el('div',{style:'color:#F2A65A',text:'truncated — zoom in'}));
+}
+
+function toggleChart(btn){
+  if (state.layers.chart){
+    state.map.removeLayer(state.layers.chart);
+    delete state.layers.chart;
+    if (state.layers.chartLimit){ state.map.removeLayer(state.layers.chartLimit);
+      delete state.layers.chartLimit; }
+    btn.setAttribute('aria-pressed','false');
+    return;
+  }
+  var lyr = L.tileLayer(NOAA_CHART.url, { maxZoom:17, opacity:.85,
+    attribution:NOAA_CHART.attr });
+  var sawTile = false;
+  lyr.on('tileload', function(){ sawTile = true; state.chartUsable = true; });
+  lyr.on('tileerror', function(){
+    if (sawTile) return;
+    state.chartUsable = false;
+    state.map.removeLayer(lyr);
+    delete state.layers.chart;
+    logNet('NOAA chart tiles', NOAA_CHART.url, false, 'tile error');
+    renderLayers();
+  });
+  lyr.addTo(state.map); lyr.setZIndex(200);
+  state.layers.chart = lyr;
+  btn.setAttribute('aria-pressed','true');
+  state.layers.chartLimit = L.rectangle(
+    NOAA_CHART.limitBand,
+    { color:'#DA4A85', weight:1, dashArray:'4 3', fill:false }
+  ).bindTooltip('Chart coverage ends about here — position unconfirmed')
+   .addTo(state.map);
+}
+
+/* =====================================================================
+   Marks. Yours, on this device, per river. Never sent anywhere.
+   ===================================================================== */
+var MARK_TYPES = [
+  { id:'hole',   label:'Hole',   colour:'#7BD5D9' },
+  { id:'hazard', label:'Hazard', colour:'#DA4A85' },
+  { id:'ramp',   label:'Ramp',   colour:'#C9A96A' },
+  { id:'fish',   label:'Fish',   colour:'#9BD98C' }
+];
+
+function loadMarks(riverId){
+  state.marks = sget(riverId,'marks') || [];
+  drawMarks();
+}
+function saveMarks(){
+  if (state.riverId) sput(state.riverId,'marks',state.marks);
+}
+function addMark(lat, lon){
+  var type = state.markType || 'hole';
+  state.marks.push({ id:'m'+Date.now()+Math.floor(Math.random()*1000),
+    type:type, lat:lat, lon:lon, at:new Date().toISOString(), note:'' });
+  saveMarks(); drawMarks(); renderMarks();
+  announce('Mark added at ' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '.');
+}
+function drawMarks(){
+  if (!state.markLayer) return;
+  state.markLayer.clearLayers();
+  state.marks.forEach(function(m){
+    var def = MARK_TYPES.filter(function(t){ return t.id===m.type; })[0] || MARK_TYPES[0];
+    L.circleMarker([m.lat,m.lon],{ radius:6, weight:2, color:def.colour,
+      fillColor:'#0A1214', fillOpacity:.85 })
+      .bindTooltip(def.label + (m.note ? ' — ' + m.note : ''))
+      .addTo(state.markLayer);
+  });
+}
+function renderMarks(){
+  var p = $('#panel-marks'); p.innerHTML = '';
+  if (!state.riverId){
+    p.appendChild(el('p',{class:'note',
+      text:'Marks belong to a river. Pick one to drop or read them.'}));
+    return;
+  }
+  p.appendChild(el('h2',{class:'sec',text:'Drop a mark'}));
+  var row = el('div',{class:'rowline'});
+  row.appendChild(el('label',{for:'marktype',text:'Type'}));
+  var sel = el('select',{id:'marktype'});
+  MARK_TYPES.forEach(function(t){
+    var o = el('option',{value:t.id,text:t.label});
+    if ((state.markType||'hole') === t.id) o.setAttribute('selected','selected');
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change',function(){ state.markType = sel.value; });
+  row.appendChild(sel);
+  p.appendChild(row);
+  /* Tapping the map is the quick way; this button is the route that does
+     not need a pointer at all. */
+  var addBtn = el('button',{type:'button',text:'Add at map centre'});
+  addBtn.addEventListener('click',function(){
+    var c = state.map.getCenter(); addMark(c.lat, c.lng);
+  });
+  p.appendChild(addBtn);
+  p.appendChild(el('p',{class:'note',
+    text:'Or tap the map. Pan with the arrow keys when the map has focus.'}));
+
+  p.appendChild(el('h2',{class:'sec',text:'Marks (' + state.marks.length + ')'}));
+  if (!state.marks.length)
+    p.appendChild(el('p',{class:'note',text:'None yet on this river.'}));
+  state.marks.slice().reverse().forEach(function(m){
+    var def = MARK_TYPES.filter(function(t){ return t.id===m.type; })[0] || MARK_TYPES[0];
+    var r = el('div',{class:'markrow'});
+    r.appendChild(el('span',{class:'swatch',style:'background:'+def.colour}));
+    var g = el('span',{class:'grow'});
+    g.appendChild(el('span',{text:def.label + ' '}));
+    g.appendChild(el('span',{class:'v',text:m.lat.toFixed(5)+', '+m.lon.toFixed(5)}));
+    r.appendChild(g);
+    var go = el('button',{type:'button',text:'Go','aria-label':'Centre map on this mark'});
+    go.addEventListener('click',function(){ state.map.setView([m.lat,m.lon], 15); });
+    r.appendChild(go);
+    var del = el('button',{type:'button',text:'Delete','aria-label':'Delete this mark'});
+    del.addEventListener('click',function(){
+      state.marks = state.marks.filter(function(x){ return x.id !== m.id; });
+      saveMarks(); drawMarks(); renderMarks(); announce('Mark deleted.');
+    });
+    r.appendChild(del);
+    p.appendChild(r);
+  });
+
+  p.appendChild(el('h2',{class:'sec',text:'Export'}));
+  var ta = el('textarea',{readonly:'readonly','aria-label':'GeoJSON of your marks'});
+  ta.value = JSON.stringify(marksGeoJSON(), null, 1);
+  p.appendChild(ta);
+  var erow = el('div',{class:'rowline'});
+  var copy = el('button',{type:'button',text:'Copy GeoJSON'});
+  copy.addEventListener('click',function(){
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch(e){}
+    if (!ok && navigator.clipboard) navigator.clipboard.writeText(ta.value);
+    announce('GeoJSON copied.');
+  });
+  erow.appendChild(copy);
+  var dl = el('a',{ class:'', download:'thalweg-'+state.riverId+'.geojson',
+    href:'data:application/geo+json;charset=utf-8,'+encodeURIComponent(ta.value),
+    text:'Download file' });
+  erow.appendChild(dl);
+  p.appendChild(erow);
+}
+function marksGeoJSON(){
+  return { type:'FeatureCollection',
+    features: state.marks.map(function(m){
+      return { type:'Feature',
+        geometry:{ type:'Point', coordinates:[Number(m.lon.toFixed(6)), Number(m.lat.toFixed(6))] },
+        properties:{ type:m.type, at:m.at, note:m.note, river:state.riverId } };
+    }) };
+}
+
+/* =====================================================================
+   Brief — season, limits, temperature, sources.
+   Anything that could not be read from the regulation is marked as such
+   and left unresolved rather than settled by picking the likelier side.
+   ===================================================================== */
+function renderBrief(){
+  var p = $('#panel-brief'); p.innerHTML = '';
+  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+
+  p.appendChild(el('h2',{class:'sec',text:'Bag and possession'}));
+  var lim = el('p',{});
+  lim.appendChild(el('span',{class:'v',text:String(SEASON_ADOPTION.daily)}));
+  lim.appendChild(document.createTextNode(' daily, '));
+  lim.appendChild(el('span',{class:'v',text:String(SEASON_ADOPTION.possession)}));
+  lim.appendChild(document.createTextNode(' in possession, ' + SEASON_ADOPTION.size + '. '));
+  lim.appendChild(flagEl(SEASON_ADOPTION.status));
+  p.appendChild(lim);
+  p.appendChild(el('p',{class:'note',text:SEASON_ADOPTION.note}));
+  p.appendChild(el('p',{class:'note',text:SEASON_ADOPTION.dateNote}));
+
+  rivers.forEach(function(river){
+    p.appendChild(el('h2',{class:'sec',text:river.name + ' — season'}));
+    if (!river.reaches.length){
+      p.appendChild(el('div',{class:'warnbox',
+        text:'The reach boundaries and dates for this river were not confirmed against Title 14 section 7.40 when this build was made, so none are shown. Nothing here is a substitute for the printed regulations.'}));
+    }
+    river.reaches.forEach(function(rc){
+      var box = el('div',{class:'rdg'});
+      var h = el('div',{class:'rdg-name'});
+      h.appendChild(el('span',{text:rc.name}));
+      h.appendChild(flagEl(rc.status));
+      h.appendChild(el('span',{class:'rdg-id',text:rc.code}));
+      box.appendChild(h);
+      var d = el('div',{class:'rdg-vals'});
+      rc.windows.forEach(function(w){
+        d.appendChild(el('span',{class:'v',
+          text: dayLocal(w[0] + 'T12:00') + ' to ' + dayLocal(w[1] + 'T12:00')}));
+      });
+      box.appendChild(d);
+      box.appendChild(el('div',{class:'rdg-id',text:openNow(rc)}));
+      box.appendChild(el('p',{class:'note',text:rc.bounds}));
+      p.appendChild(box);
+    });
+    river.conflicts.forEach(function(c){
+      var box = el('div',{class:'magbox'});
+      box.appendChild(el('div',{style:'font-weight:600',
+        text:(c.status === 'resolved' ? 'Resolved: ' : 'Unresolved: ') + c.subject}));
+      var ul = el('ul',{class:'tight'});
+      ul.appendChild(el('li',{text:c.a}));
+      ul.appendChild(el('li',{text:c.b}));
+      box.appendChild(ul);
+      box.appendChild(el('div',{text:c.resolution}));
+      p.appendChild(box);
+    });
+  });
+
+  p.appendChild(el('h2',{class:'sec',text:'Water temperature'}));
+  var ul = el('ul',{class:'tight'});
+  TEMP_READING.forEach(function(t){ ul.appendChild(el('li',{text:t.text})); });
+  p.appendChild(ul);
+  p.appendChild(el('p',{class:'note',
+    text:'Gauge temperature is the water passing one instrument, not the water where you are standing. A tailwater reads colder than the same river four miles down.'}));
+
+  p.appendChild(el('h2',{class:'sec',text:'Where to look next'}));
+  SOURCES.forEach(function(s){
+    var li = el('p',{class:'note'});
+    li.appendChild(el('a',{href:s.url,rel:'noopener noreferrer',target:'_blank',text:s.label}));
+    p.appendChild(li);
+  });
+  p.appendChild(el('div',{class:'magbox',
+    text:'Thalweg does not know where fish are being caught, and will not guess. No live catch feed exists for these rivers, so anything claiming one is inventing it.'}));
+}
+
+/* A reach can carry more than one window — the upper Sacramento is
+   written as two. Open means inside any of them. */
+function openNow(rc){
+  var now = new Date(), soonest = null, last = null;
+  for (var i = 0; i < rc.windows.length; i++){
+    var a = new Date(rc.windows[i][0] + 'T00:00'),
+        b = new Date(rc.windows[i][1] + 'T23:59');
+    if (now >= a && now <= b)
+      return 'Open now — ' + Math.ceil((b - now) / 86400000) + ' days left in this window.';
+    if (now < a && (soonest === null || a < soonest)) soonest = a;
+    if (last === null || b > last) last = b;
+  }
+  if (soonest) return 'Opens in ' + Math.ceil((soonest - now) / 86400000) + ' days.';
+  return 'Closed since ' + dayLocal(rc.windows[rc.windows.length-1][1] + 'T12:00') + '.';
+}
+
+/* =====================================================================
+   Chrome — tabs, river picker, staleness, announcements
+   ===================================================================== */
+var live;
+function announce(msg){
+  if (!live){
+    live = el('div',{ 'aria-live':'polite', role:'status',
+      style:'position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden' });
+    document.body.appendChild(live);
+  }
+  live.textContent = msg;
+}
+
+var TABS = ['water','layers','marks','brief'];
+function initTabs(){
+  TABS.forEach(function(name, i){
+    var tab = document.getElementById('tab-' + name);
+    tab.addEventListener('click', function(){ selectTab(i); });
+    tab.addEventListener('keydown', function(e){
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 :
+              e.key === 'Home' ? -99 : e.key === 'End' ? 99 : 0;
+      if (!d) return;
+      e.preventDefault();
+      var next = d === -99 ? 0 : d === 99 ? TABS.length - 1
+               : (i + d + TABS.length) % TABS.length;
+      selectTab(next);
+      document.getElementById('tab-' + TABS[next]).focus();
+    });
+  });
+}
+function selectTab(idx){
+  TABS.forEach(function(name, i){
+    var tab = document.getElementById('tab-' + name);
+    var panel = document.getElementById('panel-' + name);
+    var on = i === idx;
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    tab.tabIndex = on ? 0 : -1;
+    panel.hidden = !on;
+  });
+  if (TABS[idx] === 'layers') renderLayers();
+  if (TABS[idx] === 'marks')  renderMarks();
+  if (TABS[idx] === 'brief')  renderBrief();
+}
+
+function initPicker(){
+  var sel = $('#riverpick');
+  RIVERS.forEach(function(r){
+    sel.appendChild(el('option',{ value:r.id, text:r.short }));
+  });
+  sel.appendChild(el('option',{ value:'', text:'All rivers' }));
+  var saved = Store.s.getItem('thalweg:_shared:river');
+  sel.value = (saved === null ? RIVERS[0].id : saved);
+  sel.addEventListener('change', function(){ selectRiver(sel.value); });
+}
+
+function selectRiver(id){
+  state.riverId = id || null;
+  try { Store.s.setItem('thalweg:_shared:river', id || ''); } catch(e){}
+  $('#riverpick').value = id || '';
+
+  /* Depth layers belong to the reach they were surveyed in. */
+  Object.keys(state.layers).forEach(function(k){
+    if (k.indexOf('r:') === 0){ state.map.removeLayer(state.layers[k]); delete state.layers[k]; }
+  });
+  state.soundingActive = false; state.soundingLayerId = null;
+  state.soundingLayer.clearLayers();
+  updateLegend();
+
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (river){
+    state.map.setView(river.center, river.zoom);
+    loadMarks(river.id);
+  } else {
+    state.markLayer.clearLayers(); state.marks = [];
+    var b = RIVERS.reduce(function(acc, r){
+      return [Math.min(acc[0],r.bbox[0]), Math.min(acc[1],r.bbox[1]),
+              Math.max(acc[2],r.bbox[2]), Math.max(acc[3],r.bbox[3])];
+    }, [180,90,-180,-90]);
+    state.map.fitBounds([[b[1],b[0]],[b[3],b[2]]]);
+  }
+  announce(river ? river.name + ' selected.' : 'All rivers selected.');
+  refreshData();
+  renderWater(); renderMarks(); renderBrief();
+  if (!document.getElementById('panel-layers').hidden) renderLayers();
+  drawRibbon();
+}
+
+/* Live data is never served stale by the service worker. The page keeps
+   the last good payload per river and the header says how old it is, in
+   orange, because a number that looks current and is not is the whole
+   failure this app has to avoid. */
+function updateStaleness(){
+  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+  var worst = null, anyStale = false;
+  rivers.forEach(function(r){
+    var g = state.gauges[r.id];
+    if (!g || !g.fetchedAt) return;
+    if (worst === null || g.fetchedAt < worst) worst = g.fetchedAt;
+    if (g.stale || g.noData) anyStale = true;
+  });
+  var out = '';
+  if (worst === null){
+    out = 'No readings yet';
+  } else {
+    var age = Date.now() - worst;
+    if (anyStale || age > 45 * 60 * 1000)
+      out = 'Flow and temperature ' + ageText(age) +
+            (anyStale ? ' — network did not answer' : '');
+  }
+  $('#staleness').textContent = out;
+}
+
+function refreshData(){
+  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+  rivers.forEach(function(river){
+    var cached = sget(river.id,'gauges');
+    if (cached && !state.gauges[river.id]){
+      cached.stale = true; state.gauges[river.id] = cached;
+      renderWater(); drawRibbon(); updateStaleness();
+    }
+    loadGauges(river).then(function(payload){
+      state.gauges[river.id] = payload;
+      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers();
+    });
+    if (river.tidal) loadTideFor(river);
+  });
+  if (state.riverId) loadCatalog().then(function(){
+    if (!document.getElementById('panel-layers').hidden) renderLayers();
+  });
+}
+
+function loadTideFor(river){
+  discoverTideStations(river).then(function(found){
+    var index = {};
+    found.forEach(function(f){ index[f.id] = f; });
+    /* A declared station keeps its provenance flag and takes its position
+       and name from NOAA's index, so no station coordinate is ever typed
+       into this app. */
+    var declared = river.tideStations.map(function(s){
+      var f = index[s.id] || {};
+      return { id:s.id, name:f.name || s.hint, status:s.status,
+               lat:isNum(f.lat) ? f.lat : null, lon:isNum(f.lon) ? f.lon : null };
+    });
+    var seen = {}; declared.forEach(function(s){ seen[s.id] = true; });
+    /* A river box over the lower Delta catches most of the bay. Keep the
+       declared stations, then the nearest handful, so the picker stays a
+       picker. */
+    var c = river.center;
+    var near = found.filter(function(f){ return !seen[f.id]; })
+      .map(function(f){
+        f.d = Math.pow(f.lat - c[0], 2) + Math.pow(f.lon - c[1], 2);
+        return f;
+      })
+      .sort(function(a, b){ return a.d - b.d; })
+      .slice(0, 10);
+    var stations = declared.concat(near);
+    if (!stations.length){
+      state.tides[river.id] = { failed:'no prediction station found for this reach' };
+      renderWater(); return;
+    }
+    var pick = sget(river.id,'tidestation');
+    var chosen = stations.filter(function(s){ return s.id === pick; })[0] || stations[0];
+    return loadTide(river, chosen.id).then(function(t){
+      t.stations = stations;
+      state.tides[river.id] = t;
+      renderWater();
+    });
+  });
+}
+
+function drawGaugeMarkers(){
+  if (!state.gaugeLayer) return;
+  state.gaugeLayer.clearLayers();
+  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+  rivers.forEach(function(river){
+    var payload = state.gauges[river.id];
+    if (!payload) return;
+    payload.rows.forEach(function(r){
+      if (!isNum(r.lat) || !isNum(r.lon)) return;
+      var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+      L.circleMarker([r.lat, r.lon], {
+        radius:7, weight:2, color:'#0A1214', fillColor:tempColour(f), fillOpacity:.95
+      }).bindTooltip(
+        (r.name || r.id) + ' — ' + fmt(r.flow,0) + ' cfs, ' +
+        (f === null ? 'no temp' : fmt(f,1) + 'F'),
+        { direction:'top' }
+      ).addTo(state.gaugeLayer);
+    });
+  });
+}
+
+/* =====================================================================
+   Patch notes. One source: this array. The app shows it and nothing else
+   restates it, so the two cannot drift apart.
+   ===================================================================== */
+var RELEASES = [
+  { v:'0.1.0', date:'2026-08-27', changes:[
+      'First build. Four rivers, one map, one ribbon.',
+      'Multibeam surfaces and single beam soundings, enumerated from DWR’s service directory rather than listed here, so a survey published or withdrawn next month appears without a redeploy. Twenty surfaces and eighty-one sounding layers were read this way; each one is placed by its own extent, not by its name.',
+      'Every gauge and tide station identifier was requested from the live service and answers with the name shown beside it.',
+      'Season dates and reach boundaries are the words of Title 14 section 7.40 as amended on 6 May 2026.',
+      'Tide predictions fetched a week ahead so they stay good with no signal.',
+      'Works offline after first load; flow and temperature say how old they are.'
+    ],
+    broken:[
+      'The Feather River has no live gauge here. No USGS site on the Feather mainstem publishes instantaneous values — its gauges are DWR’s, on CDEC, which this build does not read. The Water panel says so and shows the two tributaries instead.',
+      'The NOAA raster chart tiles could not be reached from the machine this was built on, so that layer switches itself off if the tiles do not arrive. If it disappears when you turn it on, that is what happened.',
+      'The CARTO dark basemap is in the same position. Esri imagery and topo were both fetched and drew.',
+      'Season dates are each reach’s standing open season. The Commission kept the discretion to start a reach later or end it earlier, and the final per-reach dates were given in a presentation this build could not read.',
+      'Depth values are drawn as published. Thalweg does not restate a vertical datum it has not checked, so the sounding legend gives numbers without one.'
+    ] }
+];
+
+function renderAbout(){
+  var b = $('#aboutbody'); b.innerHTML = '';
+  function h(t){ b.appendChild(el('h3',{text:t})); }
+  function para(t){ b.appendChild(el('p',{text:t})); }
+
+  h('What Thalweg is');
+  para('A depth and conditions tool for the Central Valley fall-run Chinook fishery: the Sacramento, Feather, American and Mokelumne rivers and the Delta. It answers three questions in one place — how deep is the water here, when does the tide turn, and how much water is coming down — because on a Saturday morning you are choosing between rivers, not reading one.');
+
+  h('What Thalweg is not');
+  para('It does not tell you where fish are being caught. No live catch feed exists for these rivers, so there is nothing honest to show; there is no bite forecast and no spot predictor, and there will not be. It is not a navigation aid — DWR’s own metadata says its bathymetry is not for use as one, and that constraint travels with the data.');
+  para('It has no account, no sign-up, no login, no analytics and no third-party scripts. Your marks are on this device and are sent nowhere.');
+
+  h('Install it on your home screen');
+  var ul = el('ul',{class:'tight'});
+  [ 'iPhone and iPad, Safari: the Share button, then Add to Home Screen.',
+    'Android, Chrome: the three-dot menu, then Install app or Add to home screen.',
+    'Desktop Chrome or Edge: the install icon at the right of the address bar.',
+    'Firefox on Android: the three-dot menu, then Install.'
+  ].forEach(function(t){ ul.appendChild(el('li',{text:t})); });
+  b.appendChild(ul);
+  para('Once installed it opens full screen and works with no signal, on whatever it had already loaded.');
+
+  h('What changed');
+  RELEASES.forEach(function(r){
+    b.appendChild(el('p',{style:'font-weight:600;margin-bottom:.2rem',
+      text:r.v + ' — ' + r.date}));
+    var u1 = el('ul',{class:'tight'});
+    r.changes.forEach(function(c){ u1.appendChild(el('li',{text:c})); });
+    b.appendChild(u1);
+    if (r.broken && r.broken.length){
+      b.appendChild(el('p',{class:'note',style:'margin-bottom:.2rem',
+        text:'Still broken or unproven in ' + r.v + ':'}));
+      var u2 = el('ul',{class:'tight'});
+      r.broken.forEach(function(c){ u2.appendChild(el('li',{text:c})); });
+      b.appendChild(u2);
+    }
+  });
+
+  h('Where the data comes from');
+  var u3 = el('ul',{class:'tight'});
+  [ ['California DWR bathymetry, multibeam rasters and single beam soundings',
+     'https://data.cnra.ca.gov/'],
+    ['USGS National Water Information System, instantaneous values',
+     'https://waterservices.usgs.gov/'],
+    ['NOAA CO-OPS tide predictions, MLLW datum',
+     'https://tidesandcurrents.noaa.gov/'],
+    ['NOAA Office of Coast Survey raster charts',
+     'https://charts.noaa.gov/'],
+    ['CDFW freshwater sport fishing regulations',
+     'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing']
+  ].forEach(function(s){
+    var li = el('li',{});
+    li.appendChild(el('a',{href:s[1],rel:'noopener noreferrer',target:'_blank',text:s[0]}));
+    u3.appendChild(li);
+  });
+  b.appendChild(u3);
+  para('Each of those publishes its own terms of use and each is the authority on its own data. Thalweg redraws what they publish and adds nothing to it.');
+
+  h('Reading depth honestly');
+  para('Dense aquatic vegetation defeats a sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom, and in vegetated water a return may be the top of the weed rather than the bed. Single beam data are points along a boat’s track; the water between two tracks was never measured. Surveys are also snapshots — a sand bed moves.');
+
+  h('Report a problem');
+  para('Open an issue on the repository, or send the diagnostic report below with a sentence about what you expected to see. The report is text, so it travels in a message; it contains nothing you typed and none of your marks.');
+  var btn = el('button',{type:'button',text:'Copy diagnostic report'});
+  var ta = el('textarea',{readonly:'readonly','aria-label':'Diagnostic report'});
+  btn.addEventListener('click', function(){
+    diagnostic().then(function(txt){
+      ta.value = txt; ta.select();
+      try { document.execCommand('copy'); } catch(e){}
+      announce('Diagnostic report copied.');
+    });
+  });
+  b.appendChild(btn);
+  diagnostic().then(function(t){ ta.value = t; });
+  b.appendChild(ta);
+
+  h('Accessibility');
+  para('Every control is reachable by keyboard with a visible focus ring, the panels are a proper tab list driven by the arrow keys, form controls are labelled, and the map can be panned and zoomed from the keyboard. A mark can be dropped without a pointer using Add at map centre in the Marks panel. Colour is never the only carrier: every temperature dot has its number beside it and every provenance flag is a word. Reduced motion is honoured.');
+  para('The one thing colour still carries alone is the sounding ramp on the map, where a value also appears on tap. If something here is unusable for you, that is a defect — please report it.');
+
+  h('Licence');
+  para('PolyForm Noncommercial 1.0.0. Free to use, study and modify for any purpose that is not a commercial one. Leaflet 1.9.4 is vendored into this app under its own BSD-2-Clause licence.');
+}
+
+/* Doctrine §7f: a text report that carries what the browser string hides.
+   iPadOS Safari reports itself as macOS, so maxTouchPoints is what tells
+   an iPad from a Mac. */
+function diagnostic(){
+  var lines = [];
+  function L(k,v){ lines.push(k + ': ' + v); }
+  L('Thalweg', VERSION);
+  L('When', new Date().toISOString());
+  L('User agent', navigator.userAgent);
+  L('maxTouchPoints', navigator.maxTouchPoints);
+  L('Platform hint', (navigator.maxTouchPoints > 1 &&
+      /Macintosh/.test(navigator.userAgent)) ? 'touch device reporting as macOS (an iPad)' : 'as reported');
+  L('Viewport', window.innerWidth + 'x' + window.innerHeight +
+      ' at dpr ' + (window.devicePixelRatio || 1));
+  L('Display mode', window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+      ? 'standalone (installed)' : 'browser tab');
+  L('Storage backend', Store.kind);
+  L('Reduced motion', reduceMotion ? 'yes' : 'no');
+  L('Online', navigator.onLine ? 'yes' : 'no');
+  L('BATHY_PROXY', BATHY_PROXY || '(empty — talking to DWR directly)');
+  L('River', state.riverId || 'All');
+  L('Depth ramp', state.ramp ? 'on' : 'off');
+  L('NOAA chart probe', state.chartUsable === null ? 'not run' : String(state.chartUsable));
+  if (state.catalog){
+    L('Catalog age', ageText(Date.now() - state.catalog.at));
+    L('Multibeam services', state.catalog.raster.length +
+      (state.catalog.rasterError ? ' (error: ' + state.catalog.rasterError + ')' : ''));
+    L('Single beam layers', state.catalog.single.length +
+      (state.catalog.singleError ? ' (error: ' + state.catalog.singleError + ')' : ''));
+    var un = state.catalog.raster.concat(state.catalog.single)
+      .filter(function(r){ return r.box && r.box.unknownWkid; });
+    if (un.length) L('Unplaced (projection not converted)',
+      un.map(function(r){ return (r.name || r.title) + ' [wkid ' + r.box.unknownWkid + ']'; }).join('; '));
+  } else L('Catalog', 'not loaded');
+  RIVERS.forEach(function(r){
+    var g = state.gauges[r.id];
+    L('Gauges ' + r.id, g ? (g.rows.length + ' rows, ' +
+      (g.fetchedAt ? ageText(Date.now() - g.fetchedAt) : 'never') +
+      (g.stale ? ', STALE' : '')) : 'not loaded');
+  });
+  L('Marks on this river', String(state.marks.length) + ' (positions not included)');
+  lines.push('');
+  lines.push('Service worker:');
+  var swPart = Promise.resolve('  not supported');
+  if ('serviceWorker' in navigator){
+    swPart = navigator.serviceWorker.getRegistration().then(function(reg){
+      if (!reg) return '  none registered';
+      return '  active=' + (reg.active ? reg.active.state : 'none') +
+             ' waiting=' + (reg.waiting ? 'yes' : 'no') +
+             ' installing=' + (reg.installing ? 'yes' : 'no');
+    }).catch(function(e){ return '  query failed: ' + e; });
+  }
+  var cachePart = Promise.resolve('  caches API unavailable');
+  if (window.caches && caches.keys){
+    cachePart = caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){
+        return caches.open(k).then(function(c){ return c.keys(); })
+          .then(function(rs){ return '  ' + k + ': ' + rs.length + ' entries'; });
+      })).then(function(rows){ return rows.join('\n') || '  none'; });
+    }).catch(function(e){ return '  cache read failed: ' + e; });
+  }
+  return Promise.all([swPart, cachePart]).then(function(r){
+    lines.push(r[0]);
+    lines.push('');
+    lines.push('Caches:');
+    lines.push(r[1]);
+    lines.push('');
+    lines.push('Last network attempts (newest last):');
+    state.net.slice(-25).forEach(function(n){
+      lines.push('  ' + (n.ok ? 'ok  ' : 'FAIL') + ' ' + n.label +
+                 (n.detail ? ' — ' + n.detail : ''));
+    });
+    return lines.join('\n');
+  });
+}
+
+/* =====================================================================
+   First run. The orientation survives whatever you press to begin: it is
+   moved into the About panel, not copied there, so there is one copy of
+   these words in the app.
+   ===================================================================== */
+function maybeWelcome(){
+  var seen = Store.s.getItem('thalweg:_shared:welcomed');
+  var dlg = $('#welcome');
+  if (seen === VERSION || !dlg.showModal) return;
+  var b = $('#welcomebody'); b.innerHTML = '';
+  b.appendChild(el('p',{text:'Depth, tide and flow for four Central Valley rivers and the Delta. Pick a river at the top; the ribbon puts every gauge at its place on that river, downstream on the left, coloured by water temperature. All rivers stacks the four so you can choose between them.'}));
+  b.appendChild(el('p',{text:'The Layers panel is where depth lives. Coverage is uneven — where nothing has been surveyed it says so instead of showing you an empty switch.'}));
+  b.appendChild(el('p',{text:'It does not know where fish are being caught, and it is not a navigation aid.'}));
+  b.appendChild(el('div',{class:'warnbox',
+    text:'This is the first build. Every number in it comes from USGS, NOAA or DWR and is labelled with where it came from — but it is a first build, so treat what you see as new until it has agreed with something you trust.'}));
+  var row = el('div',{class:'rowline'});
+  var ok = el('button',{type:'button',text:'Start'});
+  ok.addEventListener('click', function(){
+    try { Store.s.setItem('thalweg:_shared:welcomed', VERSION); } catch(e){}
+    dlg.close();
+  });
+  row.appendChild(ok);
+  row.appendChild(el('span',{class:'note',
+    text:'All of this stays available under the (i) button.'}));
+  b.appendChild(row);
+  dlg.showModal();
+}
+
+/* =====================================================================
+   Updates. The new version waits; it never takes over under the open
+   page. An app that caches itself cannot notice it has gone stale, so
+   the noticing has to be built on purpose.
+   ===================================================================== */
+function initSW(){
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').then(function(reg){
+    if (reg.waiting) offerUpdate(reg);
+    reg.addEventListener('updatefound', function(){
+      var w = reg.installing;
+      if (!w) return;
+      w.addEventListener('statechange', function(){
+        if (w.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(reg);
+      });
+    });
+    /* Ask once on load and again when the app is brought back up. */
+    setTimeout(function(){ reg.update().catch(function(){}); }, 8000);
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden) reg.update().catch(function(){});
+    });
+  }).catch(function(e){ logNet('service worker', 'sw.js', false, String(e)); });
+
+  var reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+}
+
+function offerUpdate(reg){
+  var strip = $('#updatestrip');
+  strip.hidden = false;
+  $('#updatetext').textContent =
+    'A new version of Thalweg is ready. It is waiting — nothing has changed under you.';
+  $('#updatebtn').onclick = function(){
+    try { Store.s.setItem('thalweg:_shared:justUpdated', '1'); } catch(e){}
+    if (reg.waiting) reg.waiting.postMessage({ type:'SKIP_WAITING' });
+    $('#updatetext').textContent = 'Loading…';
+  };
+  $('#updatedismiss').onclick = function(){ strip.hidden = true; };
+  announce('A new version of Thalweg is waiting.');
+}
+
+/* The page that shows the strip is the old build and has never heard of
+   the release it is offering. The only moment anything in the app knows
+   what changed is after the reload, so that is when it says so. */
+function maybeWhatChanged(){
+  if (Store.s.getItem('thalweg:_shared:justUpdated') !== '1') return;
+  try { Store.s.removeItem('thalweg:_shared:justUpdated'); } catch(e){}
+  renderAbout();
+  var dlg = $('#about');
+  if (dlg.showModal) dlg.showModal();
+  announce('Updated to ' + VERSION + '.');
+}
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+function boot(){
+  initPicker();
+  initTabs();
+  initMap();
+
+  $('#aboutbtn').addEventListener('click', function(){
+    renderAbout();
+    var d = $('#about');
+    if (d.showModal) d.showModal(); else d.setAttribute('open','open');
+  });
+  $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
+
+  var initial = Store.s.getItem('thalweg:_shared:river');
+  selectRiver(initial === null ? RIVERS[0].id : initial);
+  selectTab(0);
+
+  window.addEventListener('online',  function(){ refreshData(); announce('Back online.'); });
+  window.addEventListener('offline', function(){ updateStaleness(); announce('Offline. Stored readings only.'); });
+  setInterval(function(){ if (navigator.onLine) refreshData(); }, 10 * 60 * 1000);
+  setInterval(updateStaleness, 60 * 1000);
+
+  initSW();
+  maybeWhatChanged();
+  maybeWelcome();
+}
+
+if (document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', boot);
+else boot();
+</script>
+</body>
+</html>

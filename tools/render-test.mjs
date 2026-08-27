@@ -1,0 +1,178 @@
+/* Render tests against the documented response shapes.
+ *
+ * These do NOT prove the services answer this way — only tools/verify.mjs
+ * can say that, and only from a machine that can reach them. What they do
+ * prove is that when a response of the documented shape arrives, the
+ * parsers, the ribbon, the tide curve and the sounding renderer do the
+ * right thing with it, including the awkward parts: a missing temperature,
+ * a -999999, a null depth, a truncated feature query.
+ *
+ * Needs playwright-core and a server:  node tools/serve.mjs &
+ *   node tools/render-test.mjs [http://127.0.0.1:8787]
+ */
+import { chromium } from 'playwright-core';
+const BASE = process.argv[2] || 'http://127.0.0.1:8787';
+
+const now = new Date();
+const iso = d => d.toISOString().slice(0, 19) + '.000-07:00';
+const coopsT = d => d.toISOString().slice(0, 16).replace('T', ' ');
+
+function ts(code, name, lat, lon, param, value) {
+  return {
+    sourceInfo: { siteName: name, siteCode: [{ value: code }],
+      geoLocation: { geogLocation: { latitude: lat, longitude: lon } } },
+    variable: { variableCode: [{ value: param }] },
+    values: [{ value: [{ value: String(value), dateTime: iso(now) }] }]
+  };
+}
+const USGS_BODY = { value: { timeSeries: [
+  ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '00060', 14200),
+  ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '00065', 4.12),
+  ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '00010', 21.4),
+  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '00060', 13100),
+  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '00010', 19.9),
+  /* the no-reading sentinel: must show a dash, never a minus one million */
+  ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '00060', 6120),
+  ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '00010', -999999)
+] } };
+
+const hourly = [], hilo = [];
+for (let i = -6; i < 30; i++) {
+  const d = new Date(now.getTime() + i * 3600000);
+  hourly.push({ t: coopsT(d), v: (2.5 + 1.8 * Math.sin(i / 3.9)).toFixed(3) });
+  if (i % 6 === 0) hilo.push({ t: coopsT(d), v: (2.5 + 1.8 * Math.sin(i / 3.9)).toFixed(3),
+    type: i % 12 === 0 ? 'H' : 'L' });
+}
+
+const FOLDER = { services: [
+  { name: 'Bathymetry/Bathy_TEST_SacramentoRvr', type: 'ImageServer' },
+  { name: 'Bathymetry/Bathy_TEST_Elsewhere',     type: 'ImageServer' }
+] };
+const merc = (lon, lat) => ({
+  x: lon * Math.PI / 180 * 6378137,
+  y: 6378137 * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))
+});
+function imgMeta(name, w, s, e, n) {
+  const a = merc(w, s), b = merc(e, n);
+  return { name, description: name + ' — synthetic fixture, not a real survey.',
+    pixelSizeX: 0.3048, pixelSizeY: 0.3048,
+    extent: { xmin: a.x, ymin: a.y, xmax: b.x, ymax: b.y,
+      spatialReference: { wkid: 102100, latestWkid: 3857 } } };
+}
+const SBM_LAYERS = { layers: [
+  { id: 31, name: 'i06_TEST_FeatherRiver_June2017', type: 'Feature Layer',
+    description: 'Synthetic fixture standing in for a single beam survey.',
+    extent: { xmin: -121.75, ymin: 38.75, xmax: -121.45, ymax: 39.45,
+      spatialReference: { wkid: 4326 } },
+    fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID' },
+             { name: 'ELEVATION', type: 'esriFieldTypeDouble' }] },
+  { id: 99, name: 'i06_TEST_NoDepthField', type: 'Feature Layer',
+    extent: { xmin: -121.75, ymin: 38.75, xmax: -121.45, ymax: 39.45,
+      spatialReference: { wkid: 4326 } },
+    fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID' }] }
+] };
+
+let pass = 0, fail = 0;
+const check = (n, c, d) => c ? (pass++, console.log('PASS  ' + n))
+                             : (fail++, console.log('FAIL  ' + n + (d ? ' — ' + d : '')));
+
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=127.0.0.1;localhost;[::1]'] });
+/* Service workers are blocked here: this file tests what the page does
+   with a response, and a service worker sitting in front of the fixtures
+   would be testing the worker instead. Offline behaviour is tools/a11y.mjs
+   and the real thing. */
+const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+
+const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json',
+  headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+
+await ctx.route('**/nwis/iv/**', r => json(r, USGS_BODY));
+await ctx.route('**/datagetter**', r =>
+  json(r, { predictions: r.request().url().includes('interval=hilo') ? hilo : hourly }));
+await ctx.route('**/mdapi/**', r => json(r, { stations: [
+  { id: '9415316', name: 'Rio Vista', lat: 38.1583, lng: -121.6853 },
+  { id: '9999999', name: 'Synthetic Mokelumne', lat: 38.15, lng: -121.40 }] }));
+await ctx.route('**/arcgisimg/rest/services/Bathymetry?f=json', r => json(r, FOLDER));
+await ctx.route('**/Bathy_TEST_SacramentoRvr/ImageServer?f=json', r =>
+  json(r, imgMeta('Bathy_TEST_SacramentoRvr', -121.75, 38.30, -121.45, 38.65)));
+await ctx.route('**/Bathy_TEST_Elsewhere/ImageServer?f=json', r =>
+  json(r, imgMeta('Bathy_TEST_Elsewhere', 10.0, 50.0, 10.2, 50.2)));
+await ctx.route('**/MapServer/layers?f=json', r => json(r, SBM_LAYERS));
+await ctx.route('**/MapServer/31/query**', r => {
+  const feats = [];
+  for (let i = 0; i < 3000; i++) feats.push({
+    attributes: { ELEVATION: i === 0 ? null : -(5 + (i % 40) * 0.5) },
+    geometry: { x: -121.6 + (i % 60) * 0.0004, y: 38.9 + Math.floor(i / 60) * 0.0004 } });
+  return json(r, { features: feats, exceededTransferLimit: true });
+});
+await ctx.route('**/exportImage**', r => r.fulfill({ status: 200, contentType: 'image/png',
+  headers: { 'access-control-allow-origin': '*' },
+  body: Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001080600000' +
+    '01f15c4890000000a49444154789c6300010000050001' +
+    '0d0a2db40000000049454e44ae426082', 'hex') }));
+await ctx.route('**/tile/**', r => r.abort());
+await ctx.route('**/cartocdn.com/**', r => r.abort());
+await ctx.route('**/tileservice.charts.noaa.gov/**', r => r.abort());
+
+const page = await ctx.newPage();
+const errs = [];
+page.on('pageerror', e => errs.push(e.message));
+await page.goto(BASE + '/', { waitUntil: 'load' });
+await page.waitForTimeout(3000);
+await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
+await page.waitForTimeout(1500);
+
+/* --- gauges and the ribbon --- */
+const water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
+check('site name comes from the API', water.includes('SACRAMENTO R A RIO VISTA CA'), water.slice(0, 200));
+check('celsius is shown in fahrenheit', water.includes('70.5'), water.slice(0, 400));
+check('a -999999 temperature shows a dash, not a number',
+  /VERONA[^]*?6,?120|6120/.test(water) && !water.includes('-999999') && !water.includes('-1799998'), water.slice(0, 600));
+check('an unconfirmed id that returned nothing says so',
+  water.includes('no data returned for this identifier'), water.slice(0, 900));
+check('temperature reading sentence appears', /fish moving|workable|holding deep|stressed/.test(water));
+const note = await page.textContent('#ribbonnote');
+check('ribbon plots the gauges that had positions', /3 gauges plotted/.test(note), note);
+check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('#ribbon circle').length) === 3);
+
+/* --- tide --- */
+check('tide curve drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
+check('high and low table populated', /High ·|Low ·/.test(water), water.slice(0, 300));
+check('discovered station offered alongside the verified ones',
+  await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
+    return !!s && s.options.length >= 3; }));
+
+/* --- layers --- */
+await page.click('#tab-layers'); await page.waitForTimeout(1200);
+let layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
+check('a survey inside the river box is offered', layers.includes('Bathy_TEST_SacramentoRvr'), layers.slice(0, 400));
+check('a survey outside it is not', !layers.includes('Bathy_TEST_Elsewhere'), layers.slice(0, 400));
+check('a layer with no depth attribute says so',
+  layers.includes('no depth attribute could be identified'), layers.slice(0, 900));
+check('vegetation gap note present', layers.includes('missing data, not flat bottom'));
+
+/* the Feather has a single beam layer and no raster: it must say so */
+await page.selectOption('#riverpick', 'feather'); await page.waitForTimeout(1500);
+layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
+check('a reach with no multibeam says so plainly',
+  layers.includes('No published multibeam survey for this reach'), layers.slice(0, 600));
+check('a reach with single beam still offers it',
+  layers.includes('i06_TEST_FeatherRiver_June2017'), layers.slice(0, 600));
+
+/* --- soundings, with the cap hit and a null depth in the set --- */
+await page.evaluate(() => window.state.map.setView([38.90, -121.59], 14));
+await page.waitForTimeout(600);
+await page.click('#panel-layers button:text-is("i06_TEST_FeatherRiver_June2017")');
+await page.waitForTimeout(3000);
+layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
+check('the cap is announced when it truncates', layers.includes('cap truncated this view'), layers.slice(0, 900));
+check('soundings drawn on the map',
+  await page.evaluate(() => window.state.soundingLayer.getLayers().length) > 100);
+check('a null depth did not become a zero',
+  await page.evaluate(() => window.state.soundingRange && window.state.soundingRange[1] < 0));
+
+await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
+check('no page errors', errs.length === 0, errs.join(' | '));
+console.log(`\n${pass} passed, ${fail} failed.`);
+await b.close();
+process.exit(fail ? 1 : 0);

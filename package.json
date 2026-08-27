@@ -1,0 +1,21 @@
+{
+  "name": "cv-thalweg",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thalweg \u2014 depth and conditions for the Central Valley fall-run Chinook fishery.",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "test": "node tools/test-worker.mjs",
+    "test:render": "node tools/render-test.mjs",
+    "a11y": "node tools/a11y.mjs",
+    "verify": "node tools/verify.mjs",
+    "icons": "node tools/render-icons.mjs",
+    "test:live": "node tools/live-test.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright-core": "1.56.0"
+  }
+}

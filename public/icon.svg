@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Thalweg">
+  <title>Thalweg</title>
+  <rect width="512" height="512" rx="96" fill="#0A1214"/>
+  <!-- channel cross-section: the bed, asymmetric, as a real one is -->
+  <path d="M40 150 L40 232 C118 250 150 300 196 372 C232 428 300 436 344 388
+           C392 336 420 268 472 244 L472 150 Z" fill="#123331"/>
+  <!-- water surface -->
+  <rect x="40" y="150" width="432" height="18" fill="#1F5B57"/>
+  <!-- the bed line -->
+  <path d="M40 232 C118 250 150 300 196 372 C232 428 300 436 344 388
+           C392 336 420 268 472 244" fill="none" stroke="#C9A96A"
+        stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- the thalweg: the deepest line down the channel -->
+  <circle cx="268" cy="424" r="34" fill="#7BD5D9"/>
+  <path d="M268 168 L268 390" stroke="#7BD5D9" stroke-width="14"
+        stroke-linecap="round" stroke-dasharray="30 24"/>
+</svg>
