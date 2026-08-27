@@ -220,6 +220,55 @@ check('soundings drawn on the map',
 check('a null depth did not become a zero',
   await page.evaluate(() => window.state.soundingRange && window.state.soundingRange[1] < 0));
 
+/* --- a tapped pin must show its whole label, wherever the pin is --- */
+/* A tooltip is drawn beside its marker and left there: it is neither
+   panned into view nor flipped, so a pin near an edge — which on a phone,
+   where the map is half a screen tall, is most of them — put its label
+   outside the map frame, where the container's overflow cut it off.
+   Tapping the pin looked like it did nothing. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(2500);
+async function tapAndMeasure(place) {
+  await page.evaluate(() => { const p = document.querySelector('.leaflet-popup-close-button'); if (p) p.click(); });
+  await page.evaluate(place);
+  await page.waitForTimeout(500);
+  const pt = await page.evaluate(() => {
+    const m = state.gaugeLayer.getLayers()[0];
+    const p = state.map.latLngToContainerPoint(m.getLatLng());
+    const r = document.getElementById('map').getBoundingClientRect();
+    return { x: r.left + p.x, y: r.top + p.y };
+  });
+  await page.mouse.click(pt.x, pt.y);
+  await page.waitForTimeout(700);
+  return await page.evaluate(() => {
+    const el = document.querySelector('.leaflet-popup');
+    if (!el) return { open: false };
+    const t = el.getBoundingClientRect(), m = document.getElementById('map').getBoundingClientRect();
+    return { open: true, inside: t.top >= m.top && t.bottom <= m.bottom &&
+                                 t.left >= m.left && t.right <= m.right,
+             rect: { t: Math.round(t.top), b: Math.round(t.bottom), l: Math.round(t.left), r: Math.round(t.right) },
+             map:  { t: Math.round(m.top), b: Math.round(m.bottom), l: Math.round(m.left), r: Math.round(m.right) } };
+  });
+}
+for (const [where, place] of [
+  ['in the middle', () => { const m = state.gaugeLayer.getLayers()[0]; state.map.setView(m.getLatLng(), 11); }],
+  ['at the top edge', () => { const m = state.gaugeLayer.getLayers()[0];
+    const p = state.map.latLngToContainerPoint(m.getLatLng()); state.map.panBy([0, p.y - 8], { animate: false }); }],
+  ['at the left edge', () => { const m = state.gaugeLayer.getLayers()[0];
+    const p = state.map.latLngToContainerPoint(m.getLatLng()); state.map.panBy([p.x - 6, 0], { animate: false }); }],
+  ['at the bottom edge', () => { const m = state.gaugeLayer.getLayers()[0];
+    const p = state.map.latLngToContainerPoint(m.getLatLng());
+    const h = document.getElementById('map').getBoundingClientRect().height;
+    state.map.panBy([0, p.y - (h - 10)], { animate: false }); }]
+]) {
+  const r = await tapAndMeasure(place);
+  check(`a pin ${where} shows its whole label`, r.open && r.inside, JSON.stringify(r));
+}
+check('the label carries the reading, not just the name',
+  /cfs/i.test(await page.evaluate(() => {
+    const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : ''; })),
+  await page.evaluate(() => { const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : '(none)'; }));
+
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));
 console.log(`\n${pass} passed, ${fail} failed.`);

@@ -67,6 +67,26 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
   await audit(page, `${name}: about panel`);
   await page.click('#aboutclose');
 
+  /* A map label. It exists only while a pin is tapped, so like the update
+     strip below it is a state that ships unmeasured unless something opens
+     it on purpose. */
+  /* A dropped mark, rather than a gauge, so this runs with no network:
+     the popup chrome being measured is the same one. */
+  await page.click('#tab-marks');
+  await page.waitForTimeout(300);
+  await page.click('text=Add at map centre');
+  await page.waitForTimeout(500);
+  const opened = await page.evaluate(() => {
+    const layers = state.markLayer ? state.markLayer.getLayers() : [];
+    if (!layers.length) return false;
+    layers[layers.length - 1].openPopup();
+    return true;
+  });
+  await page.waitForTimeout(600);
+  check(`${name}: a tapped pin opens a label`, opened);
+  if (opened) await audit(page, `${name}: map label open`);
+  await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
+
   /* The update strip. It only shows when a new version is waiting, which
      is exactly why it has to be forced on to be measured at all. */
   await page.evaluate(() => {

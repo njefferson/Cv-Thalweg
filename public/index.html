@@ -163,6 +163,22 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .leaflet-control-attribution a{color:var(--cyan)!important; text-decoration:underline}
 .leaflet-bar a{background:var(--panel)!important; color:var(--ink)!important;
   border-bottom-color:var(--teal)!important}
+/* Leaflet's popups are white with a white tail. Unstyled they read as a
+   piece of a different application dropped on the map. */
+.leaflet-popup-content-wrapper{
+  background:var(--panel); color:var(--ink);
+  border:1px solid var(--teal-line); border-radius:3px;
+  box-shadow:0 3px 14px rgba(0,0,0,.55);
+}
+.leaflet-popup-content{ margin:.5rem .6rem; font-size:.82rem; line-height:1.4 }
+.leaflet-popup-tip{ background:var(--panel); border:0; box-shadow:none }
+.leaflet-popup-close-button{ color:var(--mute)!important; font-size:1.1rem!important }
+.leaflet-popup-close-button:hover{ color:var(--ink)!important }
+/* Room for the close button, which sits over the first line. */
+.leaflet-popup-content .pop-name{ font-weight:600; display:block; margin-bottom:.15rem;
+  padding-right:1.2rem }
+.leaflet-popup-content .pop-vals{ display:flex; gap:.7rem; flex-wrap:wrap; margin:.15rem 0 }
+.leaflet-popup-content .pop-sub{ color:var(--mute); font-size:.72rem; display:block; margin-top:.15rem }
 .legend{background:rgba(13,26,25,.9); border:1px solid var(--teal-line); padding:.4rem .5rem;
   font-size:.7rem; color:var(--ink); line-height:1.35}
 .legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
@@ -1542,6 +1558,47 @@ var NOAA_CHART = {
 var reduceMotion = window.matchMedia &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* Every label on the map is a popup rather than a tooltip.
+ *
+ * A tooltip is drawn beside its marker and left there. It is not panned
+ * into view and it is not flipped, so a marker near an edge — which on a
+ * phone, where the map is half a screen tall, is most of them — puts its
+ * label partly or wholly outside the map frame, where the container's
+ * overflow cuts it off. Tapping a pin then appears to do nothing at all.
+ *
+ * A popup pans the map until the whole label fits. The padding keeps it
+ * clear of the zoom control at the top left and the legend and
+ * attribution along the bottom. keepInView holds it there if the map is
+ * moved underneath it afterwards.
+ */
+var LABEL = {
+  autoPan: true,
+  autoPanPaddingTopLeft: L.point(52, 20),
+  autoPanPaddingBottomRight: L.point(20, 46),
+  keepInView: true,
+  closeButton: true,
+  autoClose: true,
+  className: 'thw-label'
+};
+
+function labelNode(name, values, sub){
+  var box = el('div', {});
+  box.appendChild(el('span', { class:'pop-name', text:name }));
+  if (values && values.length){
+    var row = el('div', { class:'pop-vals' });
+    values.forEach(function(v){
+      var span = el('span', { class:'v' });
+      span.appendChild(document.createTextNode(v[0]));
+      span.appendChild(el('small', { text:v[1] }));
+      if (v[2]) span.style.color = v[2];
+      row.appendChild(span);
+    });
+    box.appendChild(row);
+  }
+  if (sub) box.appendChild(el('span', { class:'pop-sub', text:sub }));
+  return box;
+}
+
 function initMap(){
   var m = L.map('map', {
     zoomControl: true,
@@ -2062,8 +2119,9 @@ function drawSoundings(res, def){
     var m = L.circleMarker([g.y, g.x], {
       radius:3, weight:0, fillColor:col, fillOpacity:.9, interactive:true
     });
-    m.bindTooltip((isNum(v) ? fmt(v,2) + ' (' + field + ')' : 'no value'),
-      { direction:'top' });
+    m.bindPopup(labelNode('Sounding',
+      [[isNum(v) ? fmt(v,2) : '—', field || 'value']],
+      'as published by DWR; the vertical datum is not restated here'), LABEL);
     state.soundingLayer.addLayer(m);
   });
   state.soundingTruncated = res.truncated;
@@ -2132,7 +2190,8 @@ function toggleChart(btn){
   state.layers.chartLimit = L.rectangle(
     NOAA_CHART.limitBand,
     { color:'#DA4A85', weight:1, dashArray:'4 3', fill:false }
-  ).bindTooltip('Chart coverage ends about here — position unconfirmed')
+  ).bindPopup(labelNode('NOAA chart coverage ends about here', null,
+      'The position of this limit is unconfirmed.'), LABEL)
    .addTo(state.map);
 }
 
@@ -2167,7 +2226,10 @@ function drawMarks(){
     var def = MARK_TYPES.filter(function(t){ return t.id===m.type; })[0] || MARK_TYPES[0];
     L.circleMarker([m.lat,m.lon],{ radius:6, weight:2, color:def.colour,
       fillColor:'#0A1214', fillOpacity:.85 })
-      .bindTooltip(def.label + (m.note ? ' — ' + m.note : ''))
+      .bindPopup(labelNode(def.label,
+        [[m.lat.toFixed(5) + ', ' + m.lon.toFixed(5), '']],
+        (m.note ? m.note + ' · ' : '') + 'dropped ' + dayLocal(m.at) + ', ' + clockLocal(m.at)),
+        LABEL)
       .addTo(state.markLayer);
   });
 }
@@ -2523,11 +2585,14 @@ function drawGaugeMarkers(){
       var f = isNum(r.tempF) ? r.tempF : null;
       L.circleMarker([r.lat, r.lon], {
         radius:7, weight:2, color:'#0A1214', fillColor:tempColour(f), fillOpacity:.95
-      }).bindTooltip(
-        (r.name || r.id) + ' — ' + fmt(r.flow,0) + ' cfs, ' +
-        (f === null ? 'no temp' : fmt(f,1) + 'F'),
-        { direction:'top' }
-      ).addTo(state.gaugeLayer);
+      }).bindPopup(labelNode(
+        r.name || r.id,
+        [[fmt(r.flow,0), 'cfs'], [fmt(r.stage,2), 'ft'],
+         [fmt(f,1), 'F', f === null ? null : tempColour(f)]],
+        (r.source ? r.source + ' ' : '#') + r.id +
+        (r.at ? ' · ' + clockLocal(r.at) + ', ' + dayLocal(r.at) : '') +
+        (r.context ? ' · tributary, not this river' : '')
+      ), LABEL).addTo(state.gaugeLayer);
     });
   });
 }
@@ -2544,7 +2609,8 @@ var RELEASES = [
       'The Feather reads from CDEC, because USGS publishes nothing current for that river. Those readings come through this app’s own proxy: CDEC sends no header that would let a browser read it directly.',
       'Season dates and reach boundaries are the words of Title 14 section 7.40 as amended on 6 May 2026.',
       'Tide predictions fetched a week ahead so they stay good with no signal.',
-      'Works offline after first load; flow and temperature say how old they are.'
+      'Works offline after first load; flow and temperature say how old they are.',
+      'Tapping a pin opens a label that pans itself into view, so a pin near the edge of the map still shows its whole reading.'
     ],
     broken:[
       'The Feather has two gauges where the Sacramento has six. Only Gridley and Boyd’s Landing sit on the mainstem in water a salmon can reach; Boyd’s Landing has no temperature sensor, so that reading is a dash rather than a number.',

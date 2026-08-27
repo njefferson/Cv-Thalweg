@@ -76,6 +76,14 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **A Leaflet tooltip is not panned into view and is not flipped.** It is
+  drawn beside its marker and left there, so a pin near an edge puts its label
+  outside the map frame, where the container's overflow cuts it off — and
+  tapping the pin looks like it did nothing. On a phone, where the map is half
+  a screen tall, most pins are near an edge. Popups auto-pan; tooltips never
+  will. Reported from use, not found by any gate, and the gate that now covers
+  it taps a pin at four edges and measures the label against the map's own
+  rectangle.
 - **A timestamp with no offset is not a timestamp.** CDEC publishes Pacific
   times with nothing to say so. Built in the device's zone they are right in
   California and wrong everywhere else, and this app's whole staleness promise
