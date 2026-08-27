@@ -147,6 +147,17 @@ Worth carrying to LESSONS in the hub; each cost real time here.
 - **A NOAA subordinate tide station answers `interval=h` with an error.** It
   publishes highs and lows and nothing between. Drawing a curve through them
   would be inventing the water in between, so the app says what it has.
+- **A `<dialog>` with no focus target of its own opens differently in the two
+  engines, and the walk drives the one where it looks right.** With no
+  `autofocus` the browser focuses the first focusable element it finds, and
+  focusing something inside a scrolling container scrolls that container to it.
+  Chromium treats a scrollable region as focusable in its own right, so it
+  lands on the panel body at scroll zero; WebKit does not, so it takes the
+  first tabbable element instead. The first-run panel's was the Start button at
+  the very end, so on an iPhone it opened scrolled past everything it existed
+  to say. Set the focus explicitly — a `tabindex="-1"` heading, focused after
+  `showModal()` — and assert `activeElement` by name, which fails in both
+  engines when nothing set it. (Hub LESSONS §175.)
 
 ## Scratch
 
@@ -161,6 +172,14 @@ before a first deploy and after anything that changes an import: it is the only
 local way to know that the mount can still reach `worker.js` outside its own
 directory.
 
+
+Node's own `fetch` ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`, and
+reads it at startup, so it cannot be set from inside a script. Without it a
+request to the live site comes back 403 carrying the proxy's own allowlist
+message, which reads exactly like the host refusing us while `curl` returns 200
+for the same URL in the same shell. `check-deploy.mjs` re-execs itself once
+with the variable set; anything else here that reaches production needs the
+same. (Hub LESSONS §173.)
 
 `node tools/check-deploy.mjs` asks the live site which commit it is serving,
 via `functions/version.js`, and checks the proxy went out with it. Run it after
