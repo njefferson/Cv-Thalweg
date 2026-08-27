@@ -104,6 +104,12 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   publishes highs and lows and nothing between. Drawing a curve through them
   would be inventing the water in between, so the app says what it has.
 
+## Scratch
+
+Throwaway drivers — a browser script written to reproduce one bug — go in the
+session scratchpad or `scratch/`, never the repo root. One was written there
+and `git add -A` carried it into a release commit before anyone noticed.
+
 ## Checking a deploy
 
 `npm run check:functions` compiles `functions/` the way Pages will. Run it
