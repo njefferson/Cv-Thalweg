@@ -76,6 +76,26 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **A checker can stop checking without going red.** `tools/verify.mjs`
+  reads `BATHY_PROXY` out of the app. When that became the same-origin
+  `/bathy`, Node could not resolve it, and the DWR and worker groups failed
+  with "Failed to parse URL" — never making a request at all. It went
+  unnoticed for four commits because only `--only=` groups were being run in
+  between. It resolves relative values against `--base` now, defaulting to
+  production, which also means those groups exercise the DEPLOYED proxy
+  rather than DWR directly.
+- **Ask a service for more than it will serve and you get nothing.** Every
+  one of the eighty-one single beam layers publishes `maxRecordCount: 2000`;
+  the app was asking for 3000. It requests the lower of the two now, per
+  layer, from the catalogue.
+- **DWR's single beam service goes away under load, and that is not a bug
+  here.** Queries that answered in the morning were timing out by the
+  evening — including a count with no geometry at all — while metadata on the
+  same service stayed instant. A check that calls that red cries wolf every
+  time they are busy, so the verifier separates three outcomes: a parameter
+  the service REFUSES is ours and fails; a timeout or a generic "error
+  performing query" is theirs and is reported without failing. The app says
+  whose it is on screen too, rather than printing a bare error.
 - **A phone is not a narrow desktop, and the measurement said so.** On a
   667px screen this app gave its readings panel THIRTY-FOUR pixels, for
   1,546px of content. Three separate causes, and the one that got reported —

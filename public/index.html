@@ -548,7 +548,10 @@ var TEMP_READING = [
   { under:999,text:'Over 72F — stressed. A first-light proposition.' }
 ];
 
-/* Feature query hard cap. Never request a whole layer. */
+/* Feature query hard cap. Never request a whole layer.
+   The service publishes its own ceiling per layer — every one of the
+   eighty-one says 2000 — and asking above it is asking for something that
+   cannot be served. The lower of the two is what gets requested. */
 var FEATURE_CAP = 3000;
 
 /* =====================================================================
@@ -1299,6 +1302,7 @@ function loadCatalog(force){
         title:l.name,
         description: plainText(l.description).slice(0, 400),
         depthField: pickDepthField(l.fields),
+        maxRecords: isNum(l.maxRecordCount) ? l.maxRecordCount : null,
         fields:(l.fields || []).map(function(f){ return f.name; }),
         box: extentToLatLng(l.extent)
       };
@@ -1381,6 +1385,7 @@ function catalogFor(cat, river){
    would be tens of megabytes onto a phone on a levee road. */
 function querySoundings(layer, bounds){
   var b = bounds;
+  var cap = Math.min(FEATURE_CAP, layer.maxRecords || FEATURE_CAP);
   var env = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
   var url = dwr(SBM_SERVICE + '/' + layer.id + '/query' +
     '?f=json&where=1%3D1' +
@@ -1389,14 +1394,15 @@ function querySoundings(layer, bounds){
     '&spatialRel=esriSpatialRelIntersects' +
     '&outFields=' + encodeURIComponent(layer.depthField || '*') +
     '&returnGeometry=true&outSR=4326' +
-    '&resultRecordCount=' + FEATURE_CAP);
+    '&resultRecordCount=' + cap);
   return getJSON(url, 30000).then(function(j){
     if (j.error) throw new Error(j.error.message || 'service error');
     var feats = j.features || [];
     logNet('DWR soundings', url, true, feats.length + ' features');
     return {
       features: feats,
-      truncated: !!j.exceededTransferLimit || feats.length >= FEATURE_CAP,
+      truncated: !!j.exceededTransferLimit || feats.length >= cap,
+      cap: cap,
       field: layer.depthField
     };
   }, function(e){
@@ -2182,7 +2188,14 @@ function refreshSoundings(){
     drawSoundings(res, def);
   }, function(e){
     state.soundingLayer.clearLayers();
-    state.soundingNote = 'Sounding query failed: ' + (e && e.message || e);
+    var msg = String(e && e.message || e);
+    /* Some published surveys do not answer a query at all — the service
+       times out on them however small the box. That is at DWR's end and
+       there is nothing to do about it from here, so say whose it is and
+       point at the rest of the list rather than leaving a bare error. */
+    state.soundingNote = /timeout|Error performing query|Error handling service/i.test(msg)
+      ? 'DWR’s service did not answer for this survey. That is at their end rather than yours — the other surveys in this list are unaffected.'
+      : 'Sounding query failed: ' + msg;
     renderLayers(); updateLegend();
   });
 }
@@ -2217,7 +2230,7 @@ function drawSoundings(res, def){
   state.soundingTruncated = res.truncated;
   state.soundingNote = res.truncated
     ? 'Showing ' + commas(res.features.length) + ' soundings — the ' +
-      commas(FEATURE_CAP) + ' cap truncated this view. Zoom in to see the rest; what is drawn is not all that was surveyed here.'
+      commas(res.cap || FEATURE_CAP) + ' cap truncated this view. Zoom in to see the rest; what is drawn is not all that was surveyed here.'
     : commas(res.features.length) + ' soundings in view.';
   renderLayers(); updateLegend();
 }

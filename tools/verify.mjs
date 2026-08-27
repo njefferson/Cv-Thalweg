@@ -18,6 +18,22 @@ import { RIVERS, bathyProxy } from './lib-rivers.mjs';
 const args = process.argv.slice(2);
 const only = (args.find(a => a.startsWith('--only=')) || '').split('=')[1] || '';
 const asJson = args.includes('--json');
+
+/* BATHY_PROXY is same-origin in the app — '/bathy' — because the proxy
+   ships as a Pages Function beside the site. A browser resolves that
+   against the page it is on; Node has no page, so it must be told which
+   origin to resolve against. Getting this wrong does not fail loudly: it
+   fails with "Failed to parse URL", once per check, and a group that
+   never made a request looks the same as a group that failed. It went
+   unnoticed for four commits. */
+const base = (args.find(a => a.startsWith('--base=')) || '').split('=')[1]
+  || 'https://cv-thalweg.pages.dev';
+function proxyOrigin() {
+  const p = bathyProxy();
+  if (!p) return 'https://gis.water.ca.gov';
+  if (/^https?:\/\//.test(p)) return p;
+  return base.replace(/\/$/, '') + p;
+}
 const TIMEOUT = 90000;
 
 /* DWR reflects the requesting origin rather than sending a wildcard, so a
@@ -157,7 +173,9 @@ async function checkTide() {
 
 /* ------------------------------------------------------------------ */
 async function checkDwr() {
-  const base = bathyProxy() || 'https://gis.water.ca.gov';
+  const base = proxyOrigin();
+  record('dwr', 'requests go through', null, base +
+    (bathyProxy() ? '' : ' (BATHY_PROXY is empty, so straight to DWR)'));
   const folder = `${base}/arcgisimg/rest/services/Bathymetry?f=json`;
   const f = await hit(folder);
   if (f.err || !f.res?.ok) {
@@ -212,29 +230,49 @@ async function checkDwr() {
   const layers = (l.body?.layers || []).filter(x => x.type !== 'Group Layer');
   record('dwr', 'singlebeam layers', layers.length > 0,
     `${layers.length} layer(s); ${corsNote(l.acao)}`);
-  let probed = false;
+  let probed = 0, answered = false, rejected = null;
   for (const lay of layers) {
     const wkid = lay.extent?.spatialReference?.latestWkid || lay.extent?.spatialReference?.wkid;
     const rivers = lay.extent ? placeExtent(lay.extent, wkid) : [];
     const depth = (lay.fields || []).map(f => f.name).find(n => /^z$|elev|depth|bed|bottom|sounding/i.test(n));
     record('dwr', `  layer ${lay.id} ${lay.name}`, null,
       `wkid ${wkid}; ${rivers.length ? 'intersects ' + rivers.join(', ') : 'no river box matched'}; depth field ${depth || 'NOT IDENTIFIED'}`);
-    if (!probed && rivers.length) {
-      probed = true;
+    /* Try a few, not one. A published survey that DWR's own service will
+       not query — and there is at least one — is an upstream fact, not a
+       defect here; what this check is for is whether the query SHAPE the
+       app sends is accepted at all. */
+    if (probed < 3 && rivers.length) {
+      probed++;
       const geo = geoExtent(lay.extent, wkid);
       const env = [geo.w, geo.s, Math.min(geo.e, geo.w + 0.01), Math.min(geo.n, geo.s + 0.01)].join(',');
       const q = `${base}/arcgis/rest/services/Elevation/i06_Singlebeam_Bathymetry/MapServer/${lay.id}/query?f=json&where=1%3D1&geometry=${encodeURIComponent(env)}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=${encodeURIComponent(depth || '*')}&returnGeometry=true&outSR=4326&resultRecordCount=50`;
       const qr = await hit(q);
-      if (qr.err || !qr.res?.ok) record('dwr', `  layer ${lay.id} bounded query`, false, qr.err || `HTTP ${qr.res.status}`);
-      else if (qr.body?.error) record('dwr', `  layer ${lay.id} bounded query`, false, qr.body.error.message);
+      /* Three outcomes, not two. A parameter the service refuses is this
+         app's bug; a timeout or a generic "error performing query" under
+         load is DWR's weather. Only the first should ever go red here, or
+         the check cries wolf every time their service is busy. */
+      const refused = /invalid|cannot be parsed|unsupported|unable to complete operation|missing input/i;
+      if (qr.err || !qr.res?.ok) record('dwr', `  layer ${lay.id} bounded query`, null,
+        (qr.err || `HTTP ${qr.res.status}`) + ' — no answer from DWR for this survey');
+      else if (qr.body?.error) {
+        const m = qr.body.error.message || '';
+        if (refused.test(m)) { rejected = m; record('dwr', `  layer ${lay.id} bounded query`, false, m); }
+        else record('dwr', `  layer ${lay.id} bounded query`, null, m + ' — DWR did not answer for this survey');
+      }
       else {
         const fs = qr.body?.features || [];
         const g0 = fs[0]?.geometry;
+        answered = true;
         record('dwr', `  layer ${lay.id} bounded query`, Array.isArray(fs),
           `${fs.length} feature(s)${g0 ? `, first at ${g0.y}, ${g0.x}` : ''}; ${corsNote(qr.acao)}`);
       }
     }
   }
+  record('dwr', 'the sounding query shape is accepted',
+    rejected ? false : (answered ? true : null),
+    rejected ? 'the service refused a parameter: ' + rejected
+      : answered ? 'a survey answered a bounded query'
+      : 'no survey answered and none refused a parameter — DWR was not serving queries when this ran, which is theirs rather than ours');
 }
 
 function invMerc(x, y) {
@@ -281,8 +319,10 @@ async function checkBase() {
 
 /* ------------------------------------------------------------------ */
 async function checkWorker() {
-  const p = bathyProxy();
-  if (!p) { record('worker', 'BATHY_PROXY', null, 'empty — the app talks to DWR directly; nothing to check'); return; }
+  const raw = bathyProxy();
+  if (!raw) { record('worker', 'BATHY_PROXY', null, 'empty — the app talks to DWR directly; nothing to check'); return; }
+  const p = proxyOrigin();
+  record('worker', 'proxy under test', null, p);
   const ok = await hit(`${p}/arcgisimg/rest/services/Bathymetry?f=json`);
   record('worker', 'allowed path', !ok.err && ok.res?.ok,
     ok.err || `HTTP ${ok.res.status}; ${corsNote(ok.acao)}; cache ${ok.res.headers.get('x-thalweg-cache')}`);
