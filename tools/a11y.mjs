@@ -49,8 +49,11 @@ async function welcomeChecks(page, name) {
   const open = await page.evaluate(() => {
     const d = document.getElementById('welcome'), b = document.getElementById('welcomebody');
     const c = document.getElementById('welcomeclose').getBoundingClientRect();
+    const hit = document.elementFromPoint((c.left + c.right) / 2, (c.top + c.bottom) / 2);
     return { open: d.open, scroll: b.scrollTop, focus: document.activeElement && document.activeElement.id,
-             closeTop: Math.round(c.top), closeVisible: c.width > 0 && c.height > 0 && c.top >= 0 && c.bottom <= window.innerHeight,
+             closeTop: Math.round(c.top),
+             closeVisible: c.width > 0 && c.height > 0 && c.top >= 0 && c.bottom <= window.innerHeight,
+             hit: hit ? (hit.id || hit.tagName) : null,
              height: Math.round(d.getBoundingClientRect().height), vh: window.innerHeight,
              bottomOut: !!document.querySelector('#welcomebody .rowline button') };
   });
@@ -58,8 +61,12 @@ async function welcomeChecks(page, name) {
     open.open && open.scroll === 0, JSON.stringify(open));
   check(`${name}: first run puts focus on its title, not the button at the end`,
     open.focus === 'welcometitle', JSON.stringify(open));
+  /* Hit-testing rather than arithmetic against the viewport, because a
+     rectangle inside the viewport is not the same as a rectangle nobody has
+     painted over — and a ceiling written as the number zero is a claim about
+     the viewport, not about what a reader can reach (hub LESSONS §174). */
   check(`${name}: first run shows a way out in the first frame`,
-    open.closeVisible, JSON.stringify(open));
+    open.closeVisible && open.hit === 'welcomeclose', JSON.stringify(open));
   check(`${name}: first run offers a way out at the end as well`,
     open.bottomOut, JSON.stringify(open));
   check(`${name}: first run is bounded by the screen`,

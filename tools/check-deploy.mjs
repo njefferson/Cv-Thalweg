@@ -12,7 +12,21 @@
  * commit currently checked out here. Exits non-zero if they differ, if
  * the site does not answer, or if the site cannot say what it is.
  */
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
+
+/* Node's own fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, and
+   it reads that at STARTUP, so setting it here would be too late. Without it
+   this asks the proxy directly and gets back a 403 carrying the proxy's own
+   allowlist message — which reads exactly like the host refusing us, while
+   curl returns 200 for the same URL in the same shell. Re-exec once with the
+   variable in place rather than concluding the site is unreachable.
+   (Hub LESSONS §173.) */
+if (!process.env.NODE_USE_ENV_PROXY &&
+    (process.env.HTTPS_PROXY || process.env.https_proxy)) {
+  const r = spawnSync(process.execPath, [import.meta.filename, ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+  process.exit(r.status === null ? 1 : r.status);
+}
 
 const url = (process.argv[2] || 'https://cv-thalweg.pages.dev').replace(/\/$/, '');
 let expected = process.argv[3];
