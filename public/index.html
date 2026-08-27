@@ -89,6 +89,12 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
 
 /* ---------- main ---------- */
 main{flex:1 1 auto; display:flex; min-height:0}
+/* The map is per-river — depth is, marks are — so on All it can only show
+   ungrounded dots. All is the compare-and-choose view and gets the whole
+   stage; the map returns the moment a river is picked. */
+body.all-rivers #map{display:none}
+body.all-rivers #rail{flex:1 1 auto; width:auto; border-left:0}
+body.all-rivers #maptoggle{display:none}
 #map{flex:1 1 auto; min-height:260px; background:#08100f}
 #rail{
   flex:0 0 var(--rail); width:var(--rail); background:var(--panel);
@@ -114,6 +120,21 @@ h2.sec{font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
 h2.sec:first-child{margin-top:0}
 
 /* ---------- readings ---------- */
+/* One card per river: what decides the drive, and nothing else. */
+.rivercard{display:block; width:100%; text-align:left; margin:.5rem 0;
+  padding:.6rem .65rem; border:1px solid var(--teal-line); border-radius:3px;
+  background:var(--panel-2); cursor:pointer}
+.rivercard:hover{background:#16302e}
+.rivercard .rc-top{display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap}
+.rivercard .rc-name{font-size:1rem; font-weight:600; letter-spacing:.02em}
+.rivercard .rc-season{font-size:.66rem; letter-spacing:.07em; text-transform:uppercase;
+  border:1px solid currentColor; padding:.05rem .3rem; border-radius:2px; white-space:nowrap}
+.rivercard .rc-temp{display:flex; align-items:baseline; gap:.45rem; margin:.35rem 0 .1rem}
+.rivercard .rc-deg{font-family:var(--water); font-style:italic; font-size:1.7rem; line-height:1}
+.rivercard .rc-read{font-size:.8rem; color:var(--ink)}
+.rivercard .rc-line{font-size:.78rem; color:var(--mute); margin-top:.15rem}
+.rivercard .rc-line b{color:var(--ink); font-weight:400;
+  font-family:var(--water); font-style:italic}
 .rdg{border-bottom:1px solid #16302e; padding:.45rem 0}
 .rdg:last-child{border-bottom:0}
 .rdg-name{font-size:.85rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap}
@@ -1761,9 +1782,170 @@ function setBasemap(id){
    A river that is not tidal shows no tide section at all rather than an
    empty chart: an empty chart reads as "no tide today".
    ===================================================================== */
+/* --- the All view: one card per river ------------------------------- */
+
+/* How much water is coming down: the most downstream gauge that is ABOVE
+   the tide.
+ *
+ * The furthest downstream gauge is the obvious choice and it is wrong on a
+ * tidal river. Instantaneous flow at Rio Vista was reading minus eighty-five
+ * thousand cubic feet a second while this was being written — a true
+ * measurement of a flooding tide pushing the river backwards, and no
+ * description at all of what the Sacramento is carrying. The gauge to ask is
+ * the lowest one the tide does not reach, which on the Sacramento is Verona.
+ *
+ * Where every gauge on a river is tidal — the Mokelumne, all three of them —
+ * there is no such gauge, and the honest answer is to say so rather than
+ * print a tidal swing as discharge.
+ */
+function downstreamFlow(river){
+  var payload = state.gauges[river.id];
+  if (!payload) return null;
+  var edge = river.tidal ? tidalEdge(river) : null;
+  var best = null, bestTidal = null;
+  payload.rows.forEach(function(r){
+    if (r.context || !isNum(r.flow)) return;
+    var v = axisValue(river, r);
+    if (!isNum(v)) return;
+    var underTide = edge ? (v <= edge.v) : false;
+    if (underTide){
+      if (bestTidal === null || v < bestTidal.v)
+        bestTidal = { v:v, flow:r.flow, name:r.name || r.id, tidal:true };
+    } else if (best === null || v < best.v){
+      best = { v:v, flow:r.flow, name:r.name || r.id, tidal:false };
+    }
+  });
+  return best || bestTidal;
+}
+
+/* Mean of the gauges that have a thermometer, and how many that was. One
+   river's worth of water is not one temperature, and saying which gauges
+   it came from is the difference between a figure and a guess. */
+function meanTemp(river){
+  var payload = state.gauges[river.id];
+  if (!payload) return null;
+  var t = payload.rows.filter(function(r){ return !r.context && isNum(r.tempF); })
+                      .map(function(r){ return r.tempF; });
+  if (!t.length) return null;
+  return { f: t.reduce(function(a,b){ return a+b; },0) / t.length, n: t.length };
+}
+
+/* The next turn, from the predictions already fetched. */
+function nextTurn(river){
+  var t = state.tides[river.id];
+  if (!t || !t.hilo || !t.hilo.length) return null;
+  var now = Date.now();
+  for (var i = 0; i < t.hilo.length; i++){
+    var when = new Date(t.hilo[i].t.replace(' ','T'));
+    if (when.getTime() > now)
+      return { type: t.hilo[i].type === 'H' ? 'high' : 'low',
+               at: when, v: t.hilo[i].v };
+  }
+  return null;
+}
+
+/* How many of this river's reaches are open today. */
+function seasonState(river){
+  if (!river.reaches.length) return { text:'season not confirmed', tone:'unknown' };
+  var open = 0;
+  river.reaches.forEach(function(rc){
+    var now = new Date();
+    for (var i = 0; i < rc.windows.length; i++){
+      if (now >= new Date(rc.windows[i][0] + 'T00:00') &&
+          now <= new Date(rc.windows[i][1] + 'T23:59')) { open++; return; }
+    }
+  });
+  if (open === 0) return { text:'closed', tone:'shut' };
+  if (open === river.reaches.length)
+    return { text:'open · ' + open + (open === 1 ? ' reach' : ' reaches'), tone:'open' };
+  return { text:open + ' of ' + river.reaches.length + ' reaches open', tone:'part' };
+}
+
+function riverCard(river){
+  var season = seasonState(river);
+  var temp = meanTemp(river);
+  var flow = downstreamFlow(river);
+  var turn = river.tidal ? nextTurn(river) : null;
+  var payload = state.gauges[river.id];
+
+  var card = el('button',{ type:'button', class:'rivercard' });
+  var top = el('div',{class:'rc-top'});
+  top.appendChild(el('span',{class:'rc-name',text:river.name}));
+  var chip = el('span',{class:'rc-season',text:season.text});
+  chip.style.color = season.tone === 'open' ? '#9BD98C'
+                   : season.tone === 'shut' ? '#E76F9F'
+                   : season.tone === 'part' ? '#C9A96A' : '#9FB3B1';
+  top.appendChild(chip);
+  card.appendChild(top);
+
+  var t = el('div',{class:'rc-temp'});
+  var deg = el('span',{class:'rc-deg', text: temp ? fmt(temp.f,0) + 'F' : '—'});
+  if (temp) deg.style.color = tempColour(temp.f);
+  t.appendChild(deg);
+  t.appendChild(el('span',{class:'rc-read',
+    text: temp ? (tempReading(temp.f) || '') : 'no thermometer reporting'}));
+  card.appendChild(t);
+  if (temp) card.appendChild(el('div',{class:'rc-line',
+    text:'mean of ' + temp.n + (temp.n === 1 ? ' gauge' : ' gauges')}));
+
+  var fl = el('div',{class:'rc-line'});
+  if (flow && flow.tidal){
+    /* Nothing above the tide on this river, so the number swings with it. */
+    fl.appendChild(el('b',{text:commas(fmt(flow.flow,0))}));
+    fl.appendChild(document.createTextNode(' cfs at ' + flow.name +
+      ' — tidal flow, not what the river is carrying'));
+  } else if (flow){
+    fl.appendChild(el('b',{text:commas(fmt(flow.flow,0))}));
+    fl.appendChild(document.createTextNode(' cfs at ' + flow.name));
+  } else if (payload && payload.rows.length){
+    fl.appendChild(document.createTextNode('no flow reading'));
+  } else {
+    fl.appendChild(document.createTextNode('loading…'));
+  }
+  card.appendChild(fl);
+
+  if (river.tidal){
+    var td = el('div',{class:'rc-line'});
+    if (turn){
+      td.appendChild(document.createTextNode('next ' + turn.type + ' '));
+      td.appendChild(el('b',{text:clockLocal(turn.at.toISOString())}));
+      td.appendChild(document.createTextNode(' · ' + fmt(turn.v,1) + ' ft'));
+    } else {
+      td.appendChild(document.createTextNode('tidal — no prediction loaded'));
+    }
+    card.appendChild(td);
+  }
+
+  card.setAttribute('aria-label', river.name + '. ' + season.text + '. ' +
+    (temp ? fmt(temp.f,0) + ' degrees, ' + (tempReading(temp.f) || '') + ' ' : '') +
+    (flow ? commas(fmt(flow.flow,0)) + ' cubic feet per second at ' + flow.name +
+       (flow.tidal ? ', tidal flow rather than river discharge' : '') + '. ' : '') +
+    (turn ? 'Next ' + turn.type + ' at ' + clockLocal(turn.at.toISOString()) + '. ' : '') +
+    'Show this river.');
+  card.addEventListener('click', function(){
+    selectRiver(river.id);
+    selectTab(0);
+  });
+  return card;
+}
+
 function renderWater(){
   var p = $('#panel-water'); p.innerHTML = '';
-  var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
+
+  if (!state.riverId){
+    p.appendChild(el('h2',{class:'sec',text:'Which river'}));
+    RIVERS.forEach(function(river){ p.appendChild(riverCard(river)); });
+    var g = state.gauges[RIVERS[0].id];
+    if (g && (g.stale || g.noData)) p.appendChild(el('div',{class:'warnbox',
+      text:'These are stored readings — the network did not answer. Ages are in the header.'}));
+    p.appendChild(el('p',{class:'note',
+      text:'Four rivers, one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
+    p.appendChild(el('p',{class:'note',
+      text:'Tap a river for its tide, its gauges one by one, its published depth surveys and your own marks.'}));
+    return;
+  }
+
+  var rivers = [byId(state.riverId)];
 
   rivers.forEach(function(river){
     if (rivers.length > 1) p.appendChild(el('h2',{class:'sec',text:river.name}));
@@ -1998,7 +2180,7 @@ function renderLayers(){
   var river = state.riverId ? byId(state.riverId) : null;
   if (!river){
     p.appendChild(el('p',{class:'note',
-      text:'Pick a single river to load depth. The All view is for comparing conditions, not for reading bottom.'}));
+      text:'Depth belongs to a reach, so it comes with a river. Pick one above and the map opens with it — All rivers is for choosing between them, not for reading bottom.'}));
     return;
   }
   var cat = catalogFor(state.catalog, river);
@@ -2635,9 +2817,14 @@ function selectRiver(id){
   state.soundingLayer.clearLayers();
   updateLegend();
 
+  document.body.classList.toggle('all-rivers', !state.riverId);
+  if (!state.riverId) setMapShown(false);
+
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
     state.map.setView(river.center, river.zoom);
+    /* The map has been display:none while All was showing. */
+    setTimeout(function(){ if (state.map) state.map.invalidateSize(); }, 60);
     loadMarks(river.id);
   } else {
     state.markLayer.clearLayers(); state.marks = [];

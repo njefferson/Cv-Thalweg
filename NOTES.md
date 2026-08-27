@@ -76,6 +76,14 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **The furthest downstream gauge on a tidal river measures the tide.**
+  Rio Vista was reading MINUS eighty-five thousand cubic feet a second while
+  the river card was being built — a true measurement of a flooding tide
+  pushing the Sacramento backwards, and no description at all of what the
+  river is carrying. "How much water is coming down" has to come from the
+  lowest gauge the tide does not reach, which is Verona. Where every gauge on
+  a river is tidal, as all three of the Mokelumne's are, the card says the
+  number is tidal rather than dressing it up as discharge.
 - **A checker can stop checking without going red.** `tools/verify.mjs`
   reads `BATHY_PROXY` out of the app. When that became the same-origin
   `/bathy`, Node could not resolve it, and the DWR and worker groups failed

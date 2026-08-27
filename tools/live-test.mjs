@@ -57,14 +57,40 @@ await page.waitForTimeout(18000);
 await page.evaluate(() => { const d = document.getElementById('welcome'); if (d && d.open) d.querySelector('button').click(); });
 await page.waitForTimeout(3000);
 
-/* ---- gauges ---- */
+/* ---- the landing: one card per river, no map ---- */
 let water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
-check('USGS answered with real site names', /SACRAMENTO R A RIO VISTA CA/i.test(water), water.slice(0, 200));
-check('a flow figure is present', /\d[\d,]* ?cfs|\d+ cfs/i.test(water) || /cfs/.test(water));
-check('no site errored', !/request failed|no data returned/.test(water), water.slice(0, 400));
+const cards = await page.evaluate(() => [...document.querySelectorAll('.rivercard')]
+  .map(c => c.textContent.replace(/\s+/g, ' ').trim()));
+check('a card for every river', cards.length === 4, JSON.stringify(cards.length));
+check('every card carries a temperature and a reading',
+  cards.every(c => /\d+F/.test(c) && /(moving|workable|holding deep|stressed)/.test(c)),
+  JSON.stringify(cards));
+check('every card carries a flow figure', cards.every(c => /cfs/.test(c)), JSON.stringify(cards));
+check('every card says whether the river is open',
+  cards.every(c => /open|closed|not confirmed/i.test(c)), JSON.stringify(cards));
+/* The furthest downstream gauge on a tidal river reads the tide, not the
+   river. Discharge has to come from the lowest gauge above the tide. */
+check('the Sacramento quotes a gauge above the tide, not Rio Vista',
+  /VERONA/i.test(cards[0]) && !/RIO VISTA/i.test(cards[0]), cards[0]);
+check('a river with no gauge above the tide says its flow is tidal',
+  /tidal flow, not what the river is carrying/.test(cards[3]), cards[3]);
+check('All rivers shows no map',
+  await page.evaluate(() => document.getElementById('map').getBoundingClientRect().height === 0));
 check('the header is not claiming stale data',
   !/network did not answer/.test(await page.textContent('#staleness')),
   await page.textContent('#staleness'));
+
+/* ---- and a card opens its river ---- */
+await page.click('.rivercard');
+await page.waitForTimeout(14000);
+check('tapping a card opens that river',
+  await page.evaluate(() => document.getElementById('riverpick').value) === 'sacramento');
+check('the map comes back with it',
+  await page.evaluate(() => document.getElementById('map').getBoundingClientRect().height > 100));
+water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
+check('USGS answered with real site names', /SACRAMENTO R A RIO VISTA CA/i.test(water), water.slice(0, 200));
+check('a flow figure is present', /cfs/.test(water));
+check('no site errored', !/request failed|no data returned/.test(water), water.slice(0, 400));
 
 /* ---- ribbon ---- */
 const note = await page.textContent('#ribbonnote');
@@ -82,13 +108,6 @@ check('a tide curve was drawn', await page.evaluate(() => !!document.querySelect
 check('highs and lows listed', /High ·|Low ·/.test(water), water.slice(0, 300));
 
 /* ---- layers, enumerated live ---- */
-/* Depth is per river and the app opens on All, so pick one. */
-check('a first run opens on All rivers',
-  await page.evaluate(() => document.getElementById('riverpick').value) === '',
-  await page.evaluate(() => document.getElementById('riverpick').value));
-await page.selectOption('#riverpick', 'sacramento');
-await page.waitForTimeout(12000);
-water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
 await page.click('#tab-layers');
 await page.waitForTimeout(30000);
 let layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');

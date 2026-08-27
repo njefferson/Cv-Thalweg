@@ -75,7 +75,17 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
     check('phone: chrome above the readings is under half the screen',
       (box.header + box.ribbon) < box.vh * 0.5, JSON.stringify(box));
 
-    /* And the map, once asked for, believes it is the size it is. */
+    /* All rivers has no map, so it has no Map button either. */
+    check('phone: All rivers offers no map button',
+      await page.evaluate(() => {
+        const b = document.getElementById('maptoggle');
+        return !b || b.getBoundingClientRect().height === 0;
+      }));
+
+    /* And the map, once a river is picked and it is asked for, believes it
+       is the size it is. */
+    await page.selectOption('#riverpick', 'sacramento');
+    await page.waitForTimeout(1200);
     await page.click('#maptoggle');
     await page.waitForTimeout(900);
     const mapBox = await page.evaluate(() => ({
