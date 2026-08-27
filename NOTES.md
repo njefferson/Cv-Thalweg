@@ -15,11 +15,9 @@ session needs before it touches anything.
 
 - Connect the repository to Cloudflare Pages: build command none, output
   directory `public`. That is the entire deploy.
-- Allow two hosts on the session network, if this is to be finished from a
-  session rather than by hand. `cdec.water.ca.gov`, to write the Feather's
-  gauge parser against what CDEC actually sends. And `cv-thalweg.pages.dev` —
-  every `pages.dev` host is currently refused by the egress policy, including
-  the hub's own site, so a session cannot check its own deploy without it.
+- Allow `cv-thalweg.pages.dev` on the session network. `cdec.water.ca.gov` and
+  `noahjefferson.pages.dev` were allowed on 27 August 2026; the Thalweg host
+  was not, so a session still cannot check its own deploy.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.
@@ -67,6 +65,15 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   caching that directory response first quietly undoes it. Cache-first belongs
   to finished things: a depth tile, a basemap tile. A directory and a query go
   network-first with the cache as the fallback.
+- **A timestamp with no offset is not a timestamp.** CDEC publishes Pacific
+  times with nothing to say so. Built in the device's zone they are right in
+  California and wrong everywhere else, and this app's whole staleness promise
+  rests on the reading time. Anchor to the named zone, and check both sides of
+  a daylight-saving boundary.
+- **A refused value must not move the clock.** The units check rejected a
+  reading, and the reading time went on advancing past it — printing a
+  timestamp newer than any value on screen. A fixture caught it; nothing about
+  the live data would have.
 - **A supplied list of "confirmed" layers was one-for-four.** Three of the four
   layer names handed over at the start no longer exist in that folder. The
   instruction not to trust the list was correct, and enumerating at runtime is
@@ -88,16 +95,9 @@ necessarily to this commit.
 
 ## Owed
 
-- **CDEC for the Feather, stopped one step short on purpose.** The proxy
-  namespaces it at `/cdec`, forwards only the read-only data servlets, never
-  caches them, and the service worker treats that path as live; all of that is
-  unit-tested. What is not written is the parser, because
-  `cdec.water.ca.gov` is unreachable from here and its schema is not documented
-  anywhere reachable either. Writing one from memory would risk the single
-  worst outcome this app has: a confident wrong flow. Run
-  `node tools/verify.mjs --only=cdec` from a network that can reach it — it
-  prints the station search, the top-level shape and the first record's field
-  names — then write the parser against that.
+- CDEC is in, for the Feather only. If another river ever needs it, the
+  proxy namespace and the parser are already general; what is river-specific
+  is the `cdecGauges` list, which belongs in RIVERS like everything else.
 - The final per-reach 2026 season dates, if the Department's May presentation
   is ever published. The reaches and their standing windows are read from the
   Commission's filings; the possibility that a reach was shortened is stated in

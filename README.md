@@ -147,6 +147,8 @@ be allowed to read it, and whether the response is the shape the code expects.
 
 - **USGS instantaneous values.** All fourteen declared gauge identifiers answer
   with the site name shown beside them in the app. `Access-Control-Allow-Origin: *`.
+- **CDEC.** Both Feather stations answer, with the units the parser requires.
+  No CORS header, confirmed — hence the proxy.
 - **NOAA CO-OPS predictions.** All four declared stations answer.
   `Access-Control-Allow-Origin: *`.
 - **NOAA CO-OPS station index.** Answers; forty-four prediction stations fall in
@@ -162,7 +164,6 @@ be allowed to read it, and whether the response is the shape the code expects.
 Two things could not be verified, because the network this was built on cannot
 reach them. Both are handled by the app rather than assumed:
 
-- **CDEC**, `cdec.water.ca.gov`. Nothing in the app reads it yet; see above.
 - **NOAA raster chart tiles** at `tileservice.charts.noaa.gov`. The layer is
   offered, marked unverified, and switches itself off with a message if the
   first tiles do not arrive.
@@ -179,32 +180,49 @@ the named ramp `Elevation #2` over a percent-clip stretch with dynamic range
 adjustment is the one that picks the thalweg out from the flats either side of
 it. That is what ships.
 
-## The Feather has no live gauge
+## The Feather comes from CDEC, not USGS
 
 No USGS site on the Feather mainstem publishes instantaneous values. Checked on
 27 August 2026 against Oroville, Gridley, Yuba City, Shanghai Bend and
 Nicolaus: the sites exist, the historical records are there, and the current
-series are empty. The Feather is gauged by DWR through CDEC.
+series are empty. The Feather is gauged by DWR, through CDEC, so that is where
+this river's readings come from.
 
-So the Feather's Water panel says that in words and shows the two tributaries
-that join it — the Yuba at Marysville and the Bear at Wheatland — clearly marked
-as tributaries and kept off the ribbon, which is positions along one river.
+Two stations, both confirmed against CDEC's own metadata pages rather than
+assumed from their identifiers:
 
-**CDEC is half-built and deliberately stopped short.** The proxy already
-namespaces it at `/cdec`, forwards only its read-only data servlets, never
-caches them, and the service worker treats that path as live data. What is
-missing is the part that could not be written honestly: `cdec.water.ca.gov` is
-unreachable from the network this was built on, its response schema is not
-documented anywhere reachable either, and a parser written from memory against
-an unseen shape is the one thing this app exists not to do — it would either
-fail visibly, which is no better than today, or pick the wrong field and show a
-confident wrong flow, which is worse.
+- **GRL**, Feather River near Gridley, Butte County. Stage, flow and water
+  temperature.
+- **FSB**, Feather River at Boyd's Landing above Star Bend, Sutter County.
+  Stage and flow; no temperature sensor, so that reading is a dash.
 
-`node tools/verify.mjs --only=cdec` is the missing step. It is a discovery tool
-rather than a set of assertions: run it from a network that can reach CDEC and
-it prints the station search result, the top-level shape, and the field names of
-the first record for several candidate stations and sensors. The parser gets
-written against that.
+Two more in the basin report and are deliberately absent. The Oroville Fish
+Hatchery reports the hatchery's flow rather than the river's, and the Middle
+Fork near Portola is above Oroville Dam, which no salmon gets past. Both would
+have been plausible and neither is fishery water.
+
+The Yuba at Marysville and the Bear at Wheatland are still shown, from USGS,
+marked as tributaries and kept off the ribbon — the ribbon is positions along
+one river.
+
+Three things about CDEC shape the code, and each was measured rather than
+assumed. It answers with a plain array rather than an envelope. It sends no
+`Access-Control-Allow-Origin` at all, so a browser can only read it through
+this app's own proxy — which is why `/cdec` exists. And its timestamps carry no
+offset, being Pacific by convention, so they are anchored to
+`America/Los_Angeles` rather than to the device: read from anywhere else they
+would arrive hours adrift, and "how old is this reading" is the one question
+this app must not get wrong.
+
+Every value is checked against the units the row itself declares, not against
+the sensor number alone. A sensor renumbered or re-scaled at the far end
+produces no reading rather than a wrong one, and the reading time follows the
+newest value actually used rather than the newest row seen — otherwise a row
+refused for its units would print a timestamp newer than anything on screen.
+CDEC's `-9999` sentinel, which it returns for timestamps that have not happened
+yet, is discarded. All four of those are covered by fixtures in
+`tools/render-test.mjs`, and `node tools/verify.mjs --only=cdec` re-checks the
+live stations and their units.
 
 ## Regulations
 

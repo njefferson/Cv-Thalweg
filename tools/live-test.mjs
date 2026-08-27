@@ -117,10 +117,26 @@ check('the Feather says it has no multibeam', /No published multibeam survey for
 check('the Feather offers its 2017 single beam surveys',
   /i06_Bathy_NCRO_2017\d+_FeatherRiver/.test(layers), layers.slice(0, 600));
 water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
-check('the Feather explains why it has no live gauge',
-  /No USGS gauge on the Feather mainstem/.test(water), water.slice(0, 300));
-check('the Feather shows its tributaries instead',
-  /YUBA R NR MARYSVILLE|BEAR R NR WHEATLAND/i.test(water), water.slice(0, 500));
+check('the Feather reports from CDEC',
+  /Feather River near Gridley/.test(water) && /CDEC GRL/.test(water), water.slice(0, 400));
+check('the Feather gauges carry real flow',
+  await page.evaluate(() => (state.gauges.feather.rows || [])
+    .filter(r => r.source === 'CDEC' && typeof r.flow === 'number' && r.flow > 0).length) >= 2,
+  await page.evaluate(() => JSON.stringify((state.gauges.feather.rows || [])
+    .filter(r => r.source === 'CDEC').map(r => [r.id, r.flow, r.stage, r.tempF]))));
+check('the -9999 sentinel never became a reading',
+  await page.evaluate(() => (state.gauges.feather.rows || [])
+    .every(r => [r.flow, r.stage, r.tempF].every(v => v === null || v > -9998))));
+check('a station with no temperature sensor shows nothing, not a zero',
+  await page.evaluate(() => { const r = (state.gauges.feather.rows || []).find(x => x.id === 'FSB');
+    return !!r && r.tempF === null; }));
+check('the Feather says whose gauges these are',
+  /DWR’s gauges, read from CDEC|DWR's gauges, read from CDEC/.test(water), water.slice(0, 400));
+check('the Feather still shows its tributaries',
+  /YUBA R NR MARYSVILLE|BEAR R NR WHEATLAND/i.test(water), water.slice(0, 700));
+check('the Feather ribbon now plots its gauges',
+  /[1-9]\d* gauges plotted/.test(await page.textContent('#ribbonnote')),
+  await page.textContent('#ribbonnote'));
 
 /* ---- Mokelumne tide ---- */
 await page.selectOption('#riverpick', 'mokelumne');

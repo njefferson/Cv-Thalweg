@@ -339,10 +339,23 @@ var RIVERS = [
   /* No USGS site on the Feather mainstem returns instantaneous values.
      Checked on 2026-08-27 against Oroville, Gridley, Yuba City, Shanghai
      Bend and Nicolaus: the sites exist, the records are there, and the
-     current series are empty. The Feather's live gauges are DWR's, on
-     CDEC, which this build does not read. Saying nothing here would have
-     read as a broken app; saying why is the only honest option. */
-  noLiveGauges:'No USGS gauge on the Feather mainstem publishes instantaneous values. The Feather is gauged by DWR through CDEC, which Thalweg does not read. The two gauges below are the tributaries that join it, not the Feather.',
+     current series are empty. The Feather is gauged by DWR through CDEC
+     instead, so that is where this river's readings come from.
+
+     Positions were read from each station's own CDEC metadata page on
+     2026-08-27; the data servlet does not return coordinates. Both
+     stations are on the Feather mainstem within the anadromous reach.
+     Two others in the basin report and are deliberately absent: the
+     Oroville Fish Hatchery, whose flow is the hatchery's rather than the
+     river's, and the Middle Fork near Portola, which is above Oroville
+     Dam and therefore not water a salmon can reach. */
+  cdecGauges:[
+    { id:'GRL', name:'Feather River near Gridley', lat:39.366577, lon:-121.647369,
+      status:PROV.VERIFIED },
+    { id:'FSB', name:'Feather River at Boyd’s Landing, above Star Bend',
+      lat:39.045498, lon:-121.610435, status:PROV.VERIFIED }
+  ],
+  gaugeSourceNote:'These are DWR’s gauges, read from CDEC. No USGS site on the Feather mainstem publishes instantaneous values, so USGS has nothing current for this river.',
   contextGauges:[
     { id:'11421000', status:PROV.VERIFIED, hint:'Yuba River near Marysville — joins the Feather at Marysville' },
     { id:'11424000', status:PROV.VERIFIED, hint:'Bear River near Wheatland — joins the Feather near Nicolaus' }
@@ -694,7 +707,7 @@ function parseUsgs(j){
       name: si.siteName || '',
       lat: geo ? Number(geo.latitude) : null,
       lon: geo ? Number(geo.longitude) : null,
-      flow: null, stage: null, tempC: null, at: null
+      flow: null, stage: null, tempF: null, at: null
     });
     var pc = t.variable && t.variable.variableCode && t.variable.variableCode[0]
              && t.variable.variableCode[0].value;
@@ -707,7 +720,10 @@ function parseUsgs(j){
     if (!isFinite(v) || v <= -999998) return;
     if (pc === '00060') row.flow  = v;
     if (pc === '00065') row.stage = v;
-    if (pc === '00010') row.tempC = v;
+    /* USGS publishes Celsius; CDEC publishes Fahrenheit. Both are converted
+       here, at the edge, so that exactly one unit exists downstream and no
+       renderer has to know where a reading came from. */
+    if (pc === '00010') row.tempF = cToF(v);
     if (last.dateTime && (!row.at || last.dateTime > row.at)) row.at = last.dateTime;
   });
   return out;
@@ -720,10 +736,30 @@ function loadGauges(river){
   jobs.push(declared.length ? usgsBySites(declared).catch(function(){ return null; })
                             : Promise.resolve({}));
   jobs.push(river.discover ? usgsByBox(river.bbox) : Promise.resolve({}));
+  jobs.push(loadCdec(river));
 
   return Promise.all(jobs).then(function(res){
-    var byId = res[0], found = res[1] || {};
+    var byId = res[0], found = res[1] || {}, cdec = res[2];
     var rows = [], seen = {};
+
+    /* CDEC first, because on the Feather it is the river and USGS is not.
+       Names and positions come from the RIVERS entry because the servlet
+       returns neither; they were read from CDEC's own station pages. */
+    (river.cdecGauges || []).forEach(function(g){
+      seen[g.id] = true;
+      var hit = cdec && cdec[g.id];
+      if (hit){
+        hit.name = g.name; hit.lat = g.lat; hit.lon = g.lon;
+        hit.status = g.status; hit.declared = true; hit.source = 'CDEC';
+        rows.push(hit);
+      } else {
+        rows.push({ id:g.id, name:g.name, status:g.status, declared:true,
+          source:'CDEC', lat:g.lat, lon:g.lon,
+          error: cdec === null ? 'CDEC did not answer'
+                               : 'no reading returned for this station',
+          flow:null, stage:null, tempF:null, at:null });
+      }
+    });
 
     /* Declared identifiers first, in the order they were declared, each
        keeping its own provenance flag whatever the API said. */
@@ -746,7 +782,7 @@ function loadGauges(river){
                     context: !!contextIds[g.id],
                     error: byId === null ? 'request failed'
                                          : 'no data returned for this identifier',
-                    hint:g.hint, flow:null, stage:null, tempC:null, at:null,
+                    hint:g.hint, flow:null, stage:null, tempF:null, at:null,
                     lat:null, lon:null });
       }
     });
@@ -777,6 +813,114 @@ function loadGauges(river){
     var cached = sget(river.id, 'gauges');
     if (cached){ cached.stale = true; return cached; }
     return { rows:[], fetchedAt:null, failed:true };
+  });
+}
+
+/* =====================================================================
+   CDEC — the Feather River's gauges, which are DWR's rather than USGS's.
+
+   Three things about this service shape the code. It answers with a plain
+   array rather than an envelope. It sends no Access-Control-Allow-Origin
+   at all, so the browser can only read it through this app's own proxy —
+   which is why /cdec exists and why direct mode cannot work here. And its
+   timestamps carry no offset, being Pacific by convention.
+
+   Every reading is checked against the units the row declares rather than
+   against the sensor number alone. A sensor renumbered or re-scaled at
+   the far end then produces no reading instead of a wrong one.
+   ===================================================================== */
+var CDEC_DIRECT = 'https://cdec.water.ca.gov';
+var CDEC_PATH = '/dynamicapp/req/JSONDataServlet';
+var CDEC_SENSORS = '1,20,25';   /* river stage, flow, water temperature */
+
+function cdecUrl(path){
+  return BATHY_PROXY ? (BATHY_PROXY + '/cdec' + path) : (CDEC_DIRECT + path);
+}
+
+/* "2026-8-25 23:00" — no offset, Pacific by convention.
+ *
+ * Built from parts rather than handed to the Date parser, which treats the
+ * same string differently depending on the browser. And anchored to
+ * America/Los_Angeles rather than to the device, because those are only
+ * the same thing on a device that happens to be in California: read
+ * anywhere else the reading arrives hours adrift, and "how old is this"
+ * is the one question this app must not get wrong.
+ */
+function cdecDate(str){
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/.exec(String(str || ''));
+  if (!m) return null;
+  var y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5];
+  var guess = Date.UTC(y, mo - 1, d, h, mi);
+  try {
+    var fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone:'America/Los_Angeles', hour12:false,
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    });
+    var g = {};
+    fmt.formatToParts(new Date(guess)).forEach(function(p){ g[p.type] = p.value; });
+    var back = Date.UTC(+g.year, +g.month - 1, +g.day,
+                        +g.hour === 24 ? 0 : +g.hour, +g.minute);
+    return new Date(guess + (guess - back));
+  } catch (e) {
+    /* No Intl, or no zone data: fall back to the device's own zone, which
+       is right in California and wrong elsewhere. */
+    return new Date(y, mo - 1, d, h, mi);
+  }
+}
+
+function parseCdec(rows){
+  var out = {};
+  if (!Array.isArray(rows)) return out;
+  rows.forEach(function(r){
+    var id = r && r.stationId;
+    if (!id) return;
+    var v = Number(r.value);
+    /* CDEC marks a missing reading with a large negative sentinel. */
+    if (!isNum(v) || v <= -9998) return;
+    var when = cdecDate(r.obsDate || r.date);
+    if (!when) return;
+    var t = when.getTime();
+    var row = out[id] || (out[id] = { id:id, name:'', flow:null, stage:null,
+      tempF:null, at:null, lat:null, lon:null, _at:{} });
+    var units = String(r.units || '').toUpperCase();
+
+    function take(field, ok){
+      if (!ok) return;
+      if (row._at[field] !== undefined && row._at[field] >= t) return;
+      row._at[field] = t;
+      row[field] = field === 'tempF' && units === 'DEG C' ? cToF(v) : v;
+      /* The reading time is the newest value actually used, never the
+         newest row seen. A row refused for its units contributed nothing,
+         and letting it move the clock forward would print a timestamp
+         newer than anything on screen. */
+      if (!row.at || t > new Date(row.at).getTime()) row.at = when.toISOString();
+    }
+    if (r.SENSOR_NUM === 20) take('flow',  units === 'CFS');
+    if (r.SENSOR_NUM === 1)  take('stage', units === 'FEET');
+    if (r.SENSOR_NUM === 25) take('tempF', units === 'DEG F' || units === 'DEG C');
+  });
+  return out;
+}
+
+function loadCdec(river){
+  var list = river.cdecGauges || [];
+  if (!list.length) return Promise.resolve({});
+  var start = new Date(); start.setDate(start.getDate() - 2);
+  var end   = new Date(); end.setDate(end.getDate() + 1);
+  function ymdDash(d){
+    return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+  }
+  var url = cdecUrl(CDEC_PATH + '?Stations=' + list.map(function(g){ return g.id; }).join(',') +
+    '&SensorNums=' + CDEC_SENSORS + '&dur_code=E' +
+    '&Start=' + ymdDash(start) + '&End=' + ymdDash(end));
+  return getJSON(url, 25000).then(function(j){
+    var parsed = parseCdec(j);
+    logNet('CDEC', url, true, Object.keys(parsed).length + ' station(s)');
+    return parsed;
+  }, function(e){
+    logNet('CDEC', url, false, String(e && e.message || e));
+    return null;
   });
 }
 
@@ -1293,7 +1437,7 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
   pts.sort(function(a, b){ return axisValue(river, a) - axisValue(river, b); });
   var lastX = -1e9, high = true;
   pts.forEach(function(r){
-    var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+    var f = isNum(r.tempF) ? r.tempF : null;
     var x = sx(axisValue(river, r));
     high = (x - lastX < 26) ? !high : true;
     lastX = x;
@@ -1493,6 +1637,8 @@ function renderWater(){
       var tribs   = payload.rows.filter(function(r){ return r.context; });
       if (!onRiver.length && river.noLiveGauges)
         p.appendChild(el('div',{class:'warnbox', text:river.noLiveGauges}));
+      if (onRiver.length && river.gaugeSourceNote)
+        p.appendChild(el('p',{class:'note', text:river.gaugeSourceNote}));
       onRiver.forEach(function(r){ p.appendChild(gaugeRow(r)); });
       if (!onRiver.length && !river.noLiveGauges)
         p.appendChild(el('p',{class:'note',text:'No gauge answered for this reach.'}));
@@ -1501,7 +1647,7 @@ function renderWater(){
         tribs.forEach(function(r){ p.appendChild(gaugeRow(r)); });
       }
       var temps = onRiver.map(function(r){
-        return r.tempC === null || r.tempC === undefined ? null : cToF(r.tempC);
+        return isNum(r.tempF) ? r.tempF : null;
       }).filter(function(v){ return v !== null; });
       if (temps.length){
         var avg = temps.reduce(function(a,b){ return a+b; },0)/temps.length;
@@ -1526,7 +1672,8 @@ function gaugeRow(r){
      look like a plausible reading from somewhere else. */
   name.appendChild(el('span',{ text: r.name || (r.hint ? '(' + r.hint + ')' : 'unknown site') }));
   name.appendChild(flagEl(r.status));
-  name.appendChild(el('span',{class:'rdg-id',text:'#'+r.id}));
+  name.appendChild(el('span',{class:'rdg-id',
+    text:(r.source ? r.source + ' ' : '#') + r.id}));
   wrap.appendChild(name);
 
   if (r.error){
@@ -1543,7 +1690,7 @@ function gaugeRow(r){
   }
   vals.appendChild(v(r.flow, 0, 'cfs'));
   vals.appendChild(v(r.stage, 2, 'ft'));
-  var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+  var f = isNum(r.tempF) ? r.tempF : null;
   var tv = v(f, 1, 'F');
   if (f !== null) tv.style.color = tempColour(f);
   vals.appendChild(tv);
@@ -2373,7 +2520,7 @@ function drawGaugeMarkers(){
     if (!payload) return;
     payload.rows.forEach(function(r){
       if (!isNum(r.lat) || !isNum(r.lon)) return;
-      var f = (r.tempC === null || r.tempC === undefined) ? null : cToF(r.tempC);
+      var f = isNum(r.tempF) ? r.tempF : null;
       L.circleMarker([r.lat, r.lon], {
         radius:7, weight:2, color:'#0A1214', fillColor:tempColour(f), fillOpacity:.95
       }).bindTooltip(
@@ -2394,12 +2541,13 @@ var RELEASES = [
       'First build. Four rivers, one map, one ribbon.',
       'Multibeam surfaces and single beam soundings, enumerated from DWR’s service directory rather than listed here, so a survey published or withdrawn next month appears without a redeploy. Twenty surfaces and eighty-one sounding layers were read this way; each one is placed by its own extent, not by its name.',
       'Every gauge and tide station identifier was requested from the live service and answers with the name shown beside it.',
+      'The Feather reads from CDEC, because USGS publishes nothing current for that river. Those readings come through this app’s own proxy: CDEC sends no header that would let a browser read it directly.',
       'Season dates and reach boundaries are the words of Title 14 section 7.40 as amended on 6 May 2026.',
       'Tide predictions fetched a week ahead so they stay good with no signal.',
       'Works offline after first load; flow and temperature say how old they are.'
     ],
     broken:[
-      'The Feather River has no live gauge here. No USGS site on the Feather mainstem publishes instantaneous values — its gauges are DWR’s, on CDEC, which this build does not read. The Water panel says so and shows the two tributaries instead.',
+      'The Feather has two gauges where the Sacramento has six. Only Gridley and Boyd’s Landing sit on the mainstem in water a salmon can reach; Boyd’s Landing has no temperature sensor, so that reading is a dash rather than a number.',
       'The NOAA raster chart tiles could not be reached from the machine this was built on, so that layer switches itself off if the tiles do not arrive. If it disappears when you turn it on, that is what happened.',
       'The CARTO dark basemap is in the same position. Esri imagery and topo were both fetched and drew.',
       'Season dates are each reach’s standing open season. The Commission kept the discretion to start a reach later or end it earlier, and the final per-reach dates were given in a presentation this build could not read.',

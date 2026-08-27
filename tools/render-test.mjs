@@ -98,6 +98,35 @@ await ctx.route('**/Bathy_TEST_SacramentoRvr/ImageServer?f=json', r =>
 await ctx.route('**/Bathy_TEST_Elsewhere/ImageServer?f=json', r =>
   json(r, imgMeta('Bathy_TEST_Elsewhere', 10.0, 50.0, 10.2, 50.2)));
 await ctx.route('**/MapServer/layers?f=json', r => json(r, SBM_LAYERS));
+
+/* CDEC, with every awkward case it actually produces: the -9999 sentinel
+   on rows that have not happened yet, a station with no temperature
+   sensor, a unit that is not the one expected, and a timestamp with no
+   offset that is Pacific by convention. */
+const CDEC_ROWS = [
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:20, sensorType:'FLOW',
+    obsDate:'2026-8-27 10:00', value:7000, dataFlag:' ', units:'CFS' },
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:20, sensorType:'FLOW',
+    obsDate:'2026-8-27 11:00', value:7749, dataFlag:' ', units:'CFS' },
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:1,  sensorType:'RIV STG',
+    obsDate:'2026-8-27 11:00', value:76.17, dataFlag:' ', units:'FEET' },
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:25, sensorType:'TEMP W',
+    obsDate:'2026-8-27 11:00', value:65.1, dataFlag:' ', units:'DEG F' },
+  /* a later row that has not been observed yet */
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:20, sensorType:'FLOW',
+    obsDate:'2026-8-27 23:00', value:-9999, dataFlag:' ', units:'CFS' },
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:25, sensorType:'TEMP W',
+    obsDate:'2026-8-27 23:00', value:-9999, dataFlag:' ', units:'DEG F' },
+  /* the far end renumbers or re-scales a sensor: no reading, not a wrong one */
+  { stationId:'GRL', durCode:'E', SENSOR_NUM:1,  sensorType:'RIV STG',
+    obsDate:'2026-8-27 12:00', value:23.2, dataFlag:' ', units:'METERS' },
+  /* FSB has no temperature sensor at all */
+  { stationId:'FSB', durCode:'E', SENSOR_NUM:20, sensorType:'FLOW',
+    obsDate:'2026-8-27 10:45', value:8806, dataFlag:' ', units:'CFS' },
+  { stationId:'FSB', durCode:'E', SENSOR_NUM:1,  sensorType:'RIV STG',
+    obsDate:'2026-8-27 10:45', value:31.84, dataFlag:' ', units:'FEET' }
+];
+await ctx.route('**/JSONDataServlet**', r => json(r, CDEC_ROWS));
 await ctx.route('**/MapServer/31/query**', r => {
   const feats = [];
   for (let i = 0; i < 3000; i++) feats.push({
@@ -152,7 +181,27 @@ check('a layer with no depth attribute says so',
 check('vegetation gap note present', layers.includes('missing data, not flat bottom'));
 
 /* the Feather has a single beam layer and no raster: it must say so */
-await page.selectOption('#riverpick', 'feather'); await page.waitForTimeout(1500);
+await page.selectOption('#riverpick', 'feather'); await page.waitForTimeout(2500);
+
+/* --- CDEC --- */
+const feather = await page.evaluate(() => (state.gauges.feather.rows || [])
+  .filter(r => r.source === 'CDEC')
+  .map(r => ({ id:r.id, flow:r.flow, stage:r.stage, tempF:r.tempF, at:r.at })));
+const grl = feather.find(r => r.id === 'GRL') || {};
+const fsb = feather.find(r => r.id === 'FSB') || {};
+check('CDEC gives the latest real reading, not the first',
+  grl.flow === 7749, JSON.stringify(grl));
+check('the -9999 sentinel is discarded, not shown',
+  grl.flow === 7749 && grl.tempF === 65.1, JSON.stringify(grl));
+check('a reading in the wrong unit is refused, not converted by guesswork',
+  grl.stage === 76.17, JSON.stringify(grl));
+check('a station with no temperature sensor reports none',
+  fsb.flow === 8806 && fsb.tempF === null, JSON.stringify(fsb));
+check('a CDEC timestamp is read as Pacific, not as the device zone',
+  grl.at === '2026-08-27T18:00:00.000Z', grl.at);
+check('CDEC readings reach the panel',
+  /Feather River near Gridley/.test((await page.textContent('#panel-water'))),
+  (await page.textContent('#panel-water')).slice(0, 200));
 layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
 check('a reach with no multibeam says so plainly',
   layers.includes('No published multibeam survey for this reach'), layers.slice(0, 600));
