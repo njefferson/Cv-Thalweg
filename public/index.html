@@ -319,17 +319,18 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   </div>
 </main>
 
-<dialog id="about">
+<dialog id="about" aria-labelledby="abouttitle">
   <div class="dlg-head">
-    <h2 class="grow" style="font-size:1rem">About Thalweg</h2>
+    <h2 class="grow" id="abouttitle" tabindex="-1" style="font-size:1rem">About Thalweg</h2>
     <button id="aboutclose" aria-label="Close">Close</button>
   </div>
   <div class="dlg-body" id="aboutbody"></div>
 </dialog>
 
-<dialog id="welcome">
+<dialog id="welcome" aria-labelledby="welcometitle">
   <div class="dlg-head">
-    <h2 class="grow" style="font-size:1rem">Thalweg</h2>
+    <h2 class="grow" id="welcometitle" tabindex="-1" style="font-size:1rem">Thalweg</h2>
+    <button id="welcomeclose" type="button">Close</button>
   </div>
   <div class="dlg-body" id="welcomebody"></div>
 </dialog>
@@ -3278,6 +3279,17 @@ function maybeWelcome(){
   var seen = Store.s.getItem('thalweg:_shared:welcomed');
   var dlg = $('#welcome');
   if (seen === VERSION || !dlg.showModal) return;
+
+  /* The way out is wired before a single word of this is rendered, and it
+     is one handler on the dialog rather than one per button, so Close,
+     Start and the Escape key cannot drift into meaning different things.
+     A dismiss that depends on the panel's own content is a trap the
+     moment that content fails. */
+  dlg.addEventListener('close', function(){
+    try { Store.s.setItem('thalweg:_shared:welcomed', VERSION); } catch(e){}
+  });
+  $('#welcomeclose').addEventListener('click', function(){ dlg.close(); });
+
   var b = $('#welcomebody'); b.innerHTML = '';
   function para(t, cls){ b.appendChild(el('p', cls ? {class:cls, text:t} : {text:t})); }
   function head(t){ b.appendChild(el('h3',{text:t})); }
@@ -3311,15 +3323,21 @@ function maybeWelcome(){
 
   var row = el('div',{class:'rowline'});
   var ok = el('button',{type:'button',text:'Start'});
-  ok.addEventListener('click', function(){
-    try { Store.s.setItem('thalweg:_shared:welcomed', VERSION); } catch(e){}
-    dlg.close();
-  });
+  ok.addEventListener('click', function(){ dlg.close(); });
   row.appendChild(ok);
   row.appendChild(el('span',{class:'note',
     text:'All of this, the install steps and what changed since last time live under the (i) button.'}));
   b.appendChild(row);
+
   dlg.showModal();
+  /* Left to itself the dialog hands focus to the first thing it can find,
+     which is the Start button at the very end of the body — so it opened
+     scrolled past everything it exists to say, showing a button and no
+     reason for it, with nothing to suggest there was anything above.
+     Focus the title instead: the reader starts at the top, and the next
+     Tab is the Close beside it. */
+  b.scrollTop = 0;
+  $('#welcometitle').focus();
 }
 
 /* =====================================================================
@@ -3391,6 +3409,8 @@ function boot(){
     renderAbout();
     var d = $('#about');
     if (d.showModal) d.showModal(); else d.setAttribute('open','open');
+    $('#aboutbody').scrollTop = 0;
+    $('#abouttitle').focus();
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
 

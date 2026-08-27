@@ -37,6 +37,62 @@ function check(label, cond, detail) {
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=127.0.0.1;localhost;[::1]'] });
 
+/* The first-run panel is an interrupting surface, and every one of those has
+   to be leaveable: a dismiss in the first frame, one at the end as well, both
+   reachable however far down the reader has scrolled, and a panel that is
+   genuinely gone afterwards. This one opened scrolled to its own last line,
+   because a dialog with no focus target of its own focuses the first button
+   it can find and that button was Start, at the bottom of a scrolling body.
+   Everything the panel existed to say was above the fold, upwards, with
+   nothing to say so. */
+async function welcomeChecks(page, name) {
+  const open = await page.evaluate(() => {
+    const d = document.getElementById('welcome'), b = document.getElementById('welcomebody');
+    const c = document.getElementById('welcomeclose').getBoundingClientRect();
+    return { open: d.open, scroll: b.scrollTop, focus: document.activeElement && document.activeElement.id,
+             closeTop: Math.round(c.top), closeVisible: c.width > 0 && c.height > 0 && c.top >= 0 && c.bottom <= window.innerHeight,
+             height: Math.round(d.getBoundingClientRect().height), vh: window.innerHeight,
+             bottomOut: !!document.querySelector('#welcomebody .rowline button') };
+  });
+  check(`${name}: first run opens at the top of itself`,
+    open.open && open.scroll === 0, JSON.stringify(open));
+  check(`${name}: first run puts focus on its title, not the button at the end`,
+    open.focus === 'welcometitle', JSON.stringify(open));
+  check(`${name}: first run shows a way out in the first frame`,
+    open.closeVisible, JSON.stringify(open));
+  check(`${name}: first run offers a way out at the end as well`,
+    open.bottomOut, JSON.stringify(open));
+  check(`${name}: first run is bounded by the screen`,
+    open.height <= open.vh, JSON.stringify(open));
+
+  /* Scrolled to the very end, the way out is still there and still the thing
+     under the finger — not merely painted, but what hit-testing returns. */
+  const end = await page.evaluate(() => {
+    const b = document.getElementById('welcomebody');
+    b.scrollTop = b.scrollHeight;
+    const c = document.getElementById('welcomeclose').getBoundingClientRect();
+    const hit = document.elementFromPoint((c.left + c.right) / 2, (c.top + c.bottom) / 2);
+    return { visible: c.width > 0 && c.height > 0 && c.top >= 0 && c.bottom <= window.innerHeight,
+             hit: hit ? (hit.id || hit.tagName) : null,
+             scrolled: b.scrollTop > 0 };
+  });
+  check(`${name}: the way out survives scrolling to the very end`,
+    end.visible && end.hit === 'welcomeclose', JSON.stringify(end));
+
+  await page.click('#welcomeclose');
+  await page.waitForTimeout(300);
+  const gone = await page.evaluate(() => {
+    const d = document.getElementById('welcome');
+    const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return { open: d.open, inside: !!(hit && d.contains(hit)),
+             focus: document.activeElement ? document.activeElement.tagName : null };
+  });
+  check(`${name}: dismissing it really removes it`,
+    !gone.open && !gone.inside, JSON.stringify(gone));
+  check(`${name}: focus lands somewhere real afterwards`,
+    gone.focus && gone.focus !== 'null', JSON.stringify(gone));
+}
+
 async function audit(page, label) {
   await page.addScriptTag({ content: axe });
   const res = await page.evaluate(async () => await window.axe.run(document, { resultTypes: ['violations'] }));
@@ -53,6 +109,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
 
   /* State 0: the first-run orientation, before anything is pressed. */
   await audit(page, `${name}: first run`);
+  await welcomeChecks(page, name);
 
   /* The readings have to fit on the screen they are read on. On a 667px
      phone this app once gave its data panel thirty-four pixels: a 117px
@@ -163,6 +220,23 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 844]
   await audit(page, `${name}: update strip showing`);
 
   check(`${name}: no page errors`, errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+/* Small phone at 200% text, which is where a panel stops fitting and its way
+   out goes over the edge. Only the dismiss rules are measured here; the rest
+   of the suite has already run at two ordinary sizes. */
+{
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 568 } });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.style.fontSize = '32px';
+    });
+  });
+  await page.goto(BASE + '/', { waitUntil: 'load' });
+  await page.waitForTimeout(2500);
+  await welcomeChecks(page, 'small phone at 200% text');
   await ctx.close();
 }
 
