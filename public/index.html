@@ -54,7 +54,11 @@ header{
   display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
   padding-top:calc(.45rem + env(safe-area-inset-top));
 }
-.brand{display:flex; align-items:baseline; gap:.45rem; margin-right:auto}
+/* At 200% text on a 320px screen the name and the version chip together
+   measured 400px and pushed the document 80px past its own edge. A row of
+   fixed-size things in a header is the shape that does this. */
+.brand{display:flex; align-items:baseline; gap:.45rem; margin-right:auto;
+  flex-wrap:wrap; min-width:0; max-width:100%}
 .brand h1{font-size:1.05rem; letter-spacing:.08em; text-transform:uppercase;
   font-weight:700; margin:0}
 .brand span{color:var(--mute); font-size:.72rem; letter-spacing:.04em}
@@ -150,6 +154,25 @@ h2.sec:first-child{margin-top:0}
 .rdg-name{font-size:.85rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap}
 .rdg-id{color:var(--mute); font-size:.7rem; font-variant-numeric:tabular-nums}
 .rdg-vals{display:flex; gap:1rem; flex-wrap:wrap; margin-top:.15rem}
+
+/* ---------- the last seven days ---------- */
+/* The line is the shape and nothing else. Every fact it carries — which way,
+   how far, over how long, and the week's low and high — is written beside it
+   in words and figures, because a stroke on a dark ground is exactly the kind
+   of encoding that disappears in grayscale, at 200% text, or under a thumb. */
+.trend-h{font-size:.82rem; color:var(--cyan); margin:.9rem 0 .1rem}
+.trend-h:first-child{margin-top:0}
+.trend-say{font-size:.85rem; margin:.1rem 0 .3rem}
+.spark{display:block; max-width:100%;
+  background:var(--panel-2); border:1px solid #16302e; border-radius:2px}
+.spark-line{fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round}
+.spark-fill{opacity:.10; stroke:none}
+.spark-grid{stroke:#25514c; stroke-width:1}
+.spark-ax{fill:var(--mute); font-size:9px; font-family:var(--sans)}
+@media (prefers-contrast:more){
+  .spark-fill{opacity:0}
+  .spark-line{stroke-width:3}
+}
 .v{font-family:var(--water); font-style:italic; font-size:1.05rem; white-space:nowrap}
 .v small{font-style:normal; font-family:var(--sans); font-size:.62rem;
   letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin-left:.2rem}
@@ -730,6 +753,7 @@ var state = {
   catalog: null,          /* enumerated DWR bathymetry, or an error */
   gauges: {},             /* riverId -> { rows, fetchedAt, stale } */
   tides:  {},             /* riverId -> { hourly, hilo, fetchedAt, station } */
+  trends: {},             /* riverId -> { flow, temp, days, fetchedAt, stale } */
   marks:  [],             /* marks for the selected river */
   markLayer: null,
   soundingLayer: null,
@@ -1493,10 +1517,27 @@ function tidalEdge(river){
    desktop pitch is half a 667px screen, and the comparison is the point of
    the view — but not at the price of the readings underneath it. */
 var RIB = { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
-function ribbonMetrics(W){
+/* The ribbon has a height budget now, and it did not before.
+   Width was fixed once and height never was: four rows at 44px plus its
+   chrome is 218px of SVG and 263px of band whatever screen it is on, which
+   on an iPhone 13's real 664px viewport left the readings 237px, on an
+   iPhone SE 125px, and with the software keyboard up TWENTY-TWO — the same
+   failure that was found and fixed at 34px, back again because the fix was
+   measured against 390x844. That is a phone's SCREEN; the page gets 664.
+   So rows shrink to fit a share of the viewport, and below a floor where a
+   dot and its figure no longer fit, the ribbon is not drawn at all: a floor
+   that exceeds the space available is just the next fixed size that fails. */
+function ribbonMetrics(W, rowCount, budget){
   var n = W < 620;
-  RIB = n ? { rowH:44, top:18, foot:24, dot:5, fig:10, name:10, note:8, narrow:true }
-          : { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
+  var m = n ? { rowH:44, top:18, foot:24, dot:5, fig:10, name:10, note:8, narrow:true }
+            : { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
+  if (isNum(budget) && rowCount > 0){
+    var avail = budget - m.top - m.foot;
+    var fit = Math.floor(avail / rowCount);
+    if (fit < m.rowH) m.rowH = fit;
+  }
+  m.tooTight = m.rowH < 22;
+  RIB = m;
 }
 
 function ribbonRow(g, river, rows, x0, x1, y, showName){
@@ -1603,7 +1644,7 @@ function tempScale(g, x, y, w){
   });
 }
 
-function drawRibbon(){
+function drawRibbon(again){
   var host = $('#ribbon');
   /* Keep the title and desc; they are the accessible name of the figure. */
   Array.prototype.slice.call(host.childNodes).forEach(function(n){
@@ -1620,8 +1661,29 @@ function drawRibbon(){
   var narrow = window.matchMedia && window.matchMedia('(max-width:900px)').matches;
   var W = narrow ? Math.max(host.clientWidth || 360, 300)
                  : Math.max(host.clientWidth || 1000, 520);
-  ribbonMetrics(W);
   var list = state.riverId ? [byId(state.riverId)] : RIVERS;
+  /* Under the breakpoint the ribbon and the readings share one screen, so
+     the ribbon takes a share of it rather than whatever it wants. Above it
+     they are side by side and there is nothing to take it from.
+     The budget is for the BAND, not the drawing: the legend, the note and
+     the padding are two thirds of the height on a short screen, and a
+     budget that only bounds the SVG bounds the wrong thing. */
+  var wrapEl = document.getElementById('ribbonwrap');
+  var budget = null;
+  if (narrow){
+    var cs = window.getComputedStyle(wrapEl);
+    var extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    Array.prototype.forEach.call(wrapEl.children, function(c){
+      if (c !== host) extra += c.getBoundingClientRect().height;
+    });
+    budget = Math.round((window.innerHeight || 800) * 0.32) - extra
+             - (again && isNum(again) ? again : 0);
+  }
+  ribbonMetrics(W, list.length, budget);
+  var wrap = document.getElementById('ribbonwrap');
+  wrap.hidden = !!RIB.tooTight;
+  if (RIB.tooTight) return;
+  wrap.hidden = false;
   var rowH = RIB.rowH, top = RIB.top;
   var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -1654,6 +1716,17 @@ function drawRibbon(){
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
   $('#ribbonnote').textContent = note + '.';
+
+  /* And then check. The legend and the note are measured at the size they
+     had BEFORE this draw, so the first pass can still overshoot; one
+     corrective pass with the measured overshoot subtracted converges,
+     and a guard stops it becoming a loop. Raising a number until it looks
+     better is not debugging — reading what the browser actually did is. */
+  if (narrow && !again){
+    var over = Math.round(wrapEl.getBoundingClientRect().height) -
+               Math.round((window.innerHeight || 800) * 0.32);
+    if (over > 2) drawRibbon(over);
+  }
   $('#ribbondesc').textContent = note + '. Readings are listed in the Water panel.';
 }
 
@@ -1823,9 +1896,11 @@ function downstreamFlow(river){
     var underTide = edge ? (v <= edge.v) : false;
     if (underTide){
       if (bestTidal === null || v < bestTidal.v)
-        bestTidal = { v:v, flow:r.flow, name:r.name || r.id, tidal:true };
+        bestTidal = { v:v, flow:r.flow, name:r.name || r.id, id:r.id,
+                      source:r.source, tidal:true };
     } else if (best === null || v < best.v){
-      best = { v:v, flow:r.flow, name:r.name || r.id, tidal:false };
+      best = { v:v, flow:r.flow, name:r.name || r.id, id:r.id,
+               source:r.source, tidal:false };
     }
   });
   return best || bestTidal;
@@ -1955,6 +2030,14 @@ function renderWater(){
       text:'Four rivers, one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
     p.appendChild(el('p',{class:'note',
       text:'Tap a river for its tide, its gauges one by one, its published depth surveys and your own marks.'}));
+    /* Dropping a view silently is the thing this app is not allowed to do.
+       Four ribbon rows at a legible size do not fit above the cards on a
+       short screen, and the cards carry more of the answer, so the ribbon
+       goes — and says it went, at the bottom, where saying it costs nothing
+       above the fold. */
+    if (document.getElementById('ribbonwrap').hidden)
+      p.appendChild(el('p',{class:'note',
+        text:'The river ribbon is not shown: four rows of it will not fit above these cards on a screen this short. Pick a single river and it comes back for that one.'}));
     return;
   }
 
@@ -1994,6 +2077,10 @@ function renderWater(){
         p.appendChild(el('h2',{class:'sec',text:'Tributaries, not this river'}));
         tribs.forEach(function(r){ p.appendChild(gaugeRow(r)); });
       }
+      p.appendChild(el('h2',{class:'sec',text:'The last seven days'}));
+      p.appendChild(trendSection(river));
+      drawTrendLines();
+
       var temps = onRiver.map(function(r){
         return isNum(r.tempF) ? r.tempF : null;
       }).filter(function(v){ return v !== null; });
@@ -2824,6 +2911,7 @@ function selectTab(name){
     /* It has been display:none, so it believes the size it last had. */
     setTimeout(function(){ state.map.invalidateSize(); drawMarks(); }, 60);
   }
+  if (name === 'water')  drawTrendLines();
   if (name === 'layers') renderLayers();
   if (name === 'marks')  renderMarks();
   if (name === 'brief')  renderBrief();
@@ -2919,6 +3007,19 @@ function refreshData(){
     loadGauges(river).then(function(payload){
       state.gauges[river.id] = payload;
       renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers();
+      /* The trend goes out after the readings, not beside them: which gauge
+         to ask for a week of flow is decided by which gauge answered for
+         right now, and on All rivers nothing asks at all — four rivers of
+         fifteen-minute history is most of a megabyte for four lines nobody
+         opened. */
+      if (state.riverId === river.id && !state.trends[river.id]){
+        var stored = sget(river.id,'trend');
+        if (stored){ stored.stale = true; state.trends[river.id] = stored; renderWater(); }
+        loadTrend(river).then(function(tr){
+          state.trends[river.id] = tr;
+          if (state.riverId === river.id) renderWater();
+        });
+      }
     });
     if (river.tidal) loadTideFor(river);
   });
@@ -2991,6 +3092,408 @@ function drawGaugeMarkers(){
 }
 
 /* =====================================================================
+   The last seven days.
+
+   A reading is a number; a trend is a decision. A river that has dropped
+   two thousand cubic feet a second since Tuesday fishes differently from
+   one that has just come up by the same amount, and in a single figure
+   those two look identical.
+
+   It is fetched for the river on screen only, and only for the gauges the
+   figures already come from. NWIS publishes instantaneous values every
+   fifteen minutes and will not downsample: a week of one parameter at one
+   site is 55KB, and asking every gauge on the Sacramento for both flow and
+   temperature is 429KB — measured — for a line three hundred pixels wide
+   that cannot show a tenth of it. The daily-values service would be a
+   twentieth of that and was tried first: it publishes NOTHING for water
+   temperature at any of these sites and nothing for flow at two of them,
+   so it cannot answer this question at all.
+   ===================================================================== */
+var TREND_DAYS = 7;
+var TREND_MAX_POINTS = 240;   /* more than a phone-width line can show */
+
+/* One series per site per parameter, oldest first. Same refusals as the
+   current-reading parser: the sentinel is a missing reading, not a value. */
+function parseUsgsSeries(j){
+  var out = {};
+  var ts = j && j.value && j.value.timeSeries;
+  if (!Array.isArray(ts)) return out;
+  ts.forEach(function(t){
+    var si = t.sourceInfo || {};
+    var code = si.siteCode && si.siteCode[0] && si.siteCode[0].value;
+    var pc = t.variable && t.variable.variableCode && t.variable.variableCode[0]
+             && t.variable.variableCode[0].value;
+    if (!code || !pc) return;
+    var vals = t.values && t.values[0] && t.values[0].value;
+    if (!Array.isArray(vals) || !vals.length) return;
+    var pts = [];
+    vals.forEach(function(x){
+      var v = Number(x.value);
+      if (!isFinite(v) || v <= -999998) return;
+      var when = Date.parse(x.dateTime);
+      if (!isFinite(when)) return;
+      pts.push({ t:when, v: pc === '00010' ? cToF(v) : v });
+    });
+    if (!pts.length) return;
+    pts.sort(function(a,b){ return a.t - b.t; });
+    (out[code] || (out[code] = {}))[pc === '00010' ? 'temp' : pc === '00060' ? 'flow' : pc] = pts;
+  });
+  return out;
+}
+
+function usgsTrend(ids){
+  var url = USGS + '?format=json&sites=' + ids.join(',') +
+            '&parameterCd=00060,00010&period=P' + TREND_DAYS + 'D&siteStatus=all';
+  /* Longer than the current-reading request, because this one is a hundred
+     kilobytes or more and a phone on a bar of signal is the normal case. */
+  return getJSON(url, 45000).then(function(j){
+    var parsed = parseUsgsSeries(j);
+    logNet('USGS trend', url, true, Object.keys(parsed).length + ' site(s) with history');
+    return parsed;
+  }, function(e){
+    logNet('USGS trend', url, false, String(e && e.message || e));
+    throw e;
+  });
+}
+
+/* CDEC does downsample, and hourly is plenty for a week: 27KB a station
+   against 27KB an hour's worth of the fifteen-minute record. */
+function cdecTrend(river){
+  var list = river.cdecGauges || [];
+  if (!list.length) return Promise.resolve({});
+  var start = new Date(); start.setDate(start.getDate() - TREND_DAYS);
+  var end   = new Date(); end.setDate(end.getDate() + 1);
+  function ymdDash(d){
+    return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+  }
+  var url = cdecUrl(CDEC_PATH + '?Stations=' + list.map(function(g){ return g.id; }).join(',') +
+    '&SensorNums=20,25&dur_code=H&Start=' + ymdDash(start) + '&End=' + ymdDash(end));
+  return getJSON(url, 45000).then(function(rows){
+    var out = {};
+    (Array.isArray(rows) ? rows : []).forEach(function(r){
+      var id = r && r.stationId;
+      if (!id) return;
+      var v = Number(r.value);
+      if (!isNum(v) || v <= -9998) return;
+      var when = cdecDate(r.obsDate || r.date);
+      if (!when) return;
+      var units = String(r.units || '').toUpperCase();
+      var site = out[id] || (out[id] = {});
+      /* The same unit check as the current reading. A sensor renumbered or
+         re-scaled at the far end produces no line rather than a wrong one. */
+      if (r.SENSOR_NUM === 20 && units === 'CFS')
+        (site.flow || (site.flow = [])).push({ t:when.getTime(), v:v });
+      if (r.SENSOR_NUM === 25 && (units === 'DEG F' || units === 'DEG C'))
+        (site.temp || (site.temp = [])).push({ t:when.getTime(),
+          v: units === 'DEG C' ? cToF(v) : v });
+    });
+    Object.keys(out).forEach(function(id){
+      Object.keys(out[id]).forEach(function(k){
+        out[id][k].sort(function(a,b){ return a.t - b.t; });
+      });
+    });
+    logNet('CDEC trend', url, true, Object.keys(out).length + ' station(s) with history');
+    return out;
+  }, function(e){
+    logNet('CDEC trend', url, false, String(e && e.message || e));
+    throw e;
+  });
+}
+
+/* Which gauges to ask. Flow comes from whichever gauge the card already
+   names, so the line and the figure above it cannot disagree; temperature
+   from that same gauge if it has a thermometer, and otherwise from the
+   first on-river gauge that does — Verona measures the Sacramento's
+   discharge and has no thermometer at all, so on that river these are two
+   different sites and the panel says which is which. */
+function trendSites(river){
+  var payload = state.gauges[river.id];
+  if (!payload || !payload.rows) return null;
+  var flow = downstreamFlow(river);
+  var rows = payload.rows.filter(function(r){ return !r.context && isNum(r.tempF); });
+  /* Nearest first, along the river's own axis, so the temperature comes
+     from near the water the flow figure describes rather than from
+     whichever gauge happens to be listed first. */
+  if (flow){
+    var at = null;
+    payload.rows.forEach(function(r){ if (r.id === flow.id) at = axisValue(river, r); });
+    if (isNum(at)) rows = rows.slice().sort(function(a,b){
+      var da = isNum(axisValue(river,a)) ? Math.abs(axisValue(river,a) - at) : 1e9;
+      var db = isNum(axisValue(river,b)) ? Math.abs(axisValue(river,b) - at) : 1e9;
+      return da - db;
+    });
+  }
+  /* TWO temperature candidates, not one, and this is why: Verona reports a
+     temperature right now and publishes no history for it at all, so the
+     obvious rule — ask the gauge the flow figure came from — produced a
+     Sacramento with a flow line and the words "no temperature history" on
+     the river with the most instrumented reach in the state. Whether a site
+     publishes a week of a parameter cannot be known without asking, so ask
+     two and draw whichever answers. */
+  var temp = rows.slice(0, 2).map(function(r){
+    return { id:r.id, name:r.name || r.id, source:r.source };
+  });
+  if (!flow && !temp.length) return null;
+  return {
+    flow: flow ? { id:flow.id, name:flow.name, source:flow.source, tidal:flow.tidal } : null,
+    temp: temp
+  };
+}
+
+function loadTrend(river){
+  var want = trendSites(river);
+  if (!want) return Promise.resolve({ failed:'no gauge to read a trend from yet' });
+  var ids = {};
+  if (want.flow) ids[want.flow.id] = want.flow.source || 'USGS';
+  want.temp.forEach(function(t){ ids[t.id] = t.source || 'USGS'; });
+  var usgs = Object.keys(ids).filter(function(k){ return ids[k] !== 'CDEC'; });
+  var cdec = Object.keys(ids).filter(function(k){ return ids[k] === 'CDEC'; });
+
+  /* Which request failed matters, and it took a live run to notice why: a
+     USGS timeout with no CDEC request beside it left an empty series set and
+     every gauge was then reported as publishing NO HISTORY — a confident
+     claim about the American River, which publishes a full week, produced by
+     a request that never arrived. A refusal and an absence are different
+     facts and this app is not allowed to print one as the other. */
+  var failed = [];
+  var jobs = [
+    usgs.length ? usgsTrend(usgs).catch(function(){ failed.push('USGS'); return null; })
+                : Promise.resolve({}),
+    cdec.length ? cdecTrend(river).catch(function(){ failed.push('CDEC'); return null; })
+                : Promise.resolve({})
+  ];
+  return Promise.all(jobs).then(function(res){
+    if (failed.length){
+      var cached = sget(river.id,'trend');
+      if (cached){ cached.stale = true; return cached; }
+      return { failed: failed.join(' and ') + ' did not answer' };
+    }
+    var series = {};
+    [res[0] || {}, res[1] || {}].forEach(function(set){
+      Object.keys(set).forEach(function(k){ series[k] = set[k]; });
+    });
+    var out = { fetchedAt: Date.now(), days: TREND_DAYS,
+      flow: null, temp: null, tidal: !!(want.flow && want.flow.tidal) };
+    if (want.flow && series[want.flow.id] && series[want.flow.id].flow)
+      out.flow = { site:want.flow.id, name:want.flow.name, source:want.flow.source || 'USGS',
+                   pts:series[want.flow.id].flow };
+    want.temp.some(function(t){
+      if (!series[t.id] || !series[t.id].temp) return false;
+      out.temp = { site:t.id, name:t.name, source:t.source || 'USGS', pts:series[t.id].temp };
+      return true;
+    });
+    /* A site that answers the current-reading request and publishes no
+       history is a real state, not an error: every Mokelumne gauge does
+       exactly that. Say which gauge was asked, so it is a fact rather
+       than an absence. */
+    /* CDEC's date range starts at midnight, so a seven-day request comes
+       back with eight days in it and the sentence under the line said
+       "over 8 days" beneath a heading that said seven. Clip to the window
+       actually claimed. */
+    var floor = Date.now() - TREND_DAYS * 24 * 3600 * 1000;
+    ['flow','temp'].forEach(function(k){
+      if (out[k]) out[k].pts = out[k].pts.filter(function(pt){ return pt.t >= floor; });
+      if (out[k] && out[k].pts.length < 2) out[k] = null;
+    });
+    out.noHistory = [];
+    if (want.flow && !out.flow) out.noHistory.push({ what:'flow', name:want.flow.name, id:want.flow.id });
+    if (want.temp.length && !out.temp) out.noHistory.push({ what:'temperature',
+      name: want.temp.map(function(t){ return t.name; }).join(' or '),
+      id: want.temp.map(function(t){ return t.id; }).join(', ') });
+    /* Stored trimmed: the drawn line cannot use more points than this and
+       a week of fifteen-minute values will not fit a storage quota. */
+    var slim = { fetchedAt:out.fetchedAt, days:out.days, tidal:out.tidal, noHistory:out.noHistory,
+      flow: out.flow ? { site:out.flow.site, name:out.flow.name, source:out.flow.source,
+                         pts:thin(out.flow.pts, TREND_MAX_POINTS) } : null,
+      temp: out.temp ? { site:out.temp.site, name:out.temp.name, source:out.temp.source,
+                         pts:thin(out.temp.pts, TREND_MAX_POINTS) } : null };
+    sput(river.id,'trend', slim);
+    return out;
+  });
+}
+
+/* Keep the ends and the extremes, drop from the middle. A line that loses
+   its peak has lost the only part of it anybody was looking for. */
+function thin(pts, max){
+  if (!pts || pts.length <= max) return pts || [];
+  var keep = {}, lo = 0, hi = 0;
+  pts.forEach(function(p,i){ if (p.v < pts[lo].v) lo = i; if (p.v > pts[hi].v) hi = i; });
+  keep[0] = keep[pts.length-1] = keep[lo] = keep[hi] = true;
+  var step = (pts.length - 1) / (max - 1);
+  for (var i = 0; i < max; i++) keep[Math.round(i * step)] = true;
+  return pts.filter(function(p,i){ return keep[i]; });
+}
+
+/* What the line says, in words, because a shape is not a fact and colour
+   is never the only thing carrying one here. */
+function trendStats(pts, band){
+  if (!pts || pts.length < 2) return null;
+  var first = pts[0], last = pts[pts.length-1];
+  var lo = pts[0], hi = pts[0];
+  pts.forEach(function(p){ if (p.v < lo.v) lo = p; if (p.v > hi.v) hi = p; });
+  var delta = last.v - first.v;
+  var base = Math.abs(first.v) > 1e-6 ? Math.abs(first.v) : null;
+  var pct = base ? (delta / base) * 100 : null;
+  var dir = Math.abs(delta) < band ? 'steady' : (delta > 0 ? 'up' : 'down');
+  var day = null;
+  var cutoff = last.t - 24*3600*1000;
+  for (var i = pts.length - 1; i >= 0; i--){ if (pts[i].t <= cutoff){ day = pts[i]; break; } }
+  return { first:first, last:last, lo:lo, hi:hi, delta:delta, pct:pct, dir:dir,
+           dayDelta: day ? last.v - day.v : null,
+           span: (last.t - first.t) / (24*3600*1000) };
+}
+
+/* The line. Drawn at the width it is actually rendered at, for the reason
+   the ribbon is: a fixed viewBox squeezed into a phone renders every
+   figure at a fraction of its stated size and leaves the difference as
+   dead space. */
+function svgText(attrs, str){
+  var n = svg('text', attrs); n.textContent = str; return n;
+}
+
+function sparkline(pts, opts){
+  var W = Math.max(opts.width || 320, 220), H = opts.height || 64;
+  var padL = 4, padR = 4, padT = 8, padB = 14;
+  var host = svg('svg', { viewBox:'0 0 ' + W + ' ' + H, width:W, height:H,
+    class:'spark', role:'img', 'aria-label':opts.label || '' });
+  if (!pts || pts.length < 2) return host;
+  var t0 = pts[0].t, t1 = pts[pts.length-1].t;
+  var lo = pts[0].v, hi = pts[0].v;
+  pts.forEach(function(p){ if (p.v < lo) lo = p.v; if (p.v > hi) hi = p.v; });
+  var pad = (hi - lo) || Math.abs(hi) * 0.02 || 1;
+  lo -= pad * 0.12; hi += pad * 0.12;
+  function X(t){ return padL + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * (W - padL - padR); }
+  function Y(v){ return padT + (1 - (v - lo) / ((hi - lo) || 1)) * (H - padT - padB); }
+
+  /* A day grid, so "how fast" has something to be fast against. */
+  var dayMs = 24*3600*1000;
+  for (var t = t1; t > t0; t -= dayMs)
+    host.appendChild(svg('line', { x1:X(t), x2:X(t), y1:padT, y2:H-padB, class:'spark-grid' }));
+
+  var d = pts.map(function(p,i){ return (i ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Y(p.v).toFixed(1); }).join(' ');
+  host.appendChild(svg('path', { d:d + ' L' + X(t1).toFixed(1) + ' ' + (H-padB) +
+    ' L' + X(t0).toFixed(1) + ' ' + (H-padB) + ' Z', class:'spark-fill',
+    fill: opts.stroke || 'currentColor' }));
+  host.appendChild(svg('path', { d:d, class:'spark-line',
+    'vector-effect':'non-scaling-stroke',
+    stroke: opts.stroke || 'currentColor' }));
+  var last = pts[pts.length-1];
+  host.appendChild(svg('circle', { cx:X(last.t), cy:Y(last.v), r:3, class:'spark-now',
+    fill: opts.stroke || 'currentColor' }));
+  host.appendChild(svgText({ x:padL, y:H-3, class:'spark-ax' }, opts.days + ' days ago'));
+  host.appendChild(svgText({ x:W-padR, y:H-3, class:'spark-ax', 'text-anchor':'end' }, 'now'));
+  return host;
+}
+
+/* A box the line is drawn INTO after it is on the page, not a line drawn
+   at a width guessed beforehand. The ribbon was built the other way and
+   rendered every figure at half size inside a viewBox four times the space
+   it had; the difference is invisible until it is measured, so the width
+   comes from the element itself. */
+function sparkHost(pts, opts){
+  var host = el('div',{class:'spark-host'});
+  host._draw = function(w){
+    host.innerHTML = '';
+    var o = {}; for (var k in opts) o[k] = opts[k];
+    o.width = w;
+    host.appendChild(sparkline(pts, o));
+  };
+  return host;
+}
+
+function drawTrendLines(){
+  var hosts = document.querySelectorAll('#panel-water .spark-host');
+  Array.prototype.forEach.call(hosts, function(h){
+    if (h._draw) h._draw(Math.max(h.clientWidth || 300, 220));
+  });
+}
+
+function trendSection(river){
+  var box = el('div',{});
+  var tr = state.trends[river.id];
+  if (!tr){ box.appendChild(el('p',{class:'note',text:'Loading the last seven days…'})); return box; }
+  if (tr.failed){
+    box.appendChild(el('p',{class:'note',
+      text:'No history this time — ' + tr.failed + '. The readings above are unaffected.'}));
+    return box;
+  }
+  if (tr.stale) box.appendChild(el('div',{class:'warnbox',
+    text:'Stored history, ' + ageText(Date.now() - tr.fetchedAt) +
+         '. The network did not answer, so this is the last week that arrived.'}));
+
+  if (tr.flow){
+    var fs = trendStats(tr.flow.pts, Math.max(Math.abs(tr.flow.pts[0].v) * 0.03, 5));
+    var line = el('p',{class:'trend-say'});
+    if (tr.tidal){
+      line.textContent = 'Flow at ' + tr.flow.name + ' swings with the tide, so the ' +
+        'shape below is the tide rather than what the river is carrying. There is no ' +
+        'gauge above the tide on this river to ask instead.';
+    } else if (fs){
+      var word = fs.dir === 'steady' ? 'Steady' : fs.dir === 'up' ? 'Rising' : 'Falling';
+      line.textContent = word + ' — ' + commas(fmt(fs.last.v,0)) + ' cfs now, ' +
+        (fs.dir === 'steady' ? 'within ' : fs.delta > 0 ? 'up ' : 'down ') +
+        commas(fmt(Math.abs(fs.delta),0)) + ' cfs' +
+        (fs.pct === null ? '' : ' (' + fmt(Math.abs(fs.pct),0) + '%)') +
+        ' over ' + fmt(fs.span,0) + ' days' +
+        (fs.dayDelta === null ? '' :
+          ', ' + (Math.abs(fs.dayDelta) < 1 ? 'level' :
+            (fs.dayDelta > 0 ? 'up ' : 'down ') + commas(fmt(Math.abs(fs.dayDelta),0))) +
+          ' in the last day') + '.';
+    }
+    box.appendChild(el('h3',{class:'trend-h',text:'Flow — ' + tr.flow.name}));
+    box.appendChild(line);
+    box.appendChild(sparkHost(tr.flow.pts, { days:tr.days, stroke:'var(--cyan)',
+      label: 'Flow at ' + tr.flow.name + ' over ' + tr.days + ' days. ' + line.textContent }));
+    box.appendChild(el('p',{class:'rdg-id',
+      text: (tr.flow.source || 'USGS') + ' ' + tr.flow.site + ' · low ' +
+        commas(fmt(trendStats(tr.flow.pts,0).lo.v,0)) + ', high ' +
+        commas(fmt(trendStats(tr.flow.pts,0).hi.v,0)) + ' cfs over the week'}));
+  }
+
+  if (tr.temp){
+    var ts = trendStats(tr.temp.pts, 0.5);
+    var tline = el('p',{class:'trend-say'});
+    if (ts){
+      var tword = ts.dir === 'steady' ? 'Steady' : ts.dir === 'up' ? 'Warming' : 'Cooling';
+      tline.textContent = tword + ' — ' + fmt(ts.last.v,1) + 'F now, ' +
+        (ts.dir === 'steady' ? 'within ' : ts.delta > 0 ? 'up ' : 'down ') +
+        fmt(Math.abs(ts.delta),1) + 'F over ' + fmt(ts.span,0) + ' days' +
+        (ts.dayDelta === null ? '' :
+          ', ' + (Math.abs(ts.dayDelta) < 0.2 ? 'level' :
+            (ts.dayDelta > 0 ? 'up ' : 'down ') + fmt(Math.abs(ts.dayDelta),1)) +
+          ' in the last day') + '.';
+    }
+    box.appendChild(el('h3',{class:'trend-h',text:'Water temperature — ' + tr.temp.name}));
+    box.appendChild(tline);
+    box.appendChild(sparkHost(tr.temp.pts, { days:tr.days,
+      stroke: tempColour(tr.temp.pts[tr.temp.pts.length-1].v),
+      label: 'Water temperature at ' + tr.temp.name + ' over ' + tr.days + ' days. ' + tline.textContent }));
+    box.appendChild(el('p',{class:'rdg-id',
+      text: (tr.temp.source || 'USGS') + ' ' + tr.temp.site + ' · low ' +
+        fmt(trendStats(tr.temp.pts,0).lo.v,1) + ', high ' +
+        fmt(trendStats(tr.temp.pts,0).hi.v,1) + 'F over the week'}));
+  }
+
+  (tr.noHistory || []).forEach(function(n){
+    var many = n.id.indexOf(',') !== -1;
+    box.appendChild(el('p',{class:'note',
+      text:'No ' + n.what + ' history at ' + n.name + ' (' + n.id + '). ' +
+        (many ? 'They answer' : 'It answers') + ' for right now and ' +
+        (many ? 'publish' : 'publishes') +
+        ' nothing back over the week, so there is no line to draw.'}));
+  });
+
+  if (!tr.flow && !tr.temp && !(tr.noHistory || []).length)
+    box.appendChild(el('p',{class:'note',text:'No history published for this reach.'}));
+
+  box.appendChild(el('p',{class:'note',
+    text:'What the line is: every reading the service published over the last ' +
+      tr.days + ' days, thinned to fit the width, with the day marks behind it. ' +
+      'Nothing here is smoothed, predicted or extended past the last reading.'}));
+  return box;
+}
+
+/* =====================================================================
    Patch notes. One source: this array. The app shows it and nothing else
    restates it, so the two cannot drift apart.
    ===================================================================== */
@@ -3005,6 +3508,7 @@ var RELEASES = [
       'Season dates and reach boundaries in the words of the regulation, with a note where the printed rules are the last word.',
       'Drop marks for holes, hazards, ramps and fish; export them as a file. They never leave your device.',
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
+      'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',
       'Works offline once loaded, and can be installed to a home screen.'
     ],
     broken:[
@@ -3012,7 +3516,8 @@ var RELEASES = [
       'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
       'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
       'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',
-      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead.',
+      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead. None of its gauges publishes a week of history either, so that river gets no seven-day lines at all.',
+      'The seven-day lines cover one gauge for flow and one for temperature, not every gauge on the river. A week of readings at fifteen-minute spacing is about 55KB a gauge and the services will not send a coarser version, so asking all of them would be most of a megabyte for lines a phone cannot show.',
       'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.'
     ] }
 ];
@@ -3201,6 +3706,9 @@ function diagnostic(){
   L('Display mode', window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
       ? 'standalone (installed)' : 'browser tab');
   L('Storage backend', Store.kind);
+  L('Ribbon', document.getElementById('ribbonwrap').hidden
+      ? 'hidden — not enough height for ' + (state.riverId ? 1 : RIVERS.length) + ' row(s)'
+      : 'shown, row height ' + (RIB ? RIB.rowH : '?') + 'px');
   L('Reduced motion', reduceMotion ? 'yes' : 'no');
   L('Online', navigator.onLine ? 'yes' : 'no');
   L('BATHY_PROXY', BATHY_PROXY || '(empty — talking to DWR directly)');
@@ -3440,6 +3948,7 @@ function boot(){
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function(){
       drawRibbon();
+      drawTrendLines();
       if (state.map) state.map.invalidateSize();
     }, 180);
   });

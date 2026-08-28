@@ -164,6 +164,81 @@ check('the Feather ribbon now plots its gauges',
   /[1-9]\d* gauges plotted/.test(await page.textContent('#ribbonnote')),
   await page.textContent('#ribbonnote'));
 
+/* ---- the last seven days, against the real record ---- */
+/* The American is the one river where both lines come from the same gauge,
+   which makes it the case where a mistake in site selection would not show. */
+await page.selectOption('#riverpick', 'american');
+await page.waitForTimeout(22000);
+/* The layer tests above left the Layers panel showing, and a hidden panel
+   has no width: the lines were drawn at their fallback size and measured at
+   zero. They are redrawn when the Water tab is shown, which is what a reader
+   does and what this now does. */
+await page.click('#tab-water');
+await page.waitForTimeout(800);
+const tr = await page.evaluate(() => {
+  const t = state.trends.american;
+  const sparks = [...document.querySelectorAll('#panel-water .spark')].map(n => ({
+    vb: Number((n.getAttribute('viewBox') || '0 0 0 0').split(' ')[2]),
+    w: Math.round(n.getBoundingClientRect().width),
+    label: n.getAttribute('aria-label') || '',
+    pts: (n.querySelector('.spark-line')?.getAttribute('d') || '').split('L').length
+  }));
+  return { flow: t && t.flow && { site: t.flow.site, n: t.flow.pts.length },
+           temp: t && t.temp && { site: t.temp.site, n: t.temp.pts.length },
+           says: [...document.querySelectorAll('#panel-water .trend-say')].map(n => n.textContent),
+           sparks };
+});
+check('the American publishes a week of flow', tr.flow && tr.flow.n > 300, JSON.stringify(tr.flow));
+check('and a week of temperature', tr.temp && tr.temp.n > 300, JSON.stringify(tr.temp));
+check('both lines are drawn', tr.sparks.length === 2, JSON.stringify(tr.sparks.map(s => s.vb)));
+/* The ribbon rendered every figure at half size for twenty-two releases
+   because it was drawn into a viewBox four times the space it had. The
+   scale here is asserted rather than assumed. */
+check('the lines are drawn at the width they are rendered at',
+  tr.sparks.every(s => Math.abs(s.vb - s.w) <= 1), JSON.stringify(tr.sparks.map(s => s.vb + '/' + s.w)));
+check('each line has a real path through it',
+  tr.sparks.every(s => s.pts > 50), JSON.stringify(tr.sparks.map(s => s.pts)));
+/* Colour is never the only thing carrying a fact here: the direction, the
+   distance and the window are all in words next to the line and inside its
+   accessible name. */
+check('each line says which way and how far, in words',
+  tr.says.length === 2 &&
+  tr.says.every(t => /(Rising|Falling|Steady|Warming|Cooling) — /.test(t) && /over \d+ days/.test(t)),
+  JSON.stringify(tr.says));
+check('the accessible name carries the same sentence',
+  tr.sparks.every(s => /over \d+ days\./.test(s.label) &&
+    /(Rising|Falling|Steady|Warming|Cooling)/.test(s.label)),
+  JSON.stringify(tr.sparks.map(s => s.label.slice(0, 80))));
+
+/* Verona measures the Sacramento's discharge and publishes no temperature
+   history at all, though it reports one right now. Asking one gauge left
+   that river with a flow line and the words "no temperature history" on it. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(22000);
+const sac = await page.evaluate(() => {
+  const t = state.trends.sacramento;
+  return { flowSite: t && t.flow && t.flow.site, tempSite: t && t.temp && t.temp.site,
+           noHistory: t && t.noHistory };
+});
+check('the Sacramento reads flow from the gauge the card names',
+  sac.flowSite === '11425500', JSON.stringify(sac));
+check('and finds a temperature history at a different gauge',
+  sac.tempSite && sac.tempSite !== sac.flowSite, JSON.stringify(sac));
+
+/* Every Mokelumne gauge answers for right now and publishes no history at
+   all. An absent line has to be a sentence, not a blank space. */
+await page.selectOption('#riverpick', 'mokelumne');
+await page.waitForTimeout(22000);
+const mok = await page.evaluate(() => {
+  const t = state.trends.mokelumne;
+  return { flow: !!(t && t.flow), temp: !!(t && t.temp),
+           noHistory: (t && t.noHistory) || [],
+           said: [...document.querySelectorAll('#panel-water p')]
+             .some(n => /no line to draw/.test(n.textContent)) };
+});
+check('the Mokelumne has no published history and says so',
+  !mok.flow && !mok.temp && mok.noHistory.length > 0 && mok.said, JSON.stringify(mok));
+
 /* ---- Mokelumne tide ---- */
 await page.selectOption('#riverpick', 'mokelumne');
 await page.waitForTimeout(20000);

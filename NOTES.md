@@ -147,6 +147,34 @@ Worth carrying to LESSONS in the hub; each cost real time here.
 - **A NOAA subordinate tide station answers `interval=h` with an error.** It
   publishes highs and lows and nothing between. Drawing a curve through them
   would be inventing the water in between, so the app says what it has.
+- **NWIS will not give you a coarser record, and the daily-values service
+  cannot stand in for one.** The instantaneous service publishes every
+  fifteen minutes and has no downsampling parameter, so a week of flow and
+  temperature at one site is 55KB and at the Sacramento's six gauges 429KB —
+  measured, in JSON; the tab-delimited `format=rdb` is 184KB for the same
+  thing but returned an empty body for the Mokelumne's three sites, so it is
+  not a safe substitute. The daily-values service (`nwis/dv`) is 29KB for
+  thirty days across nine sites and looked like the answer: it publishes
+  **nothing at all for water temperature at any of these sites**, and nothing
+  for flow at Rio Vista or at the Mokelumne. The seven-day lines therefore
+  ask one gauge for flow and one for temperature and no more.
+- **A gauge that reports a value right now may publish no history for it.**
+  Verona reports a water temperature and has no `00010` record over any
+  window, so asking "the gauge the flow figure came from" left the
+  Sacramento — the most instrumented reach in the state — with the words *no
+  temperature history* on it. Whether a site publishes a week of a parameter
+  cannot be known without asking, so two candidates go in the one request and
+  whichever answers is drawn. Every Mokelumne gauge answers for now and
+  publishes nothing over a week, which is a state the panel has to say out
+  loud rather than render as a blank space.
+- **390 by 844 is an iPhone's SCREEN, not its viewport.** The page gets 390
+  by 664; Safari's chrome takes the other 180px, and Playwright's device
+  registry is the authority on that. The accessibility suite measured 844 for
+  its whole life, and correcting it immediately found the ribbon taking 263px
+  on every screen — 46% of an iPhone SE and, with the software keyboard up,
+  72%, leaving the readings twenty-two pixels. That is the same failure that
+  was found and fixed at 34px, back again because the fix had been measured
+  against a phone 27% taller than the real one.
 - **A `<dialog>` with no focus target of its own opens differently in the two
   engines, and the walk drives the one where it looks right.** With no
   `autofocus` the browser focuses the first focusable element it finds, and
@@ -186,6 +214,34 @@ via `functions/version.js`, and checks the proxy went out with it. Run it after
 every release. A push verified against the remote is not a deploy, and the
 newest green row in a list of runs belongs to whatever ran last, not
 necessarily to this commit.
+
+## Fish counts: what exists and what it is worth
+
+Asked for on 2026-08-27: a machine-readable hatchery or passage count for the
+fall run. What was actually found, by fetching it rather than by recalling it.
+
+**CDFW publishes GrandTab and it does not answer this question.** The
+Anadromous Assessment page is reachable and links to it; the file is a 771KB
+**PDF** of annual escapement estimates, published long after the season it
+describes. Annual totals in a PDF cannot tell anyone whether the run is in
+this week, which is the only version of the question worth asking.
+
+**CDFW points at CalFish for the data itself**, and `www.calfish.org` is
+refused 403 by this session's proxy allowlist.
+
+**The source that would answer it is SacPAS** — Columbia Basin Research at the
+University of Washington, `www.cbr.washington.edu/sacramento/` — which
+aggregates daily in-season hatchery returns and Red Bluff passage with a
+queryable CSV interface. It is refused by the same allowlist, so **nothing
+about it has been verified here** and nothing should be built against it until
+it has been fetched. USFWS, USBR, NOAA Fisheries and the CDFW ArcGIS host are
+all refused too.
+
+**The line this does not cross.** A published count of fish that passed a
+fixed structure is a measurement, in the same family as a gauge reading. It is
+not a catch report and not a forecast, and showing one would not make this app
+the thing it refuses to be. What would cross the line is inferring from a
+count where anybody should fish.
 
 ## Owed
 
