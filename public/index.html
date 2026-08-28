@@ -1818,9 +1818,12 @@ function initMap(){
   state.gaugeLayer = L.layerGroup().addTo(m);
   state.soundingLayer = L.layerGroup().addTo(m);
 
+  /* A tap used to drop a mark, silently, so exploring the map littered it.
+     It reads the depth now and OFFERS to keep the point, which is the same
+     one-tap route to a mark with the decision moved to the reader. Add at
+     map centre in the Marks panel is still the pointerless way. */
   m.on('click', function(e){
-    if (!state.riverId) return;           /* marks belong to a river */
-    addMark(e.latlng.lat, e.latlng.lng);
+    showDepthAt(e.latlng.lat, e.latlng.lng);
   });
   m.on('moveend', function(){
     if (state.soundingActive) refreshSoundings();
@@ -2285,6 +2288,23 @@ function renderLayers(){
   }
   var cat = catalogFor(state.catalog, river);
 
+  /* Reading a colour off a ramp is not a depth. Tapping the map asks the
+     survey for the number, and this is the same question without a pointer:
+     §4 wants the route named for the hand that takes it, and a finger on a
+     map and a keyboard on a button are two hands, not one. */
+  p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
+  var centreRow = el('div',{class:'rowline'});
+  var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
+  centreBtn.addEventListener('click', function(){
+    var c = state.map.getCenter();
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    showDepthAt(c.lat, c.lng);
+  });
+  centreRow.appendChild(centreBtn);
+  p.appendChild(centreRow);
+
   if (state.catalog.rasterError)
     p.appendChild(el('div',{class:'warnbox',
       text:'The multibeam service directory did not answer: ' + state.catalog.rasterError}));
@@ -2597,24 +2617,37 @@ function loadMarks(riverId){
 function saveMarks(){
   if (state.riverId) sput(state.riverId,'marks',state.marks);
 }
-function addMark(lat, lon){
+function addMark(lat, lon, extra){
   var type = state.markType || 'hole';
-  state.marks.push({ id:'m'+Date.now()+Math.floor(Math.random()*1000),
-    type:type, lat:lat, lon:lon, at:new Date().toISOString(), note:'' });
+  var m = { id:'m'+Date.now()+Math.floor(Math.random()*1000),
+    type:type, lat:lat, lon:lon, at:new Date().toISOString(), note:'' };
+  /* A depth read at the moment the mark was kept travels with it, so the
+     label can say it later without asking the service again — and says
+     WHEN it was surveyed, because a mark outlives the survey it was read
+     from. */
+  if (extra) for (var k in extra) m[k] = extra[k];
+  state.marks.push(m);
   saveMarks(); drawMarks(); renderMarks();
-  announce('Mark added at ' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '.');
+  announce('Mark added at ' + lat.toFixed(5) + ', ' + lon.toFixed(5) +
+    (isNum(m.depth) ? ', ' + fmt(Math.abs(m.depth),1) + ' feet' : '') + '.');
 }
 function drawMarks(){
   if (!state.markLayer) return;
   state.markLayer.clearLayers();
   state.marks.forEach(function(m){
     var def = MARK_TYPES.filter(function(t){ return t.id===m.type; })[0] || MARK_TYPES[0];
+    var vals = [[m.lat.toFixed(5) + ', ' + m.lon.toFixed(5), '']];
+    if (isNum(m.depth)) vals.unshift([fmt(Math.abs(m.depth),1), 'ft']);
+    var sub = (m.note ? m.note + ' · ' : '') +
+      'dropped ' + dayLocal(m.at) + ', ' + clockLocal(m.at);
+    if (isNum(m.depth))
+      sub += ' · depth from ' + (m.depthFrom || 'a published survey') +
+        (m.depthDate ? ', surveyed ' + m.depthDate : '') +
+        (m.depthAway ? ', measured ' + m.depthAway + ' m away' : '') +
+        ', as published';
     L.circleMarker([m.lat,m.lon],{ radius:6, weight:2, color:def.colour,
       fillColor:'#0A1214', fillOpacity:.85 })
-      .bindPopup(labelNode(def.label,
-        [[m.lat.toFixed(5) + ', ' + m.lon.toFixed(5), '']],
-        (m.note ? m.note + ' · ' : '') + 'dropped ' + dayLocal(m.at) + ', ' + clockLocal(m.at)),
-        LABEL)
+      .bindPopup(labelNode(def.label, vals, sub), LABEL)
       .addTo(state.markLayer);
   });
 }
@@ -3494,6 +3527,239 @@ function trendSection(river){
 }
 
 /* =====================================================================
+   How deep is it HERE.
+
+   The published surveys are already drawn as a coloured surface; reading a
+   colour off a ramp is not a depth. This asks the service for the number
+   under the point.
+
+   Two requests, in order, because one is not enough. `identify` returns the
+   pixel and is exact — but a survey's rectangular extent is mostly land: of
+   four hundred points sampled across the Sacramento survey's whole box,
+   ONE had a value. A fingertip covers about a hundred metres at the zoom
+   people actually use, so a single-pixel question misses the surveyed
+   ribbon nearly every time and answers NoData, which reads as "no survey
+   here" when it means "not that exact pixel". So a miss falls through to
+   `getSamples` over a hundred metres square, and the nearest point with a
+   value is reported WITH ITS DISTANCE, which is the honest form of the
+   answer: not the depth where you tapped, but the depth of the nearest
+   place anybody measured, and how far away that is.
+   ===================================================================== */
+var DEPTH_SPAN_M = 100;      /* half-width of the fallback search box */
+var DEPTH_MAX_SURVEYS = 3;   /* how many overlapping surveys to ask */
+
+function metresBetween(aLat, aLon, bLat, bLon){
+  var R = 6371000, rad = Math.PI / 180;
+  var dLat = (bLat - aLat) * rad, dLon = (bLon - aLon) * rad;
+  var s = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(aLat*rad) * Math.cos(bLat*rad) * Math.sin(dLon/2) * Math.sin(dLon/2);
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+/* DWR names these services with the survey date in them. It is read rather
+   than assumed: a name without one yields no date and the panel says the
+   date is unknown instead of inventing one. */
+function surveyDate(name){
+  var m = /_(\d{4})(\d{2})(\d{2})_/.exec(String(name || ''));
+  if (!m) return null;
+  return m[1] + '-' + m[2] + '-' + m[3];
+}
+
+/* DWR's service names are machine names: Bathy_NCRO_20230208_SacramentoRiver.
+   The reader gets the readable part and the machine name stays beside it, so
+   what is on screen can still be matched to what is in the catalogue. */
+function surveyLabel(name){
+  var rest = String(name || '').replace(/^Bathy[_\s]*/i, '')
+    .replace(/^NCRO[_\s]*/i, '').replace(/^\d{8}[_\s]*/, '');
+  rest = rest.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+  return rest || String(name || 'unnamed survey');
+}
+
+function boxHas(box, lat, lon){
+  return !!box && lat >= box.s && lat <= box.n && lon >= box.w && lon <= box.e;
+}
+
+/* Which surveys cover this point, newest first, with whatever is switched
+   on put at the front so the number agrees with the colours on screen. */
+function surveysAt(lat, lon){
+  var cat = state.catalog;
+  if (!cat || !cat.raster) return [];
+  var hits = cat.raster.filter(function(r){ return boxHas(r.box, lat, lon); });
+  hits.forEach(function(r){ r._date = surveyDate(r.name); });
+  hits.sort(function(a, b){
+    var aOn = state.layers['r:' + a.name] ? 1 : 0, bOn = state.layers['r:' + b.name] ? 1 : 0;
+    if (aOn !== bOn) return bOn - aOn;
+    return String(b._date || '').localeCompare(String(a._date || ''));
+  });
+  return hits;
+}
+
+function identifyDepth(path, lat, lon){
+  var url = dwr(path + '/identify?f=json&returnGeometry=false&geometryType=esriGeometryPoint' +
+    '&geometry=' + encodeURIComponent(JSON.stringify({ x:lon, y:lat, spatialReference:{ wkid:4326 } })));
+  return getJSON(url, 20000).then(function(j){
+    var v = j && j.value;
+    if (v === undefined || v === null || v === '' || v === 'NoData') return null;
+    var n = Number(v);
+    return isNum(n) ? n : null;
+  });
+}
+
+/* A square of samples, in the coordinate system the app already works in,
+   so nothing here has to know how the survey was projected. */
+function sampleNearest(path, lat, lon){
+  var d = DEPTH_SPAN_M / 111320;                      /* metres to degrees */
+  var dx = d / Math.max(Math.cos(lat * Math.PI / 180), 0.2);
+  var g = { xmin:lon-dx, ymin:lat-d, xmax:lon+dx, ymax:lat+d, spatialReference:{ wkid:4326 } };
+  var url = dwr(path + '/getSamples?f=json&outSR=4326&geometryType=esriGeometryEnvelope' +
+    '&sampleCount=100&geometry=' + encodeURIComponent(JSON.stringify(g)));
+  return getJSON(url, 20000).then(function(j){
+    var best = null;
+    (j && j.samples || []).forEach(function(s){
+      if (s.value === '' || s.value === 'NoData' || s.value === null || s.value === undefined) return;
+      var v = Number(s.value);
+      if (!isNum(v) || !s.location) return;
+      var sl = Number(s.location.y), so = Number(s.location.x);
+      if (!isNum(sl) || !isNum(so)) return;
+      var m = metresBetween(lat, lon, sl, so);
+      if (!best || m < best.m) best = { v:v, m:m, lat:sl, lon:so };
+    });
+    return best;
+  });
+}
+
+/* The answer, in the order a person would want it: the number under the
+   point; failing that the nearest measured point and how far; failing that
+   which surveys cover here and could not answer; failing that that none
+   does. Each of those is a different fact and none of them is a dash. */
+function depthAt(lat, lon){
+  /* Not knowing and knowing there is nothing are different answers, and the
+     first must never be printed as the second: with no catalogue loaded,
+     "no survey covers this point" is a claim about California made by an
+     app that has not asked. Same shape as a history request that timed out
+     being reported as a gauge publishing nothing. */
+  if (!state.catalog || !state.catalog.raster || !state.catalog.raster.length)
+    return Promise.resolve({ none:'nocatalog', covering:[] });
+  var covering = surveysAt(lat, lon);
+  if (!covering.length)
+    return Promise.resolve({ none:'nowhere', covering:[] });
+  var list = covering.slice(0, DEPTH_MAX_SURVEYS);
+
+  function tryIdentify(i){
+    if (i >= list.length) return Promise.resolve(null);
+    return identifyDepth(list[i].path, lat, lon).then(function(v){
+      if (isNum(v)) return { value:v, survey:list[i], exact:true };
+      return tryIdentify(i + 1);
+    }, function(){ return tryIdentify(i + 1); });
+  }
+
+  return tryIdentify(0).then(function(hit){
+    if (hit) return hit;
+    return sampleNearest(list[0].path, lat, lon).then(function(near){
+      if (near) return { value:near.v, survey:list[0], exact:false,
+                         away:near.m, lat:near.lat, lon:near.lon };
+      return { none:'notmeasured', covering:list };
+    }, function(e){
+      return { failed:String(e && e.message || e), covering:list };
+    });
+  });
+}
+
+/* The reading, as a label on the map where the finger is. */
+function showDepthAt(lat, lon){
+  if (!state.map) return;
+  var pop = L.popup(LABEL).setLatLng([lat, lon])
+    .setContent(depthNode({ loading:true }, lat, lon)).openOn(state.map);
+  depthAt(lat, lon).then(function(res){
+    pop.setContent(depthNode(res, lat, lon));
+    pop.update();
+    announce(depthSentence(res));
+  });
+}
+
+function depthSentence(res){
+  if (res.loading) return 'Reading the depth…';
+  if (res.failed)  return 'The depth service did not answer.';
+  if (res.none === 'nocatalog') return 'The survey directory has not arrived, so this cannot be answered yet.';
+  if (res.none === 'nowhere') return 'No published survey covers this point.';
+  if (res.none === 'notmeasured')
+    return 'No measured depth within ' + DEPTH_SPAN_M + ' metres of this point.';
+  return fmt(Math.abs(res.value), 1) + ' feet ' +
+    (res.value <= 0 ? 'deep' : 'ABOVE the survey datum — bank, not bottom') +
+    (res.exact ? ' here' : ', ' + fmt(res.away, 0) + ' metres away') + '.';
+}
+
+function depthNode(res, lat, lon){
+  var box = el('div',{});
+  box.appendChild(el('span',{class:'pop-name',text:'Depth here'}));
+
+  if (res.loading){
+    box.appendChild(el('p',{class:'note',text:'Asking the survey…'}));
+    return box;
+  }
+  if (res.failed){
+    box.appendChild(el('p',{class:'err',
+      text:'The survey did not answer: ' + res.failed + '. Nothing is shown, because nothing is known.'}));
+    return box;
+  }
+  if (res.none === 'nocatalog'){
+    box.appendChild(el('p',{class:'note',
+      text:'The survey directory has not arrived, so this cannot be answered yet. That is not the same as there being no survey here — it means nothing has been asked.'}));
+    return box;
+  }
+  if (res.none === 'nowhere'){
+    box.appendChild(el('p',{class:'note',
+      text:'No published survey covers this point. Where the state has not measured, this app has nothing to tell you and will not guess.'}));
+    return box;
+  }
+  if (res.none === 'notmeasured'){
+    box.appendChild(el('p',{class:'note',
+      text:'Nothing measured within ' + DEPTH_SPAN_M + ' metres. ' +
+        (res.covering.length === 1 ? 'One survey covers' : res.covering.length + ' surveys cover') +
+        ' this point and none of them has a reading here — weed stops a sounder returning, and those patches are dropped rather than filled in.'}));
+    return box;
+  }
+
+  /* A survey publishes elevation against its own datum: below it is
+     negative and that is the depth. A POSITIVE reading is ground above the
+     datum — bank, or a bar that was dry when the boat went past — and
+     printing its absolute value as a depth would turn dry land into eleven
+     feet of water. It is said as what it is instead. */
+  var below = res.value <= 0;
+  var v = el('div',{class:'pop-vals'});
+  var s = el('span',{class:'v water'});
+  s.appendChild(document.createTextNode(fmt(Math.abs(res.value), 1)));
+  s.appendChild(el('small',{text:'ft'}));
+  v.appendChild(s);
+  box.appendChild(v);
+  if (!below) box.appendChild(el('div',{class:'err',
+    text:'That reading is ABOVE the survey’s datum, not below it. This is bank or a bar that was dry when the survey boat went past, not depth of water.'}));
+
+  box.appendChild(el('span',{class:'pop-sub',
+    text: res.exact
+      ? 'at the point you asked for'
+      : fmt(res.away, 0) + ' m away — the nearest place this survey measured'}));
+  box.appendChild(el('span',{class:'pop-sub',
+    text: surveyLabel(res.survey.name) +
+      (res.survey._date ? ', surveyed ' + res.survey._date : ', survey date not published') +
+      ' · ' + res.survey.name}));
+  box.appendChild(el('p',{class:'note',
+    text:'As the survey published it. Thalweg does not restate a vertical datum it has not checked, so treat this as relative, not as a chart sounding. Not for navigation.'}));
+
+  var keep = el('button',{type:'button',text:'Keep this as a mark'});
+  keep.addEventListener('click', function(){
+    addMark(res.exact ? lat : res.lat, res.exact ? lon : res.lon, {
+      depth: res.value, depthFrom: surveyLabel(res.survey.name), depthDate: res.survey._date,
+      depthAway: res.exact ? 0 : Math.round(res.away) });
+    state.map.closePopup();
+  });
+  if (state.riverId) box.appendChild(el('div',{class:'rowline'},[keep]));
+  else box.appendChild(el('p',{class:'note',
+    text:'Pick a river and this can be kept as a mark; a mark belongs to one river.'}));
+  return box;
+}
+
+/* =====================================================================
    Patch notes. One source: this array. The app shows it and nothing else
    restates it, so the two cannot drift apart.
    ===================================================================== */
@@ -3508,8 +3774,10 @@ var RELEASES = [
       'Season dates and reach boundaries in the words of the regulation, with a note where the printed rules are the last word.',
       'Drop marks for holes, hazards, ramps and fish; export them as a file. They never leave your device.',
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
+      'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
+      'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
       'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',
-      'Works offline once loaded, and can be installed to a home screen.'
+      'Works offline once loaded, and can be installed to a home screen. A depth you have read once reads again with no signal, and so does a mark you kept it in.'
     ],
     broken:[
       'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number.',
@@ -3518,7 +3786,8 @@ var RELEASES = [
       'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',
       'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead. None of its gauges publishes a week of history either, so that river gets no seven-day lines at all.',
       'The seven-day lines cover one gauge for flow and one for temperature, not every gauge on the river. A week of readings at fifteen-minute spacing is about 55KB a gauge and the services will not send a coarser version, so asking all of them would be most of a megabyte for lines a phone cannot show.',
-      'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.'
+      'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.',
+      'A tapped depth can come back above the survey’s datum rather than below it — that is bank, or a bar that was dry when the survey boat went past. It is labelled as bank rather than dressed up as two feet of water, but it means the edge of a survey is a rough edge.'
     ] }
 ];
 
@@ -3671,7 +3940,7 @@ function renderAbout(){
   para('Where a reach has no published survey at all, the Layers panel says so in words instead of offering you a switch that turns nothing on.');
 
   h('Getting around it without a pointer');
-  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus, and a mark can be dropped without a pointer at all using Add at map centre in the Marks panel.');
+  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks.');
   para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
 
   h('Licence');

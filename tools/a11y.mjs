@@ -268,6 +268,47 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await page.evaluate(() => [...document.querySelectorAll('#panel-water p')]
       .map(n => n.textContent).filter(t => /no line|publishes nothing/.test(t)).join(' | ')));
   await noOverflow(page, `${name}: nothing reaches past the edge with a river picked`);
+
+  /* Depth at a point, with nothing answering. "No survey covers this point"
+     is a claim about California; an app that has not been able to ask has no
+     business making it. */
+  await page.click('#tab-layers');
+  await page.waitForTimeout(400);
+  check(`${name}: the depth-at-a-point control is offered without a pointer`,
+    await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
+      .some(b => /Read the depth at the map centre/.test(b.textContent))));
+  /* The local dev server proxies /bathy upstream, so DWR is reachable here
+     even with the browser's own egress cut — which is the production shape
+     too. The no-catalogue state is therefore forced rather than waited for:
+     it is real (the first seconds of a cold start, or the directory
+     failing) and it is the one where a wrong answer is a claim about
+     California made by an app that has not asked. */
+  const popText = () => page.evaluate(() => {
+    const n = document.querySelector('.leaflet-popup-content');
+    return n ? n.textContent.replace(/\s+/g, ' ') : '';
+  });
+  const held = await page.evaluate(() => { const c = state.catalog; state.catalog = null; return !!c; });
+  await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
+  await page.waitForTimeout(700);
+  const blind = await popText();
+  check(`${name}: a depth reading with no catalogue says it has not asked`,
+    /has not arrived|cannot be answered yet/.test(blind) &&
+    !/No published survey covers/.test(blind), blind.slice(0, 160));
+  await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
+  await page.evaluate(() => { state.catalog = null; });
+  await page.evaluate(() => loadCatalog());
+  await page.waitForTimeout(2500);
+  check(`${name}: the catalogue came back`, held);
+  await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
+  await page.waitForTimeout(2500);
+  const depth = await popText();
+  check(`${name}: a depth reading names its survey and its caveat`,
+    /ft/.test(depth) && /surveyed \d{4}-\d{2}-\d{2}/.test(depth) &&
+    /Not for navigation/.test(depth), depth.slice(0, 200));
+  await audit(page, `${name}: depth label open`);
+  await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
+  await page.click('#tab-water');
+  await page.waitForTimeout(300);
   await page.selectOption('#riverpick', '');
   await page.waitForTimeout(800);
 

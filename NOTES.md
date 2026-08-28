@@ -167,6 +167,22 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **A survey's bounding box is almost entirely land, so a single-pixel
+  `identify` under a fingertip answers NoData nearly every time.** Of four
+  hundred points sampled across the Sacramento survey's whole extent, ONE had
+  a value: the surveyed water is a ribbon inside a rectangle thirty miles by
+  forty-seven. `identify` is exact and right when it hits; when it misses,
+  `getSamples` over a hundred metres square returns up to a hundred points
+  with values and coordinates in about 16KB and half a second, and the
+  nearest one is reported WITH ITS DISTANCE. NoData at a pixel means "not
+  that pixel", never "no survey here", and printing the first as the second
+  would be a lie in this app's own subject.
+- **These rasters publish elevation against their own datum, so a positive
+  reading is not a depth.** Walking west off the channel at 38.40061 N: −11.9
+  at the line, −10.8 thirty metres west, NoData beyond sixty, and the nearest
+  measured point to a tap a hundred and forty metres west is **+2.37**, which
+  is farmland. Taking the absolute value would have sold two and a half feet
+  of water on dry ground. It is labelled as bank instead.
 - **390 by 844 is an iPhone's SCREEN, not its viewport.** The page gets 390
   by 664; Safari's chrome takes the other 180px, and Playwright's device
   registry is the authority on that. The accessibility suite measured 844 for

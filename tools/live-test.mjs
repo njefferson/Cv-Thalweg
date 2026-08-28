@@ -239,6 +239,84 @@ const mok = await page.evaluate(() => {
 check('the Mokelumne has no published history and says so',
   !mok.flow && !mok.temp && mok.noHistory.length > 0 && mok.said, JSON.stringify(mok));
 
+/* ---- depth at a point, against the real surveys ---- */
+/* Every coordinate here was found by walking the service, not by recall: the
+   channel at 38.40061 N reads to about 30 m west of that line and is NoData
+   beyond it, and of four hundred points sampled across this survey's whole
+   bounding box exactly ONE had a value. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(20000);
+const D = await page.evaluate(async () => {
+  const at = async (la, lo) => {
+    const r = await depthAt(la, lo);
+    return { v: r.value === undefined ? null : +Number(r.value).toFixed(2),
+             exact: !!r.exact, away: r.away === undefined ? null : Math.round(r.away),
+             none: r.none || null, survey: r.survey ? r.survey.name : null,
+             date: r.survey ? r.survey._date : null, covering: (r.covering || []).length };
+  };
+  return { on:      await at(38.4006076, -121.5141745),
+           edge:    await at(38.4006076, -121.514875),
+           bank:    await at(38.4006076, -121.51558),
+           dry:     await at(38.4300,    -121.4500),
+           nowhere: await at(39.5000,    -122.0000) };
+});
+check('a point on the surveyed channel reads a depth',
+  D.on.v !== null && D.on.v < 0 && D.on.exact, JSON.stringify(D.on));
+check('and names the survey it came from, with its date',
+  /^Bathy_/.test(D.on.survey || '') && /^\d{4}-\d{2}-\d{2}$/.test(D.on.date || ''), JSON.stringify(D.on));
+/* A fingertip covers about a hundred metres at a usable zoom, so the single
+   pixel misses the channel constantly. NoData there means "not that pixel",
+   not "no survey", and answering the first as the second would be a lie in
+   the app's own subject. */
+check('a point just off the channel falls back to the nearest measured place',
+  D.edge.v !== null && !D.edge.exact && D.edge.away > 0 && D.edge.away <= 100,
+  JSON.stringify(D.edge));
+/* A survey publishes elevation against its own datum. Positive is ground
+   above it — this one is farmland beside the river, and printing its
+   absolute value as a depth would sell two and a half feet of water on dry
+   land. */
+check('a positive reading is available to be called bank rather than depth',
+  D.bank.v !== null && D.bank.v > 0, JSON.stringify(D.bank));
+check('a point a survey covers but never measured says exactly that',
+  D.dry.none === 'notmeasured' && D.dry.covering > 0, JSON.stringify(D.dry));
+check('a point no survey covers says that instead',
+  D.nowhere.none === 'nowhere', JSON.stringify(D.nowhere));
+
+/* And the label a reader gets, with the way to keep it. */
+await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
+await page.waitForTimeout(4000);
+const dtxt = await page.evaluate(() => {
+  const n = document.querySelector('.leaflet-popup-content');
+  return n ? n.textContent.replace(/\s+/g, ' ') : '';
+});
+check('the label carries the figure, the survey, the date and the caveat',
+  /ft/.test(dtxt) && /Sacramento River/.test(dtxt) && /surveyed 2023-02-08/.test(dtxt) &&
+  /Not for navigation/.test(dtxt), dtxt.slice(0, 220));
+const marksBefore = await page.evaluate(() => state.marks.length);
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('.leaflet-popup-content button')]
+    .find(x => /Keep this as a mark/.test(x.textContent));
+  if (b) b.click();
+});
+await page.waitForTimeout(1200);
+const kept = await page.evaluate(() => {
+  const m = state.marks[state.marks.length - 1] || {};
+  return { n: state.marks.length, depth: m.depth === undefined ? null : +Number(m.depth).toFixed(2),
+           from: m.depthFrom || null, date: m.depthDate || null };
+});
+check('keeping it makes a mark that carries the depth and the survey date',
+  kept.n === marksBefore + 1 && kept.depth !== null && kept.from && kept.date,
+  JSON.stringify(kept));
+/* A tap used to drop a mark silently. It reads the depth now, and the mark
+   is the reader's decision rather than a side effect of looking. */
+check('a tap on the map no longer drops a mark by itself',
+  await page.evaluate(async () => {
+    const before = state.marks.length;
+    state.map.fire('click', { latlng: L.latLng(38.4006076, -121.5141745) });
+    await new Promise(r => setTimeout(r, 1500));
+    return state.marks.length === before;
+  }));
+
 /* ---- Mokelumne tide ---- */
 await page.selectOption('#riverpick', 'mokelumne');
 await page.waitForTimeout(20000);
