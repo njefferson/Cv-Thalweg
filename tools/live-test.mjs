@@ -124,11 +124,14 @@ check('descriptions arrive as prose, not markup', !/<DIV|<SPAN|&lt;DIV/i.test(la
 check('a depth ramp switch is offered', /Depth ramp/.test(layers));
 
 /* switch a surface on and confirm tiles decode */
-const surfaces = await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
-  .map(b => b.textContent).filter(t => /^Bathymetry\/|^Bathy_/.test(t)));
+/* Selected by the survey's identity rather than its label: the label is
+   written for readers and is allowed to change, and this check went red the
+   day it did, taking the tile-decode checks below with it silently. */
+const surfaces = await page.evaluate(() => [...document.querySelectorAll('#panel-layers button[data-survey]')]
+  .map(b => b.getAttribute('data-survey')).filter(t => /^Bathy_/.test(t)));
 check('surfaces are listed for the Sacramento', surfaces.length > 0, JSON.stringify(surfaces.slice(0, 3)));
 if (surfaces.length) {
-  await page.click(`#panel-layers button:text-is(${JSON.stringify(surfaces[0])})`);
+  await page.click(`#panel-layers button[data-survey=${JSON.stringify(surfaces[0])}]`);
   await page.waitForTimeout(8000);
   const tiles = await page.evaluate(() =>
     [...document.querySelectorAll('.leaflet-tile')].filter(t => t.src.includes('exportImage')).length);

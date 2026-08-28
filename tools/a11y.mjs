@@ -219,6 +219,18 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await noOverflow(page, `${name}: nothing reaches past the edge on ${tab}`);
   }
 
+  /* Closing the first-run panel returned focus to nothing, because nothing
+     opened it: a keyboard or screen-reader user was left with no position in
+     the app at all. BODY is not "somewhere real". */
+  check(`${name}: focus after the first-run panel lands on a tab`,
+    await page.evaluate(() => {
+      const d = document.getElementById('welcome');
+      if (!d.open) showWelcome();
+      d.close();
+      const a = document.activeElement;
+      return !!(a && a.getAttribute && a.getAttribute('role') === 'tab');
+    }));
+
   await page.click('#aboutbtn');
   await page.waitForTimeout(500);
   await audit(page, `${name}: about panel`);
@@ -269,11 +281,96 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
       .map(n => n.textContent).filter(t => /no line|publishes nothing/.test(t)).join(' | ')));
   await noOverflow(page, `${name}: nothing reaches past the edge with a river picked`);
 
+  /* Staleness is a question about AGE. A payload fetched this minute is
+     current whatever the request after it did — printing "network did not
+     answer" in orange over readings timestamped that minute, on a cold open
+     with every request logged ok, is the failure this app exists to avoid.
+     Both states are forced, because a real one takes five minutes to arrive. */
+  const staleWords = () => page.evaluate(() => {
+    renderWater(); updateStaleness();
+    return (document.getElementById('panel-water').innerText + ' || ' +
+            document.getElementById('staleness').textContent).replace(/\s+/g, ' ');
+  });
+  await page.evaluate(() => {
+    window.__g = JSON.parse(JSON.stringify(state.gauges));
+    Object.keys(state.gauges).forEach(k => {
+      state.gauges[k].stale = true; state.gauges[k].noData = false;
+      state.gauges[k].failed = false; state.gauges[k].fetchedAt = Date.now();
+    });
+  });
+  const fresh = await staleWords();
+  check(`${name}: a reading fetched this minute is not called stale`,
+    !/network did not answer|Stored readings/.test(fresh), fresh.slice(0, 200));
+  await page.evaluate(() => {
+    Object.keys(state.gauges).forEach(k => {
+      state.gauges[k].fetchedAt = Date.now() - 40 * 60 * 1000; });
+  });
+  const aged = await staleWords();
+  check(`${name}: one that is forty minutes old and failed to refresh says so`,
+    /network did not answer/.test(aged), aged.slice(0, 200));
+  await page.evaluate(() => { state.gauges = window.__g; renderWater(); updateStaleness(); });
+
+  /* A card whose own source did not answer said "no thermometer reporting"
+     and "no flow reading", which describes a river with no instruments on it
+     rather than a request that failed. The Feather's gauges are CDEC's and
+     CDEC is the slowest of the four services, so this is its normal first
+     few seconds. */
+  const cardWords = await page.evaluate(() => {
+    state.gauges.feather = { fetchedAt: Date.now(), rows: [
+      { id:'GRL', declared:true, error:'request failed', flow:null, tempF:null },
+      { id:'FSB', declared:true, error:'request failed', flow:null, tempF:null }
+    ]};
+    const before = state.riverId; state.riverId = null; renderWater(); state.riverId = before;
+    return document.getElementById('panel-water').innerText.replace(/\s+/g, ' ');
+  });
+  check(`${name}: a river whose gauges did not answer says that, not that it has none`,
+    /did not answer/.test(cardWords) && !/no thermometer reporting/.test(cardWords),
+    cardWords.slice(0, 220));
+  check(`${name}: and the landing warning names which rivers are stored, not all four`,
+    await page.evaluate(() => {
+      /* With no network every river is in a failed state here, so the other
+         three are forced current: the check is that ONE old river does not
+         caption the other three. */
+      RIVERS.forEach(r => { state.gauges[r.id] = { fetchedAt: Date.now(),
+        stale:false, noData:false, failed:false,
+        rows:[{ id:'x', declared:true, flow:100, tempF:60, lat:38.4, lon:-121.5 }] }; });
+      state.gauges.feather.stale = true;
+      state.gauges.feather.fetchedAt = Date.now() - 40 * 60 * 1000;
+      const before = state.riverId; state.riverId = null; renderWater(); state.riverId = before;
+      const t = document.getElementById('panel-water').innerText;
+      return /Stored readings for Feather/.test(t) && !/These are stored readings/.test(t);
+    }));
+  await page.evaluate(() => { state.gauges = window.__g; renderWater(); });
+
+  /* A mark kept from a depth reading carried the figure into its map label
+     and nowhere else, so the list it lives in did not know it. */
+  check(`${name}: a mark carrying a depth shows it in the list`,
+    await page.evaluate(() => {
+      state.marks.push({ id:'t1', type:'hole', lat:38.4, lon:-121.5,
+        at:new Date().toISOString(), note:'', depth:-11.89,
+        depthFrom:'Sacramento River', depthDate:'2023-02-08', depthAway:0 });
+      renderMarks();
+      const t = document.getElementById('panel-marks').innerText;
+      state.marks = state.marks.filter(m => m.id !== 't1'); renderMarks();
+      return /11\.9/.test(t) && /surveyed 2023-02-08/.test(t);
+    }));
+
   /* Depth at a point, with nothing answering. "No survey covers this point"
      is a claim about California; an app that has not been able to ask has no
      business making it. */
   await page.click('#tab-layers');
   await page.waitForTimeout(400);
+  /* DWR's names are machine names and this list is where a reader chooses
+     between twenty of them. The readable name is on the control; the machine
+     name stays under it so what is on screen matches the catalogue. */
+  check(`${name}: the layer list gives readable names and keeps the machine ones`,
+    await page.evaluate(() => {
+      const t = document.getElementById('panel-layers').innerText;
+      if (!/Bathy_NCRO_/.test(t)) return true;          /* catalogue not loaded */
+      return /Sacramento River|Grizzly Bay|Rio Vista/.test(t) &&
+             /Bathy_NCRO_\d{8}_/.test(t);
+    }),
+    await page.evaluate(() => document.getElementById('panel-layers').innerText.slice(0, 160)));
   check(`${name}: the depth-at-a-point control is offered without a pointer`,
     await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
       .some(b => /Read the depth at the map centre/.test(b.textContent))));

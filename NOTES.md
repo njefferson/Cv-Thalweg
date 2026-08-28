@@ -167,6 +167,26 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **The app told a first-time reader the network had failed while every
+  request was succeeding, and a walkthrough is what found it.** On a cold
+  open the header read "Flow and temperature seconds old — network did not
+  answer" in orange in the FIRST FRAME; the landing said "These are stored
+  readings"; and the Sacramento panel said "Stored readings, seconds old. The
+  network did not answer" directly above six gauges timestamped that minute.
+  The diagnostic from the same load logged every gauge request `ok`. The
+  cause: a payload marked `stale` by a later failed attempt while carrying
+  readings fetched eight hundred milliseconds earlier. **Staleness is a
+  question about the AGE of what is on screen, not about whether the last
+  request succeeded** — the two were conflated and the conflation produced a
+  confident lie in the app's own subject. The warning now needs the payload
+  to be older than five minutes as well as unrefreshed.
+  Two more of the same shape found in the same walk: the landing warning read
+  `RIVERS[0]` and captioned all four rivers with one river's bad minute; and a
+  river card whose own source had not answered said "no thermometer
+  reporting" and "no flow reading", which describes a river with no
+  instruments on it rather than a request that failed. The Feather's gauges
+  are CDEC's and CDEC is the slowest of the four services, so that was its
+  normal first few seconds.
 - **A survey's bounding box is almost entirely land, so a single-pixel
   `identify` under a fingertip answers NoData nearly every time.** Of four
   hundred points sampled across the Sacramento survey's whole extent, ONE had

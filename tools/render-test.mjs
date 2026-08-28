@@ -213,13 +213,18 @@ check('CDEC readings reach the panel',
 layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
 check('a reach with no multibeam says so plainly',
   layers.includes('No published multibeam survey for this reach'), layers.slice(0, 600));
-check('a reach with single beam still offers it',
+/* The control carries the readable name now and the machine name sits under
+   it, so a reader choosing between twenty surveys is not reading identifiers
+   while the catalogue can still be matched to what is on screen. */
+check('a reach with single beam still offers it, by a readable name',
+  layers.includes('TEST Feather River June2017'), layers.slice(0, 600));
+check('and the machine name is still there to match the catalogue by',
   layers.includes('i06_TEST_FeatherRiver_June2017'), layers.slice(0, 600));
 
 /* --- soundings, with the cap hit and a null depth in the set --- */
 await page.evaluate(() => window.state.map.setView([38.90, -121.59], 14));
 await page.waitForTimeout(600);
-await page.click('#panel-layers button:text-is("i06_TEST_FeatherRiver_June2017")');
+await page.click('#panel-layers button:has-text("TEST Feather River June2017")');
 await page.waitForTimeout(3000);
 layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
 check('the cap is announced when it truncates', layers.includes('cap truncated this view'), layers.slice(0, 900));

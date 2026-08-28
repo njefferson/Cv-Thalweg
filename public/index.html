@@ -1969,12 +1969,21 @@ function riverCard(river){
   top.appendChild(chip);
   card.appendChild(top);
 
+  /* The Feather's gauges are CDEC's and CDEC is the slowest of the four
+     services. When it does not answer, this card read "no thermometer
+     reporting / no flow reading" — which describes a river with no
+     instruments on it, not a request that failed. Say which it is. */
+  var mute = payload ? payload.rows.filter(function(r){
+    return !r.context && r.declared && r.error; }).length : 0;
+
   var t = el('div',{class:'rc-temp'});
   var deg = el('span',{class:'rc-deg', text: temp ? fmt(temp.f,0) + 'F' : '—'});
   if (temp) deg.style.color = tempColour(temp.f);
   t.appendChild(deg);
   t.appendChild(el('span',{class:'rc-read',
-    text: temp ? (tempReading(temp.f) || '') : 'no thermometer reporting'}));
+    text: temp ? (tempReading(temp.f) || '')
+        : !payload ? 'still asking'
+        : mute ? 'gauges did not answer' : 'no thermometer reporting'}));
   card.appendChild(t);
   if (temp) card.appendChild(el('div',{class:'rc-line',
     text:'mean of ' + temp.n + (temp.n === 1 ? ' gauge' : ' gauges')}));
@@ -1989,9 +1998,12 @@ function riverCard(river){
     fl.appendChild(el('b',{text:commas(fmt(flow.flow,0))}));
     fl.appendChild(document.createTextNode(' cfs at ' + flow.name));
   } else if (payload && payload.rows.length){
-    fl.appendChild(document.createTextNode('no flow reading'));
+    fl.appendChild(document.createTextNode(mute
+      ? mute + (mute === 1 ? ' gauge on this river did' : ' gauges on this river did') +
+        ' not answer, so there is no flow figure — not that the river has none'
+      : 'no flow reading'));
   } else {
-    fl.appendChild(document.createTextNode('loading…'));
+    fl.appendChild(document.createTextNode('still asking…'));
   }
   card.appendChild(fl);
 
@@ -2026,9 +2038,15 @@ function renderWater(){
   if (!state.riverId){
     p.appendChild(el('h2',{class:'sec',text:'Which river'}));
     RIVERS.forEach(function(river){ p.appendChild(riverCard(river)); });
-    var g = state.gauges[RIVERS[0].id];
-    if (g && (g.stale || g.noData)) p.appendChild(el('div',{class:'warnbox',
-      text:'These are stored readings — the network did not answer. Ages are in the header.'}));
+    /* This read RIVERS[0] and said "these" about all four, so one river's
+       bad minute captioned three rivers of live readings. */
+    var old = RIVERS.filter(function(r){ return looksOld(state.gauges[r.id]); });
+    if (old.length) p.appendChild(el('div',{class:'warnbox',
+      text: (old.length === RIVERS.length
+              ? 'These are stored readings — the network did not answer.'
+              : 'Stored readings for ' + old.map(function(r){ return r.short; }).join(' and ') +
+                ' — those did not answer. The rest are current.') +
+            ' Ages are in the header.'}));
     p.appendChild(el('p',{class:'note',
       text:'Four rivers, one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
     p.appendChild(el('p',{class:'note',
@@ -2064,7 +2082,7 @@ function renderWater(){
     } else {
       if (payload.noData) p.appendChild(el('div',{class:'warnbox',
         text:'Nothing answered this time. Every row below is what the request came back with, not a reading.'}));
-      if (payload.stale) p.appendChild(el('div',{class:'warnbox',
+      if (looksOld(payload) && !payload.noData) p.appendChild(el('div',{class:'warnbox',
         text:'Stored readings, ' + ageText(Date.now() - payload.fetchedAt) +
              '. The network did not answer, so these are the last that arrived.'}));
       var onRiver = payload.rows.filter(function(r){ return !r.context; });
@@ -2409,7 +2427,16 @@ function rasterControl(row){
   var wrap = el('div',{class:'layer'});
   var key = 'r:' + row.name;
   var on = !!state.layers[key];
-  var b = el('button',{type:'button','aria-pressed':on?'true':'false',text:row.title || row.name});
+  /* surveyLabel exists because DWR's names are machine names. The depth
+     label used it and this list, where a reader chooses between twenty of
+     them, still printed Bathy_NCRO_20230208_SacramentoRiver. The machine
+     name stays below, so what is on screen can be matched to the catalogue. */
+  /* The machine name is on the control as data as well as under it as text,
+     so anything selecting this survey selects it by its identity rather than
+     by a label that is allowed to be rewritten for readers. */
+  var b = el('button',{type:'button','aria-pressed':on?'true':'false',
+    'data-survey': row.name,
+    text: surveyLabel(row.name) + (surveyDate(row.name) ? ' · ' + surveyDate(row.name) : '')});
   wrap.appendChild(b);
   var opWrap = el('div',{class:'rowline'});
   var opId = 'op-' + row.name.replace(/\W/g,'');
@@ -2423,6 +2450,7 @@ function rasterControl(row){
   });
   opWrap.appendChild(op);
   wrap.appendChild(opWrap);
+  wrap.appendChild(el('p',{class:'rdg-id',text:row.name}));
   b.addEventListener('click', function(){
     if (state.layers[key]){
       state.map.removeLayer(state.layers[key]);
@@ -2454,7 +2482,9 @@ function rasterControl(row){
 function singleControl(row){
   var wrap = el('div',{class:'layer'});
   var on = state.soundingLayerId === row.id;
-  var b = el('button',{type:'button','aria-pressed':on?'true':'false',text:row.name});
+  var b = el('button',{type:'button','aria-pressed':on?'true':'false',
+    'data-survey': row.name,
+    text: surveyLabel(row.name) + (surveyDate(row.name) ? ' · ' + surveyDate(row.name) : '')});
   b.addEventListener('click', function(){
     if (state.soundingLayerId === row.id){
       state.soundingActive = false; state.soundingLayerId = null;
@@ -2469,6 +2499,7 @@ function singleControl(row){
     }
   });
   wrap.appendChild(b);
+  wrap.appendChild(el('p',{class:'rdg-id',text:row.name}));
   var txt = row.description || 'No description published.';
   if (!row.depthField) txt += ' — no depth attribute could be identified in this layer, so the points draw in one colour.';
   else txt += ' — depth attribute "' + row.depthField + '", as published; the vertical datum is whatever DWR published and is not restated here.';
@@ -2719,7 +2750,20 @@ function renderMarks(){
     r.appendChild(el('span',{class:'swatch',style:'background:'+def.colour}));
     var g = el('span',{class:'grow'});
     g.appendChild(el('span',{text:def.label + ' '}));
+    /* A mark kept from a depth reading carried the figure into its map
+       label and nowhere else, so the list it lives in did not know it. */
+    if (isNum(m.depth)){
+      var dv = el('span',{class:'v'});
+      dv.appendChild(document.createTextNode(fmt(Math.abs(m.depth),1)));
+      dv.appendChild(el('small',{text: m.depth <= 0 ? 'ft' : 'ft above datum'}));
+      g.appendChild(dv);
+      g.appendChild(document.createTextNode(' '));
+    }
     g.appendChild(el('span',{class:'v',text:m.lat.toFixed(5)+', '+m.lon.toFixed(5)}));
+    if (isNum(m.depth)) g.appendChild(el('div',{class:'rdg-id',
+      text:'depth from ' + (m.depthFrom || 'a published survey') +
+        (m.depthDate ? ', surveyed ' + m.depthDate : '') +
+        (m.depthAway ? ', measured ' + m.depthAway + ' m away' : '') + ', as published'}));
     r.appendChild(g);
     var go = el('button',{type:'button',text:'Go','aria-label':'Centre map on this mark'});
     go.addEventListener('click',function(){ state.map.setView([m.lat,m.lon], 15); });
@@ -3008,6 +3052,20 @@ function selectRiver(id){
    the last good payload per river and the header says how old it is, in
    orange, because a number that looks current and is not is the whole
    failure this app has to avoid. */
+/* A reading fetched ninety seconds ago is not stale, whatever the request
+   after it did. The flag says "the last attempt did not succeed"; the WARNING
+   is about how old the number on screen actually is, and conflating the two
+   put "network did not answer" in orange over six readings timestamped that
+   minute, on a cold open, with every request logged ok. Upstream publishes
+   every fifteen minutes, so five is comfortably inside current. */
+var FRESH_MS = 5 * 60 * 1000;
+function looksOld(g){
+  if (!g) return false;
+  if (g.failed || g.noData) return true;      /* nothing arrived at all */
+  if (!g.stale) return false;
+  return !isNum(g.fetchedAt) || (Date.now() - g.fetchedAt) > FRESH_MS;
+}
+
 function updateStaleness(){
   var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
   var worst = null, anyStale = false;
@@ -3015,7 +3073,7 @@ function updateStaleness(){
     var g = state.gauges[r.id];
     if (!g || !g.fetchedAt) return;
     if (worst === null || g.fetchedAt < worst) worst = g.fetchedAt;
-    if (g.stale || g.noData) anyStale = true;
+    if (looksOld(g)) anyStale = true;
   });
   var out = '';
   if (worst === null){
@@ -3569,9 +3627,17 @@ function surveyDate(name){
    The reader gets the readable part and the machine name stays beside it, so
    what is on screen can still be matched to what is in the catalogue. */
 function surveyLabel(name){
-  var rest = String(name || '').replace(/^Bathy[_\s]*/i, '')
-    .replace(/^NCRO[_\s]*/i, '').replace(/^\d{8}[_\s]*/, '');
-  rest = rest.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+  /* Two naming schemes, both machine names: Bathy_NCRO_20230208_River for a
+     multibeam service and i06_Bathy_AGENCY_YEAR_Place for a single beam
+     layer. Strip the scheme, keep the place, and leave any year in it —
+     a reader choosing between a 1933 survey and a 2024 one needs that. */
+  var rest = String(name || '')
+    .replace(/^i\d+[_\s]*/i, '')
+    .replace(/^Bathy[_\s]*/i, '')
+    .replace(/^NCRO[_\s]*/i, '')
+    .replace(/^\d{8}[_\s]*/, '');
+  rest = rest.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
+             .replace(/\s+/g, ' ').trim();
   return rest || String(name || 'unnamed survey');
 }
 
@@ -3776,6 +3842,9 @@ var RELEASES = [
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
+      'A mark you kept a depth in now shows that depth in the Marks list, not only on the map.',
+      'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
+      'On opening, the app no longer tells you the network failed while it is still succeeding. Readings are called stored when they are actually old, not because one refresh missed; the landing says which rivers are stored rather than captioning all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
       'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',
       'Works offline once loaded, and can be installed to a home screen. A depth you have read once reads again with no signal, and so does a mark you kept it in.'
     ],
@@ -4068,6 +4137,11 @@ function initWelcome(){
   if (!dlg.showModal) return;
   dlg.addEventListener('close', function(){
     try { Store.s.setItem('thalweg:_shared:welcomed', VERSION); } catch(e){}
+    /* Closing a dialog returns focus to whatever opened it, and nothing
+       opened this one — so focus fell to BODY and a reader on a keyboard or
+       a screen reader was left with no position in the app at all. */
+    var tab = document.querySelector('[role=tab][aria-selected=true]');
+    if (tab) tab.focus();
   });
   $('#welcomeclose').addEventListener('click', function(){ dlg.close(); });
 }
