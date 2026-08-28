@@ -183,6 +183,19 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   measured point to a tap a hundred and forty metres west is **+2.37**, which
   is farmland. Taking the absolute value would have sold two and a half feet
   of water on dry ground. It is labelled as bank instead.
+- **WebKit runs here now, and it reproduces the defect Chromium cannot see.**
+  `npx playwright install webkit && npx playwright install-deps webkit` — the
+  download host and the system libraries both needed the network policy
+  opened. Planting the original first-run markup and loading it under WebKit
+  at an iPhone 13 viewport puts focus on the Start button, the panel body at
+  scrollTop 813 of a maximum 813, and the panel's first paragraph 667 pixels
+  ABOVE the top of the screen. Every Chromium check was green throughout.
+  `tools/a11y.mjs` has a WebKit pass that SKIPS with the reason printed if
+  the browser is absent, because whether a browser is installed is not a fact
+  about the tree. One thing to know when reading its output: WebKit raises a
+  blocked cross-origin fetch as a PAGE ERROR and Chromium does not, so in a
+  sandbox with no browser egress that check has to ignore them or it reddens
+  for the container rather than the app.
 - **390 by 844 is an iPhone's SCREEN, not its viewport.** The page gets 390
   by 664; Safari's chrome takes the other 180px, and Playwright's device
   registry is the authority on that. The accessibility suite measured 844 for
@@ -242,16 +255,17 @@ Anadromous Assessment page is reachable and links to it; the file is a 771KB
 describes. Annual totals in a PDF cannot tell anyone whether the run is in
 this week, which is the only version of the question worth asking.
 
-**CDFW points at CalFish for the data itself**, and `www.calfish.org` is
-refused 403 by this session's proxy allowlist.
+**CDFW points at CalFish for the data itself.** Both `www.calfish.org` and
+SacPAS answer 200 as of 2026-08-28, the allowlist having been opened; neither
+has been explored yet, and nothing should be built against either until it
+has been fetched and read.
 
 **The source that would answer it is SacPAS** — Columbia Basin Research at the
-University of Washington, `www.cbr.washington.edu/sacramento/` — which
-aggregates daily in-season hatchery returns and Red Bluff passage with a
-queryable CSV interface. It is refused by the same allowlist, so **nothing
-about it has been verified here** and nothing should be built against it until
-it has been fetched. USFWS, USBR, NOAA Fisheries and the CDFW ArcGIS host are
-all refused too.
+University of Washington, `www.cbr.washington.edu/sacramento/` — which is said
+to aggregate daily in-season hatchery returns and Red Bluff passage with a
+queryable CSV interface. Its front page answers; **what it actually publishes,
+in what format, and how current, is still unverified**. USFWS, USBR, NOAA
+Fisheries and the CDFW ArcGIS host were refused when last tried.
 
 **The line this does not cross.** A published count of fish that passed a
 fixed structure is a measurement, in the same family as a gauge reading. It is

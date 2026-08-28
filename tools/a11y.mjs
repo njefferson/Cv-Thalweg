@@ -13,7 +13,7 @@
  *   node tools/serve.mjs &
  *   node tools/a11y.mjs [http://127.0.0.1:8787]
  */
-import { chromium } from 'playwright-core';
+import { chromium, webkit, devices } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -445,6 +445,51 @@ for (const [label, width, height] of [
   await welcomeChecks(page, 'small phone at 200% text');
   await noOverflow(page, 'small phone at 200% text: nothing reaches past the edge');
   await ctx.close();
+}
+
+/* WebKit, because two engines answer differently and this app is read in the
+ * one the rest of this suite does not drive.
+ *
+ * The first-run panel opened at its own last line and every Chromium check
+ * was green: Chromium makes a scrollable region focusable in its own right
+ * and lands on the panel body at scroll zero, so the defect is invisible
+ * there. Planting the original markup back and running it HERE puts the
+ * focus on the Start button, the body at scrollTop 813 of a maximum 813, and
+ * the panel's first paragraph 667 pixels above the top of the screen.
+ *
+ * It is SKIPPED with the reason printed rather than failed when WebKit is not
+ * installed: whether a browser is on this machine is not a fact about the
+ * tree, and a gate that goes red for how somebody's container was configured
+ * teaches people to ignore red.
+ */
+{
+  let wk = null;
+  try { wk = await webkit.launch(); }
+  catch (e) {
+    console.log('SKIP  WebKit pass — ' + String(e && e.message || e).split('\n')[0]);
+    console.log('      npx playwright install webkit && npx playwright install-deps webkit');
+  }
+  if (wk) {
+    const ctx = await wk.newContext({ ...devices['iPhone 13'] });
+    const page = await ctx.newPage();
+    /* WebKit raises a blocked cross-origin fetch as a PAGE ERROR; Chromium
+       does not. This sandbox gives the browser no egress, so every NOAA and
+       USGS request fails here — which is a fact about the container, not
+       about the app, and a gate that reddens for how somebody's network was
+       configured teaches people to ignore red. Real exceptions still fail. */
+    const errs = [];
+    page.on('pageerror', e => {
+      if (/access control checks|Load failed|Failed to fetch|NetworkError/i.test(e.message)) return;
+      errs.push(e.message);
+    });
+    await page.goto(BASE + '/', { waitUntil: 'load' });
+    await page.waitForTimeout(2500);
+    await welcomeChecks(page, 'WebKit, iPhone 13');
+    await noOverflow(page, 'WebKit, iPhone 13: nothing reaches past the edge');
+    check('WebKit, iPhone 13: no page errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+    await wk.close();
+  }
 }
 
 /* Offline. */
