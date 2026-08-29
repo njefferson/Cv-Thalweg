@@ -101,15 +101,49 @@ const json = (route, body) => route.fulfill({ status: 200, contentType: 'applica
 await ctx.route('**/nwis/iv/**', r => json(r, USGS_BODY));
 await ctx.route('**/datagetter**', r =>
   json(r, { predictions: r.request().url().includes('interval=hilo') ? hilo : hourly }));
-await ctx.route('**/mdapi/**', r => json(r, { stations: [
+/* Two different NOAA endpoints behind one path. The per-station record is
+   2.6KB and is what the app asks for on every load; the whole index is two
+   megabytes and is only fetched when somebody presses the button, so the
+   stub answers each by shape and the checks below tell them apart. */
+const MD_STATIONS = [
   { id: '9415316', name: 'Rio Vista', lat: 38.1583, lng: -121.6853 },
-  { id: '9999999', name: 'Synthetic Mokelumne', lat: 38.15, lng: -121.40 }] }));
+  { id: '9415478', name: 'New Hope Bridge', lat: 38.2267, lng: -121.49 },
+  { id: '9416174', name: 'Sacramento', lat: 38.5817, lng: -121.5061 },
+  { id: '9415257', name: 'Terminous, South Fork', lat: 38.1103, lng: -121.5006 },
+  { id: '9999999', name: 'Synthetic Mokelumne', lat: 38.15, lng: -121.40 }];
+let mdIndexHits = 0;
+await ctx.route('**/mdapi/**', r => {
+  const m = /\/stations\/(\d+)\.json/.exec(r.request().url());
+  if (m) return json(r, { stations: MD_STATIONS.filter(s => s.id === m[1]) });
+  mdIndexHits++;
+  return json(r, { stations: MD_STATIONS });
+});
 await ctx.route('**/arcgisimg/rest/services/Bathymetry?f=json', r => json(r, FOLDER));
 await ctx.route('**/Bathy_TEST_SacramentoRvr/ImageServer?f=json', r =>
   json(r, imgMeta('Bathy_TEST_SacramentoRvr', -121.75, 38.30, -121.45, 38.65)));
 await ctx.route('**/Bathy_TEST_Elsewhere/ImageServer?f=json', r =>
   json(r, imgMeta('Bathy_TEST_Elsewhere', 10.0, 50.0, 10.2, 50.2)));
 await ctx.route('**/MapServer/layers?f=json', r => json(r, SBM_LAYERS));
+
+/* The weirs. Nothing has been over its crest all summer, so the state that
+   MATTERS cannot be verified against the live file — it is verified here
+   instead: Tisdale over by 1.4 ft, Fremont blank (quiet), Colusa a value the
+   file should never contain, and NWPS forecast rows above the measured ones
+   that must not be read as measurements. */
+const WEIR_CSV = [
+  'WY 2026,MLW Daily Avg, MLW Ft above Crest, MLW Ft above/below Flood,' +
+    'CLW Daily Avg, CLW Ft above Crest, CLW Ft above/below Flood,' +
+    'TIS Daily Avg, TIS Ft above Crest, TIS Ft above/below Flood,' +
+    'FRE Daily Avg, FRE Ft above Crest, FRE Ft above/below Flood',
+  'NWPS Forecast 2026-09-01,76.10,9.9,,60.80,,,44.00,9.9,,16.85,9.9,',
+  'NWPS Forecast 2026-08-31,76.10,9.9,,60.80,,,44.00,9.9,,16.85,9.9,',
+  '2026-08-28,76.10,,,60.80,not-a-number,,45.40,1.4,,16.85,,',
+  '2026-08-27,76.10,,,60.80,,,44.00,,,16.70,,',
+  'Notes:'
+].join('\n');
+await ctx.route('**/alertsovertop.csv', r => r.fulfill({ status: 200,
+  headers: { 'content-type': 'text/csv', 'access-control-allow-origin': '*' },
+  body: WEIR_CSV }));
 
 /* CDEC, with every awkward case it actually produces: the -9999 sentinel
    on rows that have not happened yet, a station with no temperature
@@ -187,9 +221,30 @@ check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('
 /* --- tide --- */
 check('tide curve drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
 check('high and low table populated', /High ·|Low ·/.test(water), water.slice(0, 300));
-check('discovered station offered alongside the verified ones',
+/* The whole station index is two megabytes and NOAA ignores every filter, so
+   it must not be fetched to read a station this app already names. It was
+   being fetched once per tidal river on every cold open — four of the five
+   and a half megabytes a first-time reader paid. */
+check('the two-megabyte station index is not fetched on load',
+  mdIndexHits === 0, 'index fetched ' + mdIndexHits + ' time(s)');
+check('the declared station still has its NOAA name and position',
+  await page.evaluate(() => {
+    const t = state.tides.sacramento || {};
+    const st = (t.stations || []).filter(s => s.id === '9415316')[0];
+    return !!st && st.name === 'Rio Vista' && Math.abs(st.lat - 38.1583) < 0.001;
+  }));
+/* And asking for the others is a deliberate act that then works. */
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('#panel-water button')]
+    .find(x => /Look for other stations/.test(x.textContent));
+  if (b) b.click();
+});
+await page.waitForTimeout(2500);
+check('pressing the button fetches the index once and offers the extra station',
+  mdIndexHits === 1 &&
   await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
-    return !!s && s.options.length >= 3; }));
+    return !!s && [...s.options].some(o => /Synthetic Mokelumne/.test(o.textContent)); }),
+  'index fetched ' + mdIndexHits + ' time(s)');
 
 /* --- layers --- */
 await page.click('#tab-layers'); await page.waitForTimeout(1200);
@@ -273,6 +328,33 @@ layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
   check('a velocity that disagrees with its own discharge says so rather than choosing',
     /disagree about which way this water is going/.test(water) &&
     !/Rio Vista[\s\S]{0,200}running upstream/.test(water), water.slice(0, 700));
+  await page.selectOption('#riverpick', 'feather');
+  await page.waitForTimeout(2500);
+}
+
+/* --- the weirs --- */
+{
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(3000);
+  const w = await page.evaluate(() => {
+    const x = state.weirs.sacramento || {};
+    return { at:x.at, over:(x.over||[]).map(o => o.w.code + ':' + o.ft),
+             quiet:(x.quiet||[]).map(o => o.code), unknown:(x.unknown||[]).map(o => o.code),
+             text: document.getElementById('panel-water').innerText.replace(/\s+/g, ' ') };
+  });
+  /* A model of a weir going over is not a weir going over. */
+  check('the forecast rows are not read as measurements',
+    w.at === '2026-08-28', JSON.stringify({ at: w.at }));
+  check('a weir over its crest is named, with how far over and where the water goes',
+    w.over.join() === 'TIS:1.4' && /Tisdale Weir is 1.4 ft over its crest/.test(w.text) &&
+    /the Sutter Bypass/.test(w.text), JSON.stringify({ over: w.over }));
+  check('a blank column is a quiet weir, not a missing one',
+    w.quiet.indexOf('FRE') !== -1 && w.quiet.indexOf('MLW') !== -1, JSON.stringify(w.quiet));
+  /* A value that is not a number is unknown. Reading it as zero would say a
+     weir is quiet on the strength of a parse failure. */
+  check('an unreadable value is unknown rather than quiet',
+    w.unknown.join() === 'CLW' && /unknown rather than quiet/.test(w.text),
+    JSON.stringify({ unknown: w.unknown }));
   await page.selectOption('#riverpick', 'feather');
   await page.waitForTimeout(2500);
 }

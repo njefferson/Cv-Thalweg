@@ -410,6 +410,20 @@ var RIVERS = [
   bbox:[-122.40,37.95,-121.30,40.40],
   axis:'lat', axisLabel:'latitude — downstream (south) on the left',
   tidal:true,
+  /* The four weirs on this river. When one goes over its crest, water — and
+     the fish in it — leaves the main channel for a bypass, which is a fact
+     about where the river IS rather than a forecast about anything. Codes and
+     names as the source publishes them; the bypass each one feeds is the only
+     thing added here, and it is a geographic fact, not an inference. */
+  weirs:{
+    url:'https://www.cbr.washington.edu/sacramento/data/graphics/alertsovertop.csv',
+    source:'SacPAS, Columbia Basin Research, University of Washington',
+    list:[
+      { code:'FRE', name:'Fremont Weir',  into:'the Yolo Bypass' },
+      { code:'TIS', name:'Tisdale Weir',  into:'the Sutter Bypass' },
+      { code:'CLW', name:'Colusa Weir',   into:'the Butte Basin' },
+      { code:'MLW', name:'Moulton Weir',  into:'the Butte Basin' }
+    ] },
   gauges:[
     { id:'11455420', status:PROV.VERIFIED, hint:'Rio Vista' },
     { id:'11447650', status:PROV.VERIFIED, hint:'Freeport' },
@@ -777,6 +791,18 @@ function getJSON(url, ms){
     .finally(function(){ clearTimeout(timer); });
 }
 
+/* The same request, for a source that publishes CSV rather than JSON. */
+function getText(url, ms){
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var timer = setTimeout(function(){ if (ctrl) ctrl.abort(); }, ms || 15000);
+  return fetch(url, { signal: ctrl ? ctrl.signal : undefined, credentials:'omit' })
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .finally(function(){ clearTimeout(timer); });
+}
+
 /* =====================================================================
    Session state
    ===================================================================== */
@@ -788,6 +814,7 @@ var state = {
   gauges: {},             /* riverId -> { rows, fetchedAt, stale } */
   tides:  {},             /* riverId -> { hourly, hilo, fetchedAt, station } */
   trends: {},             /* riverId -> { flow, temp, days, fetchedAt, stale } */
+  weirs:  {},             /* riverId -> { at, over, quiet, unknown } */
   marks:  [],             /* marks for the selected river */
   markLayer: null,
   soundingLayer: null,
@@ -917,7 +944,13 @@ function loadGauges(river){
   var jobs = [];
   jobs.push(declared.length ? usgsBySites(declared).catch(function(){ return null; })
                             : Promise.resolve({}));
-  jobs.push(river.discover ? usgsByBox(river.bbox) : Promise.resolve({}));
+  /* Discovery is a sweep over a whole river basin — 234KB and about nine
+     seconds — and it runs for the river being READ, not for all four at
+     once on a landing screen whose cards are built from the gauges this app
+     names anyway. Four of these on a cold open was most of what made the
+     first fifteen seconds unreliable. */
+  var sweep = river.discover && state.riverId === river.id;
+  jobs.push(sweep ? usgsByBox(river.bbox) : Promise.resolve({}));
   jobs.push(loadCdec(river));
 
   return Promise.all(jobs).then(function(res){
@@ -1178,13 +1211,63 @@ function loadTide(river, station){
    stations were not known when this was written, so they are looked up
    from NOAA's own station index by position rather than typed in from
    memory. The index is large and changes rarely, so it is stored once. */
+/* NOAA's whole prediction-station index is TWO MEGABYTES, it ignores the
+   state filter, and this app was fetching it once per tidal river on every
+   cold open: four megabytes of the five and a half a first-time reader was
+   paying, to learn the position of four stations it already names. The
+   per-station endpoint is 2.6KB and carries the same name and coordinate,
+   so the principle holds — no station position is ever typed into this app —
+   at one eight-hundredth of the cost. A position does not move, so it is
+   kept once and not asked for again. */
+var COOPS_STATION = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/';
+
+function stationMeta(id){
+  var cached = sget('_shared', 'station:' + id);
+  if (cached && cached.lat !== undefined) return Promise.resolve(cached);
+  var url = COOPS_STATION + id + '.json';
+  /* One catch at the end, not a rejection handler beside the fulfilment
+     one: a throw inside the fulfilled branch is not caught by its own
+     sibling, and this threw six unhandled rejections onto the page before
+     the tests said so. A station this app cannot place is returned without
+     a position rather than raised — the caller drops it. */
+  return getJSON(url, 20000).then(function(j){
+    var st = (j && j.stations && j.stations[0]) || null;
+    var out = st ? { id:String(id), name:st.name || '',
+                     lat:Number(st.lat), lon:Number(st.lng) } : null;
+    if (!out || !isNum(out.lat) || !isNum(out.lon)){
+      logNet('CO-OPS station', url, false, 'no usable record for ' + id);
+      return { id:String(id), name:'', lat:null, lon:null };
+    }
+    sput('_shared', 'station:' + id, out);
+    logNet('CO-OPS station', url, true, out.name);
+    return out;
+  }).catch(function(e){
+    logNet('CO-OPS station', url, false, String(e && e.message || e));
+    return { id:String(id), name:'', lat:null, lon:null };
+  });
+}
+
+/* The declared stations only. The full index is a separate, deliberate act —
+   see nearbyTideStations — because it costs two megabytes and nobody should
+   pay that to read the tide at a station this app already knows. */
 function discoverTideStations(river){
-  if (!river.tideDiscover) return Promise.resolve([]);
-  var cached = sget(river.id, 'tidestations');
-  if (cached && (Date.now() - cached.at) < 30 * 24 * 3600 * 1000)
-    return Promise.resolve(cached.list);
-  return getJSON(COOPS_MD, 25000).then(function(j){
-    logNet('CO-OPS station index', COOPS_MD, true, '');
+  var wanted = (river.tideStations || []).map(function(s){ return s.id; });
+  var extra = sget(river.id, 'tidestations');
+  if (extra && extra.list) wanted = wanted.concat(extra.list.map(function(s){ return s.id; }));
+  var seen = {};
+  wanted = wanted.filter(function(id){ if (seen[id]) return false; seen[id] = true; return true; });
+  return Promise.all(wanted.map(stationMeta)).then(function(rows){
+    return rows.filter(function(r){ return isNum(r.lat) && isNum(r.lon); })
+               .map(function(r){ r.status = PROV.FOUND; return r; });
+  });
+}
+
+/* Two megabytes, on purpose, because somebody asked to see what else is out
+   there. Once per device: the reduced result is kept and the declared
+   stations then come from it without asking again. */
+function nearbyTideStations(river){
+  return getJSON(COOPS_MD, 30000).then(function(j){
+    logNet('CO-OPS station index', COOPS_MD, true, 'asked for on purpose');
     var b = river.bbox, list = [];
     (j.stations || []).forEach(function(s){
       var lat = Number(s.lat), lon = Number(s.lng);
@@ -1194,9 +1277,9 @@ function discoverTideStations(river){
     });
     sput(river.id, 'tidestations', { at:Date.now(), list:list });
     return list;
-  }).catch(function(e){
+  }, function(e){
     logNet('CO-OPS station index', COOPS_MD, false, String(e && e.message || e));
-    return (cached && cached.list) || [];
+    throw e;
   });
 }
 
@@ -2206,6 +2289,11 @@ function renderWater(){
         p.appendChild(el('h2',{class:'sec',text:'Tributaries, not this river'}));
         tribs.forEach(function(r){ p.appendChild(gaugeRow(r)); });
       }
+      if (river.weirs){
+        p.appendChild(el('h2',{class:'sec',text:'The weirs'}));
+        p.appendChild(weirSection(river));
+      }
+
       p.appendChild(el('h2',{class:'sec',text:'The last seven days'}));
       p.appendChild(trendSection(river));
       drawTrendLines();
@@ -2296,6 +2384,30 @@ function tideSection(river){
     row.appendChild(lab); row.appendChild(sel);
     box.appendChild(row);
   }
+  /* Asking NOAA what else is out there costs two megabytes, so it is a
+     button rather than something that happens to you. Once pressed, the
+     result is kept and the question is not asked again. */
+  if (river.tideDiscover && !sget(river.id,'tidestations')){
+    var moreRow = el('div',{class:'rowline'});
+    var moreBtn = el('button',{type:'button',text:'Look for other stations near here'});
+    moreBtn.addEventListener('click', function(){
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'Asking NOAA — this one is a big file…';
+      nearbyTideStations(river).then(function(){
+        loadTideFor(river);
+        announce('Nearby prediction stations loaded.');
+      }, function(e){
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Look for other stations near here';
+        announce('NOAA did not answer: ' + (e && e.message || e));
+      });
+    });
+    moreRow.appendChild(moreBtn);
+    moreRow.appendChild(el('span',{class:'note',
+      text:'NOAA publishes its station list as one two-megabyte file and will not filter it, so this is asked for on purpose rather than on every visit. It is kept afterwards.'}));
+    box.appendChild(moreRow);
+  }
+
   var st = (t.stations||[]).filter(function(s){ return s.id === t.station; })[0];
   var head = el('p',{class:'note'});
   head.appendChild(document.createTextNode(
@@ -3259,6 +3371,12 @@ function refreshData(){
          right now, and on All rivers nothing asks at all — four rivers of
          fifteen-minute history is most of a megabyte for four lines nobody
          opened. */
+      if (state.riverId === river.id && river.weirs && !state.weirs[river.id]){
+        loadWeirs(river).then(function(w){
+          state.weirs[river.id] = w;
+          if (state.riverId === river.id) renderWater();
+        });
+      }
       if (state.riverId === river.id && !state.trends[river.id]){
         var stored = sget(river.id,'trend');
         if (stored){ stored.stale = true; state.trends[river.id] = stored; renderWater(); }
@@ -3336,6 +3454,92 @@ function drawGaugeMarkers(){
       ), LABEL).addTo(state.gaugeLayer);
     });
   });
+}
+
+/* =====================================================================
+   The weirs.
+
+   Four of them sit on the Sacramento, and when one goes over its crest the
+   river stops being one channel: water leaves for a bypass and takes what is
+   swimming in it. That is a fact about where the river IS, not a forecast
+   about anything, which is why it is here at all.
+
+   The file carries NWPS forecast rows for the days ahead as well as the
+   measured record. Only the measured record is read. A forecast of a weir
+   overtopping is somebody's model, and this app does not repeat models.
+   ===================================================================== */
+function parseWeirs(text, list){
+  var lines = String(text || '').split('\n');
+  if (lines.length < 2) return null;
+  var head = lines[0].split(',').map(function(h){ return h.trim(); });
+  /* Columns are grouped per weir and named by the source; the crest column
+     is found by its own header rather than by counting, so a column added
+     upstream shifts nothing here. */
+  var col = {};
+  list.forEach(function(w){
+    head.forEach(function(h, i){
+      if (h.indexOf(w.code + ' ') === 0 && /above Crest/i.test(h)) col[w.code] = i;
+    });
+  });
+  for (var r = 1; r < lines.length; r++){
+    var cells = lines[r].split(',');
+    var when = (cells[0] || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(when)) continue;   /* skips the forecast rows */
+    var out = { at:when, over:[], quiet:[], unknown:[] };
+    list.forEach(function(w){
+      var i = col[w.code];
+      var raw = i === undefined ? '' : String(cells[i] || '').trim();
+      if (raw === '') { out.quiet.push(w); return; }
+      var v = Number(raw);
+      if (!isNum(v)) { out.unknown.push(w); return; }
+      if (v > 0) out.over.push({ w:w, ft:v }); else out.quiet.push(w);
+    });
+    return out;
+  }
+  return null;
+}
+
+function loadWeirs(river){
+  if (!river.weirs) return Promise.resolve(null);
+  return getText(river.weirs.url, 20000).then(function(txt){
+    var parsed = parseWeirs(txt, river.weirs.list);
+    logNet('SacPAS weirs', river.weirs.url, true,
+      parsed ? (parsed.over.length + ' over crest on ' + parsed.at) : 'no measured row found');
+    return parsed || { failed:'the file had no measured row in it' };
+  }, function(e){
+    logNet('SacPAS weirs', river.weirs.url, false, String(e && e.message || e));
+    return { failed:String(e && e.message || e) };
+  });
+}
+
+function weirSection(river){
+  var box = el('div',{});
+  var w = state.weirs[river.id];
+  if (!w){ box.appendChild(el('p',{class:'note',text:'Asking about the weirs…'})); return box; }
+  if (w.failed){
+    box.appendChild(el('p',{class:'note',
+      text:'No weir reading this time — ' + w.failed + '. That is not the same as none of them being over.'}));
+    return box;
+  }
+  if (w.over.length){
+    w.over.forEach(function(o){
+      var p = el('p',{class:'warnbox'});
+      p.appendChild(el('b',{text:o.w.name + ' is ' + fmt(o.ft,1) + ' ft over its crest.'}));
+      p.appendChild(document.createTextNode(' Water is leaving the main river for ' +
+        o.w.into + ', and fish go with it.'));
+      box.appendChild(p);
+    });
+  } else {
+    box.appendChild(el('p',{class:'note',
+      text:'None of the four weirs is over its crest, so the river is in its own channel.'}));
+  }
+  if (w.unknown.length) box.appendChild(el('p',{class:'note',
+    text:'No figure published for ' + w.unknown.map(function(x){ return x.w ? x.w.name : x.name; }).join(' or ') +
+      ' in this file, so those are unknown rather than quiet.'}));
+  box.appendChild(el('p',{class:'note',
+    text:'Measured for ' + w.at + ', from ' + river.weirs.source +
+      '. The same file carries a forecast for the days ahead; that is somebody’s model and is not repeated here.'}));
+  return box;
 }
 
 /* =====================================================================
@@ -3998,12 +4202,14 @@ var RELEASES = [
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
+      'The four weirs on the Sacramento — Fremont, Tisdale, Colusa, Moulton. When one goes over its crest the river stops being one channel: water leaves for a bypass and takes the fish in it with it. It says which weir, how far over, and which bypass. The source also publishes a forecast for the days ahead; that is somebody’s model and is not repeated here.',
       'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in — and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the discharge at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
       'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
       'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export — the figure, which survey it came from and the date that survey was made.',
       'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
       'On opening, the app no longer tells you the network failed while it is still succeeding. Readings are called stored when they are actually old, not because one refresh missed; the landing says which rivers are stored rather than captioning all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
       'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',
+      'It opens on a fraction of what it used to cost. NOAA publishes its whole prediction-station list as one two-megabyte file and will not filter it, and this app was fetching that once per tidal river on every visit — four megabytes of the five and a half a first load took, to learn the position of four stations it already names. Those now come one at a time at 2.6KB each, and the big file is a button for when you want to see what else is nearby. A basin-wide gauge sweep that ran for all four rivers at once now runs only for the river you are reading. A first load is under a megabyte.',
       'Works offline once loaded, and can be installed to a home screen. A depth you have read once reads again with no signal, and so does a mark you kept it in.'
     ],
     broken:[
@@ -4016,6 +4222,7 @@ var RELEASES = [
       'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead. None of its gauges publishes a week of history either, so that river gets no seven-day lines at all.',
       'The seven-day lines cover one gauge for flow and one for temperature, not every gauge on the river. A week of readings at fifteen-minute spacing is about 55KB a gauge and the services will not send a coarser version, so asking all of them would be most of a megabyte for lines a phone cannot show.',
       'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.',
+      'Nothing has gone over a weir crest all summer, so the state that matters — a weir actually overtopping — has been checked against a made-up file rather than a real one. What you will see if it happens has been tested; that it happens correctly on the day has not.',
       'A tapped depth can come back above the survey’s datum rather than below it — that is bank, or a bar that was dry when the survey boat went past. It is labelled as bank rather than dressed up as two feet of water, but it means the edge of a survey is a rough edge.'
     ] }
 ];
@@ -4171,6 +4378,15 @@ function renderAbout(){
   h('Getting around it without a pointer');
   para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks.');
   para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
+
+  h('Where this came from');
+  para('Thalweg is one of a set of free apps, all of them built the same way: no account, no tracking, no third-party code, and yours to keep. The accessibility statement below is shared across all of them, so the commitments it makes are the same ones this app is held to.');
+  var hubRow = el('div',{class:'rowline'});
+  hubRow.appendChild(el('a',{href:'https://noahjefferson.pages.dev',
+    rel:'noopener noreferrer', target:'_blank', text:'The rest of the apps'}));
+  hubRow.appendChild(el('a',{href:'https://noahjefferson.pages.dev/accessibility',
+    rel:'noopener noreferrer', target:'_blank', text:'Accessibility statement'}));
+  b.appendChild(hubRow);
 
   h('Licence');
   para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');

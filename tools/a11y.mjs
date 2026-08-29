@@ -234,6 +234,17 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   await page.click('#aboutbtn');
   await page.waitForTimeout(500);
   await audit(page, `${name}: about panel`);
+  /* The hub links out to every app and each app links back, and the shared
+     accessibility statement lives on the hub — so both links have to be in
+     the (i), not merely intended to be. */
+  check(`${name}: the About panel links back to the hub and to the shared statement`,
+    await page.evaluate(() => {
+      const hrefs = [...document.querySelectorAll('#aboutbody a')].map(a => a.getAttribute('href'));
+      return hrefs.some(h => h === 'https://noahjefferson.pages.dev') &&
+             hrefs.some(h => h === 'https://noahjefferson.pages.dev/accessibility');
+    }),
+    await page.evaluate(() => [...document.querySelectorAll('#aboutbody a')]
+      .map(a => a.getAttribute('href')).filter(h => /noahjefferson/.test(h)).join(' | ')));
   check(`${name}: the About panel opens at the top of itself`,
     await page.evaluate(() => document.getElementById('aboutbody').scrollTop === 0 &&
       document.activeElement.id === 'abouttitle'),

@@ -26,7 +26,7 @@ const browser = await chromium.launch({
    request. The service worker and offline behaviour are tools/a11y.mjs. */
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, serviceWorkers: 'block' });
 
-const relayed = { ok: 0, fail: 0, hosts: new Set() };
+const relayed = { ok: 0, fail: 0, hosts: new Set(), bytes: 0, boot: 0 };
 await ctx.route(url => !url.hostname.startsWith('127.0.0.1') && url.hostname !== 'localhost',
   async route => {
     const req = route.request();
@@ -34,6 +34,7 @@ await ctx.route(url => !url.hostname.startsWith('127.0.0.1') && url.hostname !==
       const res = await fetch(req.url(), { method: req.method(), redirect: 'follow' });
       const body = Buffer.from(await res.arrayBuffer());
       relayed.ok++; relayed.hosts.add(new URL(req.url()).hostname);
+      relayed.bytes += body.length;
       await route.fulfill({
         status: res.status,
         headers: {
@@ -54,6 +55,16 @@ const errs = [];
 page.on('pageerror', e => errs.push(e.message));
 await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.waitForTimeout(18000);
+/* What a first-time reader pays to see the landing screen, in bytes off the
+   network, measured rather than estimated. It was 5.56MB: four of that was
+   NOAA's whole station index, fetched once per tidal river to learn the
+   position of stations this app already names, and most of the rest was four
+   basin-wide gauge sweeps for a screen built from named gauges. This number
+   is the guard on both. */
+relayed.boot = relayed.bytes;
+check('the landing costs a first-time reader under 1MB off the network',
+  relayed.boot < 1024 * 1024,
+  (relayed.boot / 1024 / 1024).toFixed(2) + 'MB in ' + relayed.ok + ' requests');
 await page.evaluate(() => { const d = document.getElementById('welcome'); if (d && d.open) d.querySelector('button').click(); });
 await page.waitForTimeout(3000);
 
@@ -385,7 +396,11 @@ check('a tap on the map no longer drops a mark by itself',
 await page.selectOption('#riverpick', 'mokelumne');
 await page.waitForTimeout(20000);
 water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
-check('the Mokelumne has a tide station', /New Hope Bridge|Terminous/.test(water), water.slice(0, 300));
+/* NOAA's per-station record spells these in capitals where its whole-index
+   file used title case. The app prints the name the service gives it, the
+   same rule its USGS gauge names follow, so the case is theirs and this asks
+   case-insensitively rather than the app being made to tidy their data. */
+check('the Mokelumne has a tide station', /new hope bridge|terminous/i.test(water), water.slice(0, 300));
 check('the Mokelumne gauges report', /MOKELUMNE/i.test(water), water.slice(0, 400));
 
 await page.selectOption('#riverpick', 'sacramento');
@@ -393,7 +408,9 @@ await page.waitForTimeout(6000);
 await page.screenshot({ path: '/tmp/live-final.png' });
 
 check('no page errors anywhere', errs.length === 0, errs.join(' | '));
-console.log(`\nrelayed ${relayed.ok} live responses from ${[...relayed.hosts].join(', ')}` +
+console.log(`\nlanding cost ${(relayed.boot / 1024).toFixed(0)}KB; whole run ` +
+  `${(relayed.bytes / 1024 / 1024).toFixed(1)}MB`);
+console.log(`relayed ${relayed.ok} live responses from ${[...relayed.hosts].join(', ')}` +
   (relayed.fail ? `, ${relayed.fail} failed` : ''));
 console.log(`${pass} passed, ${fail} failed.`);
 await browser.close();

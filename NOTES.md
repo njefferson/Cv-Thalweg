@@ -167,6 +167,23 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **NOAA's station index is TWO MEGABYTES, it ignores every filter, and this
+  app fetched it once per tidal river on every visit.** That was four of the
+  5.56MB a first-time reader paid for the landing screen — to learn the
+  position of four stations the app already names. The per-station endpoint
+  (`mdapi/prod/webapi/stations/<id>.json`) is 2.6KB and carries the same name
+  and coordinate, so the principle holds — no station position is typed into
+  this app — at one eight-hundredth of the cost. The whole index is a button
+  now, for looking at what else is nearby, and the result is kept.
+  Two things that came with it: the per-station record spells names in CAPITALS
+  where the index used title case, and the app prints the service's own name, so
+  the case changed on screen; and a `.then(ok, fail)` pair does NOT catch a
+  throw raised inside its own `ok` branch — that threw six unhandled rejections
+  onto the page before a test said so.
+- **A first load is now 1.09MB, from 5.56MB, and there is a gate on it.**
+  `live-test.mjs` counts the bytes the landing pulls off the network and fails
+  over a megabyte. That number is the only thing standing between this app and
+  the next well-meant addition to a shared constant.
 - **The bBox discovery sweep is the most expensive request this app makes,
   and adding a parameter to the shared constant silently made it worse.** One
   river's basin box returns **234KB in about nine and a half seconds** with
@@ -293,6 +310,24 @@ newest green row in a list of runs belongs to whatever ran last, not
 necessarily to this commit.
 
 ## Fish counts: what exists and what it is worth
+
+**Settled 2026-08-28 by fetching, not recalling.** SacPAS is reachable and has a
+real query API — `/sacramento/data/php/rpt/*.php` with `outputFormat=csv`. Its
+entire Adult Salmon section is GrandTab escapement (annual), carcass survey
+detail (post-spawn), aerial redd counts, redd dewatering and weir overtopping.
+**There is no daily in-season adult count for these rivers.** Not refused —
+absent.
+
+**And the trap in it.** The page most obviously named for the thing an angler
+wants — "Red Bluff Daily Table" — is JUVENILE outmigration from rotary screw
+traps: fry going down, fork lengths 27 to 43 mm, 211 daily rows this year and
+current to within two days. Building from the name would have put a number on
+screen that means the opposite of what a reader would take it for.
+
+The one thing from SacPAS that IS in the app is the weir overtopping file,
+12.8KB of daily CSV with `access-control-allow-origin: *`, which is a fact about
+where the river is rather than a count of anything.
+
 
 Asked for on 2026-08-27: a machine-readable hatchery or passage count for the
 fall run. What was actually found, by fetching it rather than by recalling it.
