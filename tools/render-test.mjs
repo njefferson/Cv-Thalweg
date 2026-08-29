@@ -11,6 +11,7 @@
  *   node tools/render-test.mjs [http://127.0.0.1:8787]
  */
 import { chromium } from 'playwright-core';
+import { chromiumLaunch, OFFLINE_ARGS } from './lib-browser.mjs';
 const BASE = process.argv[2] || 'http://127.0.0.1:8787';
 
 const now = new Date();
@@ -88,7 +89,7 @@ let pass = 0, fail = 0;
 const check = (n, c, d) => c ? (pass++, console.log('PASS  ' + n))
                              : (fail++, console.log('FAIL  ' + n + (d ? ' — ' + d : '')));
 
-const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=127.0.0.1;localhost;[::1]'] });
+const b = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
 /* Service workers are blocked here: this file tests what the page does
    with a response, and a service worker sitting in front of the fixtures
    would be testing the worker instead. Offline behaviour is tools/a11y.mjs

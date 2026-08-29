@@ -11,6 +11,7 @@
  *   NODE_USE_ENV_PROXY=1 node tools/live-test.mjs
  */
 import { chromium } from 'playwright-core';
+import { chromiumLaunch, OFFLINE_ARGS } from './lib-browser.mjs';
 const BASE = process.argv[2] || 'http://127.0.0.1:8787';
 
 let pass = 0, fail = 0;
@@ -18,8 +19,7 @@ const check = (n, c, d) => c ? (pass++, console.log('PASS  ' + n))
                              : (fail++, console.log('FAIL  ' + n + (d ? ' — ' + String(d).slice(0, 300) : '')));
 
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
-  args: ['--no-sandbox', '--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=127.0.0.1;localhost;[::1]']
+  ...chromiumLaunch({ args: OFFLINE_ARGS })
 });
 /* Service workers are blocked: a worker's own fetch does not pass through
    a page route, so with one installed the relay would never see the

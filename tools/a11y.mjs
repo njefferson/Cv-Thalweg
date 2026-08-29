@@ -14,6 +14,7 @@
  *   node tools/a11y.mjs [http://127.0.0.1:8787]
  */
 import { chromium, webkit, devices } from 'playwright-core';
+import { chromiumLaunch, OFFLINE_ARGS } from './lib-browser.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -35,7 +36,7 @@ function check(label, cond, detail) {
   else { fail++; console.log('FAIL  ' + label + (detail ? ' — ' + detail : '')); }
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=127.0.0.1;localhost;[::1]'] });
+const browser = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
 
 /* The first-run panel is an interrupting surface, and every one of those has
    to be leaveable: a dismiss in the first frame, one at the end as well, both

@@ -79,9 +79,13 @@ jobs:
         working-directory: app
         run: node tools/test-worker.mjs
 
+      # playwright-core, not playwright: this repo depends on the core package
+      # and `npx playwright install` therefore had nothing to run, which
+      # --no-install correctly refused rather than fetching a package at run
+      # time in a job that later holds no token but still executes our code.
       - name: Install the browsers the walks drive
         working-directory: app
-        run: npx --no-install playwright install --with-deps chromium webkit
+        run: npx --no-install playwright-core install --with-deps chromium webkit
 
       - name: Serve the site for the walks
         working-directory: app
@@ -123,7 +127,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npx --no-install playwright install --with-deps chromium
+      - run: npx --no-install playwright-core install --with-deps chromium
       - name: Serve the site
         run: |
           node tools/serve.mjs & echo $! > /tmp/serve.pid

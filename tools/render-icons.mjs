@@ -3,13 +3,14 @@
  *   node tools/render-icons.mjs
  */
 import { chromium } from 'playwright-core';
+import { chromiumLaunch } from './lib-browser.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const svg = readFileSync(join(dir, 'icon.svg'), 'utf8');
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({ ...chromiumLaunch() });
 
 for (const [file, s] of Object.entries({ 'icon-180.png': 180, 'icon-192.png': 192, 'icon-512.png': 512 })) {
   const page = await browser.newPage({ viewport: { width: s, height: s }, deviceScaleFactor: 1 });

@@ -5,13 +5,14 @@
  *   node tools/render-social.mjs
  */
 import { chromium } from 'playwright-core';
+import { chromiumLaunch } from './lib-browser.mjs';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+  ...chromiumLaunch() });
 const page = await browser.newPage({
   viewport: { width: 1280, height: 640 }, deviceScaleFactor: 2 });
 await page.goto(pathToFileURL(join(root, 'social-card.html')).href, { waitUntil: 'load' });

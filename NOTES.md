@@ -325,6 +325,16 @@ the repo has no `.branch-guard` at all**, so the step would have been green
 while checking nothing. This repo now declares `work=main` and the hook is a
 tracked artefact.
 
+**Two things the FIRST CI run found, both invisible on this machine.**
+`npx playwright install` had nothing to run: this repo depends on
+`playwright-core`, not `playwright`, and `--no-install` correctly refused to
+fetch a package at run time. The core package carries the same install
+command — `npx --no-install playwright-core install`. And every walk launched
+Chromium with `executablePath:'/opt/pw-browsers/chromium'`, **a path that
+exists on exactly one machine**: the suites could not have run on any runner
+or any laptop. `tools/lib-browser.mjs` uses that path when it is there and
+lets Playwright resolve its own download when it is not.
+
 **The live suite is its own job and does not gate the merge.** It talks to
 USGS, NOAA and DWR; when a public agency is having a bad morning that must not
 read as this repo being broken. It is reported, not enforced.
