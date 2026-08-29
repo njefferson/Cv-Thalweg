@@ -17,11 +17,12 @@ const now = new Date();
 const iso = d => d.toISOString().slice(0, 19) + '.000-07:00';
 const coopsT = d => d.toISOString().slice(0, 16).replace('T', ' ');
 
-function ts(code, name, lat, lon, param, value) {
+function ts(code, name, lat, lon, param, value, unit) {
   return {
     sourceInfo: { siteName: name, siteCode: [{ value: code }],
       geoLocation: { geogLocation: { latitude: lat, longitude: lon } } },
-    variable: { variableCode: [{ value: param }] },
+    variable: { variableCode: [{ value: param }],
+      unit: unit ? { unitCode: unit } : undefined },
     values: [{ value: [{ value: String(value), dateTime: iso(now) }] }]
   };
 }
@@ -33,7 +34,11 @@ const USGS_BODY = { value: { timeSeries: [
   ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '00010', 19.9),
   /* the no-reading sentinel: must show a dash, never a minus one million */
   ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '00060', 6120),
-  ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '00010', -999999)
+  ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '00010', -999999),
+  /* Turbidity: one in the unit the app accepts, one in a unit it must refuse
+     rather than convert by guesswork, and one gauge with no sensor at all. */
+  ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '63680', 67.4, 'FNU'),
+  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '63680', 2.0, 'NTU')
 ] } };
 
 const hourly = [], hilo = [];
@@ -211,6 +216,37 @@ check('CDEC readings reach the panel',
   /Feather River near Gridley/.test((await page.textContent('#panel-water'))),
   (await page.textContent('#panel-water')).slice(0, 200));
 layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
+/* --- turbidity --- */
+{
+  /* The panel showing at this point is the Feather's; these are the
+     Sacramento's readings, so ask for that river before reading the page. */
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(2500);
+  const rows = await page.evaluate(() => (window.state.gauges.sacramento?.rows || [])
+    .map(r => [r.id, r.turb]));
+  const water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
+  check('turbidity in FNU reaches the panel',
+    rows.some(r => r[0] === '11455420' && r[1] === 67.4), JSON.stringify(rows));
+  /* A parameter code is not a unit. The same code in NTU is a different
+     measurement wearing the same number, and converting by guesswork is how
+     a plausible wrong reading gets on screen. */
+  check('the same parameter in another unit is refused, not converted',
+    rows.some(r => r[0] === '11447650' && (r[1] === null || r[1] === undefined)),
+    JSON.stringify(rows));
+  check('and the reading is described in words as well as a number',
+    /stained/.test(water) && /67\.4/.test(water), water.slice(0, 400));
+  /* A dash here would say the water is unmeasurably clear rather than that
+     nobody is measuring it. */
+  check('a gauge with no turbidity sensor shows no turbidity column',
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('#panel-water .rdg')];
+      const verona = rows.find(r => /VERONA/.test(r.textContent));
+      return !!verona && !/FNU/.test(verona.textContent);
+    }));
+  await page.selectOption('#riverpick', 'feather');
+  await page.waitForTimeout(2500);
+}
+
 check('a reach with no multibeam says so plainly',
   layers.includes('No published multibeam survey for this reach'), layers.slice(0, 600));
 /* The control carries the readable name now and the machine name sits under

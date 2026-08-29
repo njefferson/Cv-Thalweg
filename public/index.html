@@ -716,6 +716,25 @@ function mixHex(x, y, t){
       b = Math.round(p(x,5) + (p(y,5) - p(x,5)) * t);
   return '#' + [r,g,b].map(function(v){ return ('0'+v.toString(16)).slice(-2); }).join('');
 }
+/* What the number describes, in words, because FNU means nothing to anyone
+   who has not met it. These bands are THIS APP'S OWN plain-language
+   description of how water at that reading looks — they are not a published
+   standard and they are not a statement about fishing. Turbidity is what
+   the light does in the water; what the fish do with that is not something
+   this app knows. */
+var TURB_BANDS = [
+  { under: 5,   word:'clear' },
+  { under: 25,  word:'lightly coloured' },
+  { under: 100, word:'stained' },
+  { under: Infinity, word:'muddy' }
+];
+function turbReading(f){
+  if (!isNum(f)) return null;
+  for (var i = 0; i < TURB_BANDS.length; i++)
+    if (f < TURB_BANDS[i].under) return TURB_BANDS[i].word;
+  return null;
+}
+
 function tempReading(f){
   if (f === null || f === undefined || !isFinite(f)) return null;
   for (var i = 0; i < TEMP_READING.length; i++)
@@ -780,7 +799,13 @@ function logNet(label, url, ok, detail){
    as an error row rather than quietly disappearing.
    ===================================================================== */
 var USGS = 'https://waterservices.usgs.gov/nwis/iv/';
-var USGS_PARAMS = '00060,00065,00010';
+/* Turbidity is 63680, in Formazin Nephelometric Units. It rides in the same
+   request as flow, stage and temperature, so it costs one more series per
+   site that has a sensor and nothing at all at the sites that do not — and
+   most do not. Verified on 2026-08-28: published at Rio Vista, Freeport and
+   Verona on the Sacramento and at two of the Mokelumne's three, at NONE of
+   the American's four, and CDEC publishes none for the Feather. */
+var USGS_PARAMS = '00060,00065,00010,63680';
 
 function usgsBySites(ids){
   var url = USGS + '?format=json&sites=' + ids.join(',') +
@@ -822,7 +847,7 @@ function parseUsgs(j){
       name: si.siteName || '',
       lat: geo ? Number(geo.latitude) : null,
       lon: geo ? Number(geo.longitude) : null,
-      flow: null, stage: null, tempF: null, at: null
+      flow: null, stage: null, tempF: null, turb: null, at: null
     });
     var pc = t.variable && t.variable.variableCode && t.variable.variableCode[0]
              && t.variable.variableCode[0].value;
@@ -839,6 +864,13 @@ function parseUsgs(j){
        here, at the edge, so that exactly one unit exists downstream and no
        renderer has to know where a reading came from. */
     if (pc === '00010') row.tempF = cToF(v);
+    /* Only if the service says FNU. A turbidity series in another unit is a
+       different measurement wearing the same parameter code, and this app
+       does not convert by guesswork. */
+    if (pc === '63680'){
+      var unit = t.variable && t.variable.unit && t.variable.unit.unitCode;
+      if (String(unit || '').toUpperCase() === 'FNU') row.turb = v;
+    }
     if (last.dateTime && (!row.at || last.dateTime > row.at)) row.at = last.dateTime;
   });
   return out;
@@ -1909,6 +1941,19 @@ function downstreamFlow(river){
   return best || bestTidal;
 }
 
+/* Clarity across the gauges that have a turbidity sensor. Most do not: the
+   American has four gauges and none of them, and CDEC publishes none for the
+   Feather. A river with no sensor is a river nobody is measuring, which is a
+   different fact from clear water and is said as such. */
+function meanTurb(river){
+  var payload = state.gauges[river.id];
+  if (!payload) return null;
+  var t = payload.rows.filter(function(r){ return !r.context && isNum(r.turb); })
+                      .map(function(r){ return r.turb; });
+  if (!t.length) return null;
+  return { f: t.reduce(function(a,b){ return a+b; },0) / t.length, n: t.length };
+}
+
 /* Mean of the gauges that have a thermometer, and how many that was. One
    river's worth of water is not one temperature, and saying which gauges
    it came from is the difference between a figure and a guess. */
@@ -1987,6 +2032,13 @@ function riverCard(river){
   card.appendChild(t);
   if (temp) card.appendChild(el('div',{class:'rc-line',
     text:'mean of ' + temp.n + (temp.n === 1 ? ' gauge' : ' gauges')}));
+
+  var turb = meanTurb(river);
+  if (turb) card.appendChild(el('div',{class:'rc-line',
+    text: turbReading(turb.f) + ' — ' + fmt(turb.f,1) + ' FNU across ' +
+      turb.n + (turb.n === 1 ? ' gauge' : ' gauges')}));
+  else if (payload && !mute) card.appendChild(el('div',{class:'rc-line note',
+    text:'no turbidity sensor on this river'}));
 
   var fl = el('div',{class:'rc-line'});
   if (flow && flow.tidal){
@@ -2150,7 +2202,13 @@ function gaugeRow(r){
   var tv = v(f, 1, 'F');
   if (f !== null) tv.style.color = tempColour(f);
   vals.appendChild(tv);
+  /* Only where there is a sensor. A dash in this column would say the water
+     is unmeasurably clear rather than that nobody is measuring it, so the
+     column is absent instead. */
+  if (isNum(r.turb)) vals.appendChild(v(r.turb, 1, 'FNU'));
   wrap.appendChild(vals);
+  if (isNum(r.turb)) wrap.appendChild(el('div',{class:'rdg-id',
+    text: turbReading(r.turb) + ' — turbidity, how much the water is carrying'}));
   if (r.at) wrap.appendChild(el('div',{class:'rdg-id',
     text: 'reading ' + clockLocal(r.at) + ', ' + dayLocal(r.at)}));
   return wrap;
@@ -2868,6 +2926,19 @@ function renderBrief(){
   p.appendChild(ul);
   p.appendChild(el('p',{class:'note',
     text:'Gauge temperature is the water passing one instrument, not the water where you are standing. A tailwater reads colder than the same river four miles down.'}));
+
+  p.appendChild(el('h2',{class:'sec',text:'Water clarity'}));
+  var uc = el('ul',{class:'tight'});
+  [ 'Under 5 FNU — clear.',
+    '5 to 25 FNU — lightly coloured.',
+    '25 to 100 FNU — stained.',
+    'Over 100 FNU — muddy.'
+  ].forEach(function(t){ uc.appendChild(el('li',{text:t})); });
+  p.appendChild(uc);
+  p.appendChild(el('p',{class:'note',
+    text:'FNU is Formazin Nephelometric Units — how much light the water scatters, which is how much it is carrying. The four descriptions above are this app’s own plain words for how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, and what the fish do about it is not something this app knows.'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Most gauges have no turbidity sensor. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none of them, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water so clear it could not be measured.'}));
 
   p.appendChild(el('h2',{class:'sec',text:'Where to look next'}));
   SOURCES.forEach(function(s){
@@ -3842,6 +3913,7 @@ var RELEASES = [
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
+      'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
       'A mark you kept a depth in now shows that depth in the Marks list, not only on the map.',
       'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
       'On opening, the app no longer tells you the network failed while it is still succeeding. Readings are called stored when they are actually old, not because one refresh missed; the landing says which rivers are stored rather than captioning all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
@@ -3849,7 +3921,8 @@ var RELEASES = [
       'Works offline once loaded, and can be installed to a home screen. A depth you have read once reads again with no signal, and so does a mark you kept it in.'
     ],
     broken:[
-      'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number.',
+      'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number. Neither measures turbidity, so the Feather has no clarity figure at all.',
+      'The clarity words — clear, lightly coloured, stained, muddy — are this app’s own plain description of how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, what the fish do about it is not.',
       'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
       'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
       'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',

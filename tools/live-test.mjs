@@ -242,6 +242,33 @@ const mok = await page.evaluate(() => {
 check('the Mokelumne has no published history and says so',
   !mok.flow && !mok.temp && mok.noHistory.length > 0 && mok.said, JSON.stringify(mok));
 
+/* ---- turbidity, and the rivers that have no sensor for it ---- */
+/* Verified 2026-08-28: published at Rio Vista, Freeport and Verona on the
+   Sacramento and at two of the Mokelumne's three, at NONE of the American's
+   four, and CDEC publishes none for the Feather. The asymmetry is the point:
+   a river with no sensor is a river nobody is measuring, which is a
+   different fact from clear water. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(20000);
+const turb = await page.evaluate(() => ({
+  sac: (state.gauges.sacramento?.rows || []).filter(r => typeof r.turb === 'number').length,
+  amr: (state.gauges.american?.rows || []).filter(r => typeof r.turb === 'number').length,
+  words: document.getElementById('panel-water').innerText.replace(/\s+/g, ' ')
+}));
+check('the Sacramento reports turbidity from more than one gauge',
+  turb.sac >= 2, JSON.stringify({ sac: turb.sac }));
+check('and each reading is given in words as well as FNU',
+  /(clear|lightly coloured|stained|muddy) — turbidity/.test(turb.words),
+  turb.words.slice(0, 300));
+check('the American has no turbidity sensor at all, which is a fact not a gap',
+  turb.amr === 0, JSON.stringify({ amr: turb.amr }));
+await page.selectOption('#riverpick', '');
+await page.waitForTimeout(6000);
+const clarityCards = await page.evaluate(() =>
+  document.getElementById('panel-water').innerText.replace(/\s+/g, ' '));
+check('the landing says which rivers nobody measures clarity on',
+  /no turbidity sensor on this river/.test(clarityCards), clarityCards.slice(0, 400));
+
 /* ---- depth at a point, against the real surveys ---- */
 /* Every coordinate here was found by walking the service, not by recall: the
    channel at 38.40061 N reads to about 30 m west of that line and is NoData
