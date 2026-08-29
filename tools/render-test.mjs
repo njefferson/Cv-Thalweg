@@ -38,7 +38,14 @@ const USGS_BODY = { value: { timeSeries: [
   /* Turbidity: one in the unit the app accepts, one in a unit it must refuse
      rather than convert by guesswork, and one gauge with no sensor at all. */
   ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '63680', 67.4, 'FNU'),
-  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '63680', 2.0, 'NTU')
+  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '63680', 2.0, 'NTU'),
+  /* Velocity: Rio Vista's flow is positive above, so a NEGATIVE velocity
+     there is two instruments disagreeing and must be reported as that rather
+     than as a fact about the river. Verona's agrees, and its unit is wrong on
+     purpose so the refusal is proved rather than assumed. */
+  ts('11455420', 'SACRAMENTO R A RIO VISTA CA', 38.1583, -121.6853, '72255', -0.90, 'ft/sec'),
+  ts('11447650', 'SACRAMENTO R A FREEPORT CA',  38.4558, -121.5000, '72255', 1.48, 'ft/sec'),
+  ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '72255', 2.10, 'm/sec')
 ] } };
 
 const hourly = [], hilo = [];
@@ -243,6 +250,29 @@ layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
       const verona = rows.find(r => /VERONA/.test(r.textContent));
       return !!verona && !/FNU/.test(verona.textContent);
     }));
+  await page.selectOption('#riverpick', 'feather');
+  await page.waitForTimeout(2500);
+}
+
+/* --- velocity, and what its sign is allowed to claim --- */
+{
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(2500);
+  const rows = await page.evaluate(() => (window.state.gauges.sacramento?.rows || [])
+    .map(r => [r.id, r.vel, r.flow]));
+  const water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
+  check('velocity in ft/sec reaches the panel',
+    rows.some(r => r[0] === '11447650' && r[1] === 1.48), JSON.stringify(rows));
+  check('velocity in another unit is refused, not converted',
+    rows.some(r => r[0] === '11425500' && (r[1] === null || r[1] === undefined)),
+    JSON.stringify(rows));
+  check('a positive velocity is called downstream, and said to be measured',
+    /running downstream — measured, not predicted/.test(water), water.slice(0, 500));
+  /* Two instruments at one gauge disagreeing is not a fact about the river,
+     and picking the likelier one would be inventing the answer. */
+  check('a velocity that disagrees with its own discharge says so rather than choosing',
+    /disagree about which way this water is going/.test(water) &&
+    !/Rio Vista[\s\S]{0,200}running upstream/.test(water), water.slice(0, 700));
   await page.selectOption('#riverpick', 'feather');
   await page.waitForTimeout(2500);
 }

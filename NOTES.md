@@ -167,6 +167,23 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **The bBox discovery sweep is the most expensive request this app makes,
+  and adding a parameter to the shared constant silently made it worse.** One
+  river's basin box returns **234KB in about nine and a half seconds** with
+  the core three parameters; with turbidity and velocity added it is 354KB.
+  Four of those fire on a cold open beside the declared-site requests, and the
+  run where that happened had every gauge on every river read as not
+  answering. Discovery exists to FIND gauges the app has not declared, so it
+  carries `USGS_DISCOVER_PARAMS` — the three it needs to show one — while the
+  named gauges get the full set for 34KB in ninety milliseconds. **The two
+  request shapes have different jobs and must not share a constant.**
+- **Velocity's sign convention is checked, not trusted.** Parameter 72255 is
+  signed and negative means reverse flow, which on tidal water is the tide
+  pushing in. Verified 2026-08-29: at all seven gauges publishing both, the
+  velocity sign matched the discharge sign at the same timestamp. The app
+  re-checks it per gauge and reports a disagreement as two instruments
+  disagreeing rather than choosing one, because a disagreement at one
+  instrument is not a fact about the river.
 - **The second walk found the export was a worse copy of the thing it
   exported.** A mark kept from a depth reading is kept FOR the depth, and the
   GeoJSON carried `type`, `at`, `note` and `river` and none of it — the

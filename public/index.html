@@ -728,6 +728,21 @@ var TURB_BANDS = [
   { under: 100, word:'stained' },
   { under: Infinity, word:'muddy' }
 ];
+/* Which way the water is going, from a sign — and only when the discharge at
+   the same gauge signs the same way. A velocity and a discharge that disagree
+   at one instrument is not a fact about the river; it is two instruments
+   disagreeing, and this app says that instead of choosing. */
+function velReading(r){
+  if (!isNum(r.vel)) return null;
+  var down = r.vel >= 0;
+  if (isNum(r.flow) && (r.flow >= 0) !== down)
+    return { conflict:true,
+      text:'velocity and discharge disagree about which way this water is going' };
+  return { conflict:false, down:down,
+    text: down ? 'running downstream'
+               : 'running upstream — the tide is pushing in' };
+}
+
 function turbReading(f){
   if (!isNum(f)) return null;
   for (var i = 0; i < TURB_BANDS.length; i++)
@@ -805,7 +820,23 @@ var USGS = 'https://waterservices.usgs.gov/nwis/iv/';
    most do not. Verified on 2026-08-28: published at Rio Vista, Freeport and
    Verona on the Sacramento and at two of the Mokelumne's three, at NONE of
    the American's four, and CDEC publishes none for the Feather. */
-var USGS_PARAMS = '00060,00065,00010,63680';
+/* And 72255, mean water velocity, in feet per second. It is signed, and on
+   this water the sign is the useful part: negative means the water is running
+   the wrong way, which on a tidal reach is the tide pushing in. The
+   convention is not assumed — checked on 2026-08-29 at all seven gauges that
+   publish both, the velocity sign matched the discharge sign at the same
+   timestamp every time, and the app re-checks that per gauge and says so when
+   they disagree rather than picking a side. */
+var USGS_PARAMS = '00060,00065,00010,63680,72255';
+
+/* The DISCOVERY sweep asks for less, and this cost a run to notice. A bBox
+   over one river's whole basin returns 234KB and takes nine and a half
+   seconds with three parameters; adding turbidity and velocity took it to
+   354KB, and four of those fire at once on a cold open. Discovery exists to
+   FIND gauges this app has not declared, so it needs only enough to show one.
+   The extra readings are enrichment for the river's own named gauges, which
+   are asked for separately and cheaply — 34KB in ninety milliseconds. */
+var USGS_DISCOVER_PARAMS = '00060,00065,00010';
 
 function usgsBySites(ids){
   var url = USGS + '?format=json&sites=' + ids.join(',') +
@@ -821,7 +852,7 @@ function usgsBySites(ids){
 
 function usgsByBox(bbox){
   var url = USGS + '?format=json&bBox=' + bbox.map(function(v){ return v.toFixed(3); }).join(',') +
-            '&parameterCd=' + USGS_PARAMS + '&siteStatus=active';
+            '&parameterCd=' + USGS_DISCOVER_PARAMS + '&siteStatus=active';
   return getJSON(url).then(function(j){
     logNet('USGS bBox', url, true, '');
     return parseUsgs(j);
@@ -847,7 +878,7 @@ function parseUsgs(j){
       name: si.siteName || '',
       lat: geo ? Number(geo.latitude) : null,
       lon: geo ? Number(geo.longitude) : null,
-      flow: null, stage: null, tempF: null, turb: null, at: null
+      flow: null, stage: null, tempF: null, turb: null, vel: null, at: null
     });
     var pc = t.variable && t.variable.variableCode && t.variable.variableCode[0]
              && t.variable.variableCode[0].value;
@@ -870,6 +901,10 @@ function parseUsgs(j){
     if (pc === '63680'){
       var unit = t.variable && t.variable.unit && t.variable.unit.unitCode;
       if (String(unit || '').toUpperCase() === 'FNU') row.turb = v;
+    }
+    if (pc === '72255'){
+      var vu = String((t.variable && t.variable.unit && t.variable.unit.unitCode) || '').toLowerCase();
+      if (vu === 'ft/sec') row.vel = v;
     }
     if (last.dateTime && (!row.at || last.dateTime > row.at)) row.at = last.dateTime;
   });
@@ -2033,6 +2068,27 @@ function riverCard(river){
   if (temp) card.appendChild(el('div',{class:'rc-line',
     text:'mean of ' + temp.n + (temp.n === 1 ? ' gauge' : ' gauges')}));
 
+  /* The tide line below this one is a PREDICTION. This is a measurement of
+     what the water is doing at this moment, which on a tidal reach is a
+     different and better answer to the same question. */
+  if (river.tidal && payload){
+    var moving = payload.rows.filter(function(r){ return !r.context && isNum(r.vel); });
+    if (moving.length){
+      var down = moving.filter(function(r){ return r.vel >= 0; }).length;
+      var up   = moving.length - down;
+      var fastest = moving.slice().sort(function(a,b){
+        return Math.abs(b.vel) - Math.abs(a.vel); })[0];
+      var line = el('div',{class:'rc-line'});
+      line.appendChild(el('b',{text: up === 0 ? 'running downstream'
+        : down === 0 ? 'running upstream' : 'running both ways'}));
+      line.appendChild(document.createTextNode(
+        up === 0 || down === 0
+          ? ' at up to ' + fmt(Math.abs(fastest.vel),2) + ' ft/s, measured now'
+          : ' — ' + up + ' of ' + moving.length + ' gauges read upstream, measured now'));
+      card.appendChild(line);
+    }
+  }
+
   var turb = meanTurb(river);
   if (turb) card.appendChild(el('div',{class:'rc-line',
     text: turbReading(turb.f) + ' — ' + fmt(turb.f,1) + ' FNU across ' +
@@ -2206,9 +2262,13 @@ function gaugeRow(r){
      is unmeasurably clear rather than that nobody is measuring it, so the
      column is absent instead. */
   if (isNum(r.turb)) vals.appendChild(v(r.turb, 1, 'FNU'));
+  if (isNum(r.vel))  vals.appendChild(v(Math.abs(r.vel), 2, 'ft/s'));
   wrap.appendChild(vals);
   if (isNum(r.turb)) wrap.appendChild(el('div',{class:'rdg-id',
     text: turbReading(r.turb) + ' — turbidity, how much the water is carrying'}));
+  var vr = velReading(r);
+  if (vr) wrap.appendChild(el('div',{class: vr.conflict ? 'err' : 'rdg-id',
+    text: vr.text + (vr.conflict ? '' : ' — measured, not predicted')}));
   if (r.at) wrap.appendChild(el('div',{class:'rdg-id',
     text: 'reading ' + clockLocal(r.at) + ', ' + dayLocal(r.at)}));
   return wrap;
@@ -2945,6 +3005,12 @@ function renderBrief(){
   p.appendChild(ul);
   p.appendChild(el('p',{class:'note',
     text:'Gauge temperature is the water passing one instrument, not the water where you are standing. A tailwater reads colder than the same river four miles down.'}));
+
+  p.appendChild(el('h2',{class:'sec',text:'Which way the water is going'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Where a gauge computes mean water velocity, the figure is signed and the sign is the useful part: a negative reading means the water is running upstream, which on tidal water is the tide pushing in. That is a MEASUREMENT of this moment, where the tide table above is a prediction — the two answer the same question from opposite ends, and where they disagree the water is the authority.'}));
+  p.appendChild(el('p',{class:'note',
+    text:'The sign convention is checked rather than trusted. At every gauge that publishes both, the velocity sign is compared against the discharge sign at the same instant; where they disagree the app says the two instruments disagree instead of choosing one, because that is not a fact about the river.'}));
 
   p.appendChild(el('h2',{class:'sec',text:'Water clarity'}));
   var uc = el('ul',{class:'tight'});
@@ -3932,6 +3998,7 @@ var RELEASES = [
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
+      'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in — and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the discharge at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
       'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
       'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export — the figure, which survey it came from and the date that survey was made.',
       'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
@@ -3941,6 +4008,7 @@ var RELEASES = [
     ],
     broken:[
       'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number. Neither measures turbidity, so the Feather has no clarity figure at all.',
+      'Velocity, like clarity, is only where there is an instrument for it. It is published on the tidal reaches and the lower river and not on the upper Sacramento, the American or the Feather.',
       'The clarity words — clear, lightly coloured, stained, muddy — are this app’s own plain description of how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, what the fish do about it is not.',
       'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
       'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',

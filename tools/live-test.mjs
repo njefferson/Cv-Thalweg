@@ -269,6 +269,40 @@ const clarityCards = await page.evaluate(() =>
 check('the landing says which rivers nobody measures clarity on',
   /no turbidity sensor on this river/.test(clarityCards), clarityCards.slice(0, 400));
 
+/* ---- velocity, and the sign convention checked against the real record ---- */
+/* Verified 2026-08-29: at all seven gauges publishing both, the velocity sign
+   matched the discharge sign at the same timestamp. The app re-checks it per
+   gauge rather than trusting that, so this asserts the check runs and agrees. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(20000);
+const vel = await page.evaluate(() => {
+  const rows = (state.gauges.sacramento?.rows || []).filter(r => typeof r.vel === 'number');
+  return { n: rows.length,
+    disagreeing: rows.filter(r => typeof r.flow === 'number' && (r.flow >= 0) !== (r.vel >= 0))
+      .map(r => [r.id, r.flow, r.vel]),
+    words: document.getElementById('panel-water').innerText.replace(/\s+/g, ' ') };
+});
+/* Discovery is a sweep over a whole basin and is the most expensive request
+   this app makes — 234KB and nine seconds. It must not carry the enrichment
+   parameters: adding them took it to 354KB, four of those fire on a cold
+   open, and the run where that happened had every gauge on every river read
+   as not answering. */
+check('the discovery sweep does not carry the enrichment parameters',
+  await page.evaluate(() => USGS_DISCOVER_PARAMS === '00060,00065,00010' &&
+    USGS_PARAMS.indexOf('72255') !== -1 && USGS_PARAMS.indexOf('63680') !== -1),
+  await page.evaluate(() => USGS_DISCOVER_PARAMS + ' vs ' + USGS_PARAMS));
+check('the Sacramento reports water velocity from more than one gauge',
+  vel.n >= 2, JSON.stringify({ n: vel.n }));
+check('and says which way that is, marked as measured rather than predicted',
+  /running (up|down)stream/.test(vel.words) && /measured, not predicted/.test(vel.words),
+  vel.words.slice(0, 300));
+/* Not an assertion that they never disagree — an assertion that a
+   disagreement is reported as one. Live data is allowed to be odd. */
+check('any gauge whose velocity and discharge disagree says so',
+  vel.disagreeing.length === 0 ||
+  /disagree about which way this water is going/.test(vel.words),
+  JSON.stringify(vel.disagreeing));
+
 /* ---- depth at a point, against the real surveys ---- */
 /* Every coordinate here was found by walking the service, not by recall: the
    channel at 38.40061 N reads to about 30 m west of that line and is NoData
