@@ -2,7 +2,7 @@
   "name": "cv-thalweg",
   "version": "0.1.0",
   "private": true,
-  "description": "Thalweg \u2014 depth and conditions for the Central Valley fall-run Chinook fishery.",
+  "description": "Thalweg — depth and conditions for the Central Valley fall-run Chinook fishery.",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "scripts": {
@@ -14,7 +14,8 @@
     "icons": "node tools/render-icons.mjs",
     "test:live": "node tools/live-test.mjs",
     "check:deploy": "node tools/check-deploy.mjs",
-    "check:functions": "npx --no-install wrangler pages functions build --outdir=.functions-build"
+    "check:functions": "npx --no-install wrangler pages functions build --outdir=.functions-build",
+    "prepare": "node ../noahjefferson/branch-guard.mjs --repo . --install >/dev/null 2>&1 || true"
   },
   "devDependencies": {
     "axe-core": "4.10.2",

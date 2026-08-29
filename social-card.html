@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- GitHub social-preview card — 1280x640 (2:1). Regenerate the PNG with
+     `node tools/render-social.mjs`. The palette is the app's own, and the
+     lettering is real type: nothing here is generated imagery. -->
+<style>
+  :root{
+    --bg:#0A1214; --panel:#11201F; --panel-2:#0D1A19;
+    --teal:#1F5B57; --teal-line:#2E7C76; --cyan:#7BD5D9;
+    --buff:#C9A96A; --magenta:#DA4A85;
+    --ink:#E6F0EF; --mute:#9FB3B1;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1280px;height:640px}
+  body{
+    background:
+      radial-gradient(1100px 700px at 22% -10%, #12302e 0%, rgba(10,18,20,0) 64%),
+      linear-gradient(180deg,var(--panel-2),var(--bg));
+    color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex; align-items:center; padding:0 96px; position:relative; overflow:hidden;
+  }
+  .left{flex:1 1 auto; max-width:730px}
+  h1{font-size:96px; font-weight:700; letter-spacing:.10em; text-transform:uppercase; line-height:1}
+  .rule{width:168px;height:7px;border-radius:7px;margin:28px 0 24px;
+    background:linear-gradient(90deg,var(--cyan),var(--buff))}
+  .tag{font-size:31px;color:var(--mute);line-height:1.32;max-width:660px}
+  .chips{display:flex;gap:11px;margin-top:40px;flex-wrap:nowrap}
+  .chip{font-size:20px;font-weight:600;letter-spacing:.02em;color:var(--ink);
+    background:var(--panel);border:1px solid var(--teal-line);border-radius:999px;
+    padding:11px 18px 11px 15px;display:inline-flex;align-items:center;gap:9px;white-space:nowrap}
+  .chip i{width:12px;height:12px;border-radius:50%;display:block}
+  .notnav{position:absolute;right:96px;top:56px;font-size:21px;font-weight:700;
+    letter-spacing:.14em;color:var(--magenta);border:2px solid var(--magenta);
+    border-radius:4px;padding:9px 16px}
+  .foot{position:absolute;left:96px;bottom:52px;font-size:21px;color:var(--mute);letter-spacing:.03em}
+  .art{flex:0 0 360px;margin-left:44px;margin-top:30px;border-radius:10px;overflow:hidden}
+</style>
+</head>
+<body>
+  <div class="left">
+    <h1>Thalweg</h1>
+    <div class="rule"></div>
+    <p class="tag">Depth, tide and flow for the Sacramento, Feather, American
+      and Mokelumne — and the Delta they run into.</p>
+    <div class="chips">
+      <span class="chip"><i style="background:#7BD5D9"></i>Free</span>
+      <span class="chip"><i style="background:#C9A96A"></i>No account</span>
+      <span class="chip"><i style="background:#9BD98C"></i>Works offline</span>
+      <span class="chip"><i style="background:#9FB3B1"></i>No tracking</span>
+    </div>
+  </div>
+  <!-- A channel section with the deepest line marked: that is what the word
+       means, and it is the same motif as the app's icon. -->
+  <svg class="art" viewBox="0 0 400 300" width="360" height="270" aria-hidden="true">
+    <rect x="6" y="90" width="388" height="200" rx="10" fill="#11201F" stroke="#1F5B57" stroke-width="2"/>
+    <path d="M12 96 H388" stroke="#2E7C76" stroke-width="3"/>
+    <path d="M0 104 C 70 112, 110 168, 152 206 C 186 236, 214 236, 248 206
+             C 290 168, 330 112, 400 104"
+          fill="none" stroke="#C9A96A" stroke-width="7" stroke-linecap="round"/>
+    <path d="M200 96 V214" stroke="#7BD5D9" stroke-width="4" stroke-dasharray="12 10"/>
+    <circle cx="200" cy="222" r="15" fill="#7BD5D9"/>
+    <text x="200" y="272" fill="#9FB3B1" font-size="19" text-anchor="middle"
+          font-family="ui-sans-serif,system-ui,sans-serif">the deepest line</text>
+  </svg>
+  <div class="notnav">NOT FOR NAVIGATION</div>
+  <div class="foot">cv-thalweg.pages.dev &middot; USGS, NOAA, DWR and CDFW &middot; free and yours to keep</div>
+</body>
+</html>

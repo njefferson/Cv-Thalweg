@@ -1,0 +1,138 @@
+name: Gates
+
+# Every gate this repo is held to, run on the runner rather than by hand on a
+# laptop. They were run by hand for the first eleven releases, which meant the
+# record of whether they passed was a sentence in a commit message.
+#
+# The hub's gates are canonical and are NEVER forked into this repo: the hub is
+# checked out SHA-pinned beside this one and its copies are run against `.`.
+# Pinning the hub by SHA rather than by branch matters — a gate that changes
+# under you turns a red run into a mystery, and the pin is bumped on purpose.
+#
+# Actions are pinned by SHA. A tag is a mutable pointer somebody else controls.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          persist-credentials: false
+
+      # The hub, for the gates it owns. Public repo, no token needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: njefferson/noahjefferson
+          ref: 723065b52351d79f199db719066968ce51498c2a
+          path: hub
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Install pinned tooling
+        working-directory: app
+        run: npm ci
+
+      # --- the hub's gates, run from the hub, against this repo -------------
+      # Never `--install` in CI: that WRITES the tracked hook and repairs the
+      # drift the step exists to find. `--artefact` checks the tracked hook
+      # against .branch-guard and prints the two checks it had to skip, because
+      # actions/checkout leaves .git/hooks empty by definition.
+      - name: Branch guard (artefact only)
+        run: node hub/branch-guard.mjs --repo app --artefact
+
+      - name: Nothing personal about the owner is in the tree
+        run: node hub/privacy-check.mjs --repo app
+
+      - name: Every set-apart quotation is declared
+        run: node hub/quote-check.mjs --repo app
+
+      - name: No tables or grids in anything the owner reads
+        run: node hub/docs-check.mjs app
+
+      - name: npm hygiene
+        run: node hub/pin-check.mjs --repo app
+
+      - name: The new version waits and says so
+        run: node hub/pwa-check.mjs --repo app
+
+      # --- this repo's own -------------------------------------------------
+      # First, because it needs no network, no browser and no credentials, and
+      # because it is what stands between a survey proxy and an open proxy.
+      - name: The proxy's allow-list
+        working-directory: app
+        run: node tools/test-worker.mjs
+
+      - name: Install the browsers the walks drive
+        working-directory: app
+        run: npx --no-install playwright install --with-deps chromium webkit
+
+      - name: Serve the site for the walks
+        working-directory: app
+        run: |
+          node tools/serve.mjs & echo $! > /tmp/serve.pid
+          for i in $(seq 1 20); do
+            curl -sf -o /dev/null http://127.0.0.1:8787/ && exit 0
+            sleep 1
+          done
+          echo "the local server never came up"
+          exit 1
+
+      - name: Rendering, against stubbed services
+        working-directory: app
+        run: node tools/render-test.mjs
+
+      # Six viewport geometries and two browser engines, including WebKit —
+      # which is where a first-run defect lived that every Chromium check
+      # called correct (hub LESSONS §175).
+      - name: Accessibility, offline, and the phone geometries
+        working-directory: app
+        run: node tools/a11y.mjs
+
+      - name: Stop the server
+        if: always()
+        run: kill "$(cat /tmp/serve.pid)" 2>/dev/null || true
+
+  # The live suite talks to USGS, NOAA and DWR, so it is its own job: when a
+  # public agency is having a bad morning that must not read as this repo
+  # being broken. It is reported, and it does not gate the merge.
+  live:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx --no-install playwright install --with-deps chromium
+      - name: Serve the site
+        run: |
+          node tools/serve.mjs & echo $! > /tmp/serve.pid
+          for i in $(seq 1 20); do
+            curl -sf -o /dev/null http://127.0.0.1:8787/ && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: End to end, against the real services
+        run: node tools/live-test.mjs
+      - if: always()
+        run: kill "$(cat /tmp/serve.pid)" 2>/dev/null || true

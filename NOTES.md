@@ -309,6 +309,26 @@ every release. A push verified against the remote is not a deploy, and the
 newest green row in a list of runs belongs to whatever ran last, not
 necessarily to this commit.
 
+## What CI runs, and what it deliberately does not
+
+`.github/workflows/gates.yml` checks the hub out SHA-PINNED beside this repo
+and runs the hub's own copies against `.` — never a fork of them. The pin is a
+commit, not a branch: a gate that changes under you turns a red run into a
+mystery, and bumping it is a deliberate act.
+
+**`branch-guard.mjs --artefact`, never the plain check and never `--install`.**
+The plain check asserts `.git/hooks/pre-commit` is installed, which is a fact
+about one clone, and `actions/checkout` leaves `.git/hooks` empty by
+definition; `--install` WRITES the tracked file and repairs the drift the step
+exists to find. And note what was found adding it: **`--artefact` exits 0 when
+the repo has no `.branch-guard` at all**, so the step would have been green
+while checking nothing. This repo now declares `work=main` and the hook is a
+tracked artefact.
+
+**The live suite is its own job and does not gate the merge.** It talks to
+USGS, NOAA and DWR; when a public agency is having a bad morning that must not
+read as this repo being broken. It is reported, not enforced.
+
 ## Fish counts: what exists and what it is worth
 
 **Settled 2026-08-28 by fetching, not recalling.** SacPAS is reachable and has a

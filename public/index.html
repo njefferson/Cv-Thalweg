@@ -208,6 +208,10 @@ textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink
 /* ---------- dialogs / strips ---------- */
 .strip{background:var(--teal); color:var(--ink); padding:.5rem .7rem; display:flex;
   gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; flex:0 0 auto}
+/* The weir strip is not the update strip: one is about the app, the other is
+   about the river, and they must not read as the same kind of news. */
+.strip.weir{background:#4A2A12; border-bottom:1px solid var(--warn)}
+.strip.weir b{color:var(--warn)}
 dialog{background:var(--panel); color:var(--ink); border:1px solid var(--teal-line);
   max-width:min(46rem,94vw); width:100%; padding:0; border-radius:3px}
 dialog::backdrop{background:rgba(4,9,10,.8)}
@@ -304,6 +308,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
+
+<!-- A weir over its crest changes where the river IS, so it is said where a
+     reader is standing rather than only inside a panel they may not open. It
+     is a standing indicator, not an interruption: nothing is dismissed and
+     nothing is covered, and it goes when the weir does. -->
+<div id="weirstrip" class="strip weir" role="status" aria-label="Weir overtopping" hidden>
+  <span class="grow" id="weirtext"></span>
+  <button id="weirgo" type="button">Show me</button>
+</div>
 
 <div id="updatestrip" class="strip" role="region" aria-label="App update" hidden>
   <span class="grow" id="updatetext">A new version of Thalweg is ready.</span>
@@ -3371,9 +3384,14 @@ function refreshData(){
          right now, and on All rivers nothing asks at all — four rivers of
          fifteen-minute history is most of a megabyte for four lines nobody
          opened. */
-      if (state.riverId === river.id && river.weirs && !state.weirs[river.id]){
+      /* Loaded whether or not this river is the one on screen: the strip is
+         the point, and an alert that only appears once you have already
+         picked the river is an alert for people who did not need it. 12.8KB
+         against a landing that now costs about a megabyte. */
+      if (river.weirs && !state.weirs[river.id]){
         loadWeirs(river).then(function(w){
           state.weirs[river.id] = w;
+          updateWeirStrip();
           if (state.riverId === river.id) renderWater();
         });
       }
@@ -3510,6 +3528,39 @@ function loadWeirs(river){
     logNet('SacPAS weirs', river.weirs.url, false, String(e && e.message || e));
     return { failed:String(e && e.message || e) };
   });
+}
+
+/* The standing indicator. It says which weir, how far over and which river,
+   because "a weir is over" is not actionable and "Tisdale is 1.4 ft over,
+   water is leaving the Sacramento for the Sutter Bypass" is. */
+function updateWeirStrip(){
+  var strip = document.getElementById('weirstrip');
+  if (!strip) return;
+  var over = [];
+  RIVERS.forEach(function(r){
+    var w = state.weirs[r.id];
+    if (!w || w.failed || !w.over) return;
+    w.over.forEach(function(o){ over.push({ river:r, o:o }); });
+  });
+  if (!over.length){ strip.hidden = true; return; }
+  over.sort(function(a,b){ return b.o.ft - a.o.ft; });
+  var txt = document.getElementById('weirtext');
+  txt.innerHTML = '';
+  var first = over[0];
+  txt.appendChild(el('b',{text:first.o.w.name + ' is ' + fmt(first.o.ft,1) + ' ft over its crest.'}));
+  txt.appendChild(document.createTextNode(' Water is leaving the ' + first.river.short +
+    ' for ' + first.o.w.into + ', and fish go with it.' +
+    (over.length > 1 ? ' ' + (over.length - 1) +
+      (over.length === 2 ? ' other weir is over too.' : ' other weirs are over too.') : '')));
+  var go = document.getElementById('weirgo');
+  go.onclick = function(){
+    if (state.riverId !== first.river.id) selectRiver(first.river.id);
+    selectTab('water');
+    var h = [].slice.call(document.querySelectorAll('#panel-water .sec'))
+      .filter(function(n){ return n.textContent === 'The weirs'; })[0];
+    if (h) h.scrollIntoView({ block:'start' });
+  };
+  strip.hidden = false;
 }
 
 function weirSection(river){
@@ -4202,6 +4253,7 @@ var RELEASES = [
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
+      'A weir over its crest now says so in a standing strip at the top of the screen, on any view, rather than only inside the panel for the river it belongs to. It names the weir, how far over, which river and which bypass, and a button takes you to the detail.',
       'The four weirs on the Sacramento — Fremont, Tisdale, Colusa, Moulton. When one goes over its crest the river stops being one channel: water leaves for a bypass and takes the fish in it with it. It says which weir, how far over, and which bypass. The source also publishes a forecast for the days ahead; that is somebody’s model and is not repeated here.',
       'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in — and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the discharge at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
       'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',

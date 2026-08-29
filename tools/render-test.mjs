@@ -355,6 +355,33 @@ layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
   check('an unreadable value is unknown rather than quiet',
     w.unknown.join() === 'CLW' && /unknown rather than quiet/.test(w.text),
     JSON.stringify({ unknown: w.unknown }));
+  /* And the standing indicator, which is the point of loading this at all:
+     an alert that appears only once you have already picked the river is an
+     alert for people who did not need it. */
+  const strip = await page.evaluate(() => {
+    const el = document.getElementById('weirstrip');
+    return { hidden: el.hidden, text: el.innerText.replace(/\s+/g, ' ').trim(),
+             role: el.getAttribute('role') };
+  });
+  check('a weir over its crest raises a standing indicator outside the panel',
+    strip.hidden === false && /Tisdale Weir is 1.4 ft over its crest/.test(strip.text) &&
+    /Sutter Bypass/.test(strip.text) && strip.role === 'status', JSON.stringify(strip));
+  /* It is about the river, not about the app, and must not read as an update
+     notice — different ground, and the update strip stays where it was. */
+  check('the weir strip is not the update strip',
+    await page.evaluate(() => {
+      const w = document.getElementById('weirstrip'), u = document.getElementById('updatestrip');
+      return u.hidden === true && w.className.indexOf('weir') !== -1 &&
+        getComputedStyle(w).backgroundColor !== getComputedStyle(u).backgroundColor;
+    }));
+  /* It says it on the landing too, where the reader has not picked a river. */
+  check('and it is raised on All rivers, not only on the river it belongs to',
+    await page.evaluate(async () => {
+      document.getElementById('riverpick').value = '';
+      document.getElementById('riverpick').dispatchEvent(new Event('change', { bubbles:true }));
+      await new Promise(r => setTimeout(r, 1200));
+      return document.getElementById('weirstrip').hidden === false;
+    }));
   await page.selectOption('#riverpick', 'feather');
   await page.waitForTimeout(2500);
 }

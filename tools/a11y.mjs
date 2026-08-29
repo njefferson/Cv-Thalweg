@@ -468,6 +468,35 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   if (opened) await audit(page, `${name}: map label open`);
   await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
 
+  /* The weir strip, forced on: nothing has been over a crest all summer, so
+     the state that matters would otherwise ship unmeasured. A new strip costs
+     HEIGHT, and height on a phone is what broke this app twice — so the
+     panel's share is re-measured with it showing, not only without. */
+  await page.evaluate(() => {
+    const s = document.getElementById('weirstrip');
+    s.hidden = false;
+    document.getElementById('weirtext').textContent =
+      'Tisdale Weir is 1.4 ft over its crest. Water is leaving the Sacramento ' +
+      'for the Sutter Bypass, and fish go with it.';
+  });
+  await page.waitForTimeout(300);
+  await audit(page, `${name}: weir strip showing`);
+  await noOverflow(page, `${name}: nothing reaches past the edge with the weir strip up`);
+  /* Ask for the READINGS panel by name. `[role=tabpanel]:not([hidden])` also
+     matches the map panel, which is a live tab under the breakpoint and is
+     zero-height while another tab is showing — so the generic selector
+     measured the wrong element and reported nought. */
+  await page.click('#tab-water');
+  await page.waitForTimeout(400);
+  const withStrip = await page.evaluate(() => ({
+    vh: window.innerHeight,
+    panel: document.getElementById('panel-water').clientHeight,
+    strip: Math.round(document.getElementById('weirstrip').getBoundingClientRect().height) }));
+  check(`${name}: the readings keep a third of the screen with the weir strip up`,
+    withStrip.panel >= withStrip.vh * 0.33, JSON.stringify(withStrip));
+  await page.evaluate(() => { document.getElementById('weirstrip').hidden = true; });
+  await page.waitForTimeout(200);
+
   /* The update strip. It only shows when a new version is waiting, which
      is exactly why it has to be forced on to be measured at all. */
   await page.evaluate(() => {
