@@ -333,6 +333,11 @@ layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
   await page.waitForTimeout(2500);
 }
 
+/* --- nothing sweeps a basin unless it is asked to --- */
+check('no basin sweep goes out on load',
+  await page.evaluate(() => !(state.net || []).some(n => /bBox/.test(n.label || ''))),
+  await page.evaluate(() => (state.net || []).map(n => n.label).join(', ')));
+
 /* --- the weirs --- */
 {
   await page.selectOption('#riverpick', 'sacramento');

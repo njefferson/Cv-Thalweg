@@ -167,6 +167,17 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **The basin sweep found four gauges across four rivers, and three of the
+  four sweeps returned nothing at all.** Measured 2026-08-29 before demoting
+  it: the Sacramento gave up four — above the Delta Cross Channel, below
+  Georgiana Slough, the Deep Water Ship Channel, below the Walnut Grove
+  bridge — and the Feather, the American and the Mokelumne gave up none, on
+  every visit, for 234KB and about nine seconds each. Those four are DECLARED
+  now, read back off the service first, so they carry `verified` rather than
+  `found` and do not depend on a sweep running to exist. The sweep itself is
+  a button: it stays because a gauge can appear later, which is the whole
+  reason this app enumerates at runtime instead of trusting a list, and what
+  it finds is kept.
 - **NOAA's station index is TWO MEGABYTES, it ignores every filter, and this
   app fetched it once per tidal river on every visit.** That was four of the
   5.56MB a first-time reader paid for the landing screen — to learn the

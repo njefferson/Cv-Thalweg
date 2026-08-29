@@ -459,7 +459,17 @@ var RIVERS = [
     { id:'11425500', status:PROV.VERIFIED, hint:'Verona' },
     { id:'11390500', status:PROV.VERIFIED, hint:'below Wilkins Slough' },
     { id:'11389500', status:PROV.VERIFIED, hint:'Colusa' },
-    { id:'11377100', status:PROV.VERIFIED, hint:'above Bend Bridge' }
+    { id:'11377100', status:PROV.VERIFIED, hint:'above Bend Bridge' },
+    /* Found by the basin sweep and PROMOTED on 2026-08-29, after reading each
+       one back off the service: every one returned a name that names this
+       river, a position, and live flow. They stop being FOUND — a word that
+       means nobody checked — and stop depending on a 234KB sweep running to
+       appear at all. Three carry a thermometer; Walnut Grove does not, and
+       shows a dash for it rather than a zero. */
+    { id:'11447890', status:PROV.VERIFIED, hint:'above the Delta Cross Channel' },
+    { id:'11447905', status:PROV.VERIFIED, hint:'below Georgiana Slough' },
+    { id:'11455095', status:PROV.VERIFIED, hint:'Deep Water Ship Channel near Freeport' },
+    { id:'381427121305401', status:PROV.VERIFIED, hint:'below Walnut Grove bridge' }
   ],
   discover:{ match:'sacramento r' },
   tideStations:[
@@ -843,6 +853,7 @@ var state = {
   gauges: {},             /* riverId -> { rows, fetchedAt, stale } */
   tides:  {},             /* riverId -> { hourly, hilo, fetchedAt, station } */
   trends: {},             /* riverId -> { flow, temp, days, fetchedAt, stale } */
+  swept:  {},             /* riverId -> true once somebody asked for a sweep */
   weirs:  {},             /* riverId -> { at, over, quiet, unknown } */
   marks:  [],             /* marks for the selected river */
   markLayer: null,
@@ -862,8 +873,9 @@ function logNet(label, url, ok, detail){
 
 /* =====================================================================
    USGS instantaneous values.
-   Two requests per river: the declared identifiers, and a bounding-box
-   sweep that returns whatever active gauges actually exist in the reach.
+   One request per river, and a second only when somebody asks for it: the
+   declared identifiers always, and a bounding-box sweep that returns
+   whatever active gauges actually exist in the reach on request.
    The sweep is why no gauge identifier in this app has to be a guess —
    anything the app did not already know arrives with the name the API
    gives it, and a declared identifier that answers with nothing is shown
@@ -974,16 +986,21 @@ function loadGauges(river){
   jobs.push(declared.length ? usgsBySites(declared).catch(function(){ return null; })
                             : Promise.resolve({}));
   /* Discovery is a sweep over a whole river basin — 234KB and about nine
-     seconds — and it runs for the river being READ, not for all four at
-     once on a landing screen whose cards are built from the gauges this app
-     names anyway. Four of these on a cold open was most of what made the
-     first fifteen seconds unreliable. */
-  var sweep = river.discover && state.riverId === river.id;
-  jobs.push(sweep ? usgsByBox(river.bbox) : Promise.resolve({}));
+     seconds — and it is now a thing somebody ASKS for, not a thing that
+     happens to them. It was measured before being demoted: across all four
+     rivers it found four gauges, every one of them on the Sacramento and
+     every one now declared above. On the Feather, the American and the
+     Mokelumne it returned nothing at all, three times, on every visit.
+     What it is still for is a gauge that appears LATER — the reason this app
+     enumerates at runtime rather than trusting a list — so it stays, behind
+     a button, and what it finds is kept. */
+  var sweep = river.discover && state.swept[river.id];
+  jobs.push(sweep ? usgsByBox(river.bbox) : Promise.resolve(sget(river.id,'found') || {}));
   jobs.push(loadCdec(river));
 
   return Promise.all(jobs).then(function(res){
     var byId = res[0], found = res[1] || {}, cdec = res[2];
+    if (sweep && Object.keys(found).length) sput(river.id, 'found', found);
     var rows = [], seen = {};
 
     /* CDEC first, because on the Feather it is the river and USGS is not.
@@ -2318,6 +2335,28 @@ function renderWater(){
         p.appendChild(el('h2',{class:'sec',text:'Tributaries, not this river'}));
         tribs.forEach(function(r){ p.appendChild(gaugeRow(r)); });
       }
+      if (river.discover && !state.swept[river.id] && !sget(river.id,'found')){
+        var swRow = el('div',{class:'rowline'});
+        var swBtn = el('button',{type:'button',text:'Look for gauges this app has not named'});
+        swBtn.addEventListener('click', function(){
+          swBtn.disabled = true;
+          swBtn.textContent = 'Sweeping the basin — about nine seconds…';
+          state.swept[river.id] = true;
+          loadGauges(river).then(function(payload){
+            state.gauges[river.id] = payload;
+            renderWater(); drawRibbon(); drawGaugeMarkers(); updateStaleness();
+            announce('Sweep finished.');
+          }, function(){
+            swBtn.disabled = false;
+            swBtn.textContent = 'Look for gauges this app has not named';
+          });
+        });
+        swRow.appendChild(swBtn);
+        p.appendChild(swRow);
+        p.appendChild(el('p',{class:'note',
+          text:'The gauges above are the ones this app names and has checked. USGS will also answer a sweep of the whole basin for anything else reporting — 234KB and about nine seconds, which is why it is a button. Asked once, what it finds is kept.'}));
+      }
+
       if (river.weirs){
         p.appendChild(el('h2',{class:'sec',text:'The weirs'}));
         p.appendChild(weirSection(river));
@@ -4271,6 +4310,8 @@ var RELEASES = [
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
       'A weir over its crest now says so in a standing strip at the top of the screen, on any view, rather than only inside the panel for the river it belongs to. It names the weir, how far over, which river and which bypass, and a button takes you to the detail.',
       'The four weirs on the Sacramento — Fremont, Tisdale, Colusa, Moulton. When one goes over its crest the river stops being one channel: water leaves for a bypass and takes the fish in it with it. It says which weir, how far over, and which bypass. The source also publishes a forecast for the days ahead; that is somebody’s model and is not repeated here.',
+      'Four more Sacramento gauges are named and checked rather than swept up: above the Delta Cross Channel, below Georgiana Slough, the Deep Water Ship Channel near Freeport, and below the Walnut Grove bridge. They used to appear only if a basin-wide sweep happened to run.',
+      'That sweep is a button now, at the bottom of the gauges. It costs 234KB and about nine seconds, it was running for all four rivers on every visit, and across all four it found four gauges — every one of them on the Sacramento, and all four now named above. On the Feather, the American and the Mokelumne it returned nothing at all. It is still there because a gauge can appear later, and what it finds is kept.',
       'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in — and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the discharge at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
       'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
       'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export — the figure, which survey it came from and the date that survey was made.',

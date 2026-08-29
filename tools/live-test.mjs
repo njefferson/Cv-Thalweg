@@ -62,6 +62,8 @@ await page.waitForTimeout(18000);
    basin-wide gauge sweeps for a screen built from named gauges. This number
    is the guard on both. */
 relayed.boot = relayed.bytes;
+/* This is also what holds the sweep down: four basin sweeps on a cold open
+   was 936KB of the 5.56MB a first-time reader used to pay. */
 check('the landing costs a first-time reader under 1MB off the network',
   relayed.boot < 1024 * 1024,
   (relayed.boot / 1024 / 1024).toFixed(2) + 'MB in ' + relayed.ok + ' requests');
@@ -252,6 +254,28 @@ const mok = await page.evaluate(() => {
 });
 check('the Mokelumne has no published history and says so',
   !mok.flow && !mok.temp && mok.noHistory.length > 0 && mok.said, JSON.stringify(mok));
+
+/* ---- the basin sweep is asked for, not suffered ---- */
+/* Measured before it was demoted: across all four rivers the sweep found four
+   gauges, every one on the Sacramento, and returned NOTHING on the Feather,
+   the American and the Mokelumne — three 234KB requests for nothing, on every
+   visit. Those four are declared now. What the sweep is still for is a gauge
+   that appears later, which is why it stays at all. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(20000);
+const sweep = await page.evaluate(() => ({
+  bbox: (state.net || []).filter(n => /bBox/.test(n.label || '')).length,
+  promoted: ['11447890', '11447905', '11455095', '381427121305401'].map(id => {
+    const r = (state.gauges.sacramento?.rows || []).find(x => x.id === id);
+    return r ? r.status + (typeof r.flow === 'number' ? ':has-flow' : ':no-flow') : 'ABSENT';
+  }),
+  offered: [...document.querySelectorAll('#panel-water button')]
+    .some(b => /has not named/.test(b.textContent))
+}));
+check('the four gauges the sweep used to find are declared and verified',
+  sweep.promoted.every(p => p === 'verified:has-flow'), JSON.stringify(sweep.promoted));
+check('and the sweep is offered rather than run',
+  sweep.offered, JSON.stringify({ offered: sweep.offered }));
 
 /* ---- turbidity, and the rivers that have no sensor for it ---- */
 /* Verified 2026-08-28: published at Rio Vista, Freeport and Verona on the
