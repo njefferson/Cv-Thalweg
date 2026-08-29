@@ -7,7 +7,7 @@ session needs before it touches anything.
 
 - Version 0.1.0, on `main`.
 - Not deployed yet. Not linked from the hub, and it must not be until the owner
-  says so — that is his call and nobody else's.
+  says so — that is the owner's call and nobody else's.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
   it too. There is no separate Worker to stand up and no origin to paste.
 
