@@ -5,6 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Thalweg — Central Valley depth &amp; conditions</title>
 <meta name="description" content="Depth, tide and flow for the Sacramento, Feather, American and Mokelumne rivers and the Delta. Not for navigation.">
+<!-- A link to this app shared anywhere showed nothing at all: there was no
+     preview image and no card metadata. The image is the same one GitHub
+     takes as the repository's social preview, built from social-card.html.
+     It is deliberately NOT in the service worker's precache: half a megabyte
+     that only a link unfurler ever asks for should not be part of what an
+     angler downloads to have the app work with no signal. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Thalweg">
+<meta property="og:title" content="Thalweg — Central Valley depth &amp; conditions">
+<meta property="og:description" content="Depth, tide and flow for the Sacramento, Feather, American and Mokelumne — and the Delta they run into. Published surveys and gauges only. Not for navigation.">
+<meta property="og:url" content="https://cv-thalweg.pages.dev/">
+<meta property="og:image" content="https://cv-thalweg.pages.dev/social-preview.png">
+<meta property="og:image:width" content="2560">
+<meta property="og:image:height" content="1280">
+<meta property="og:image:alt" content="Thalweg — depth, tide and flow for four Central Valley rivers. Marked: not for navigation.">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0A1214">
 <meta name="color-scheme" content="dark">
 <link rel="manifest" href="manifest.webmanifest">

@@ -387,6 +387,28 @@ layers = (await page.textContent('#panel-layers')).replace(/\s+/g, ' ');
   await page.waitForTimeout(2500);
 }
 
+/* --- the link-preview card --- */
+/* A link to this app shared anywhere showed nothing: no image, no card. And
+   the image must NOT be in the precache — half a megabyte that only an
+   unfurler asks for is not part of what an angler downloads to work offline. */
+{
+  const meta = await page.evaluate(() => {
+    const g = n => (document.querySelector('meta[property="' + n + '"]') || {}).content || '';
+    return { img: g('og:image'), title: g('og:title'), url: g('og:url'),
+             alt: g('og:image:alt'),
+             card: (document.querySelector('meta[name="twitter:card"]') || {}).content || '' };
+  });
+  check('a shared link has a preview image, a title and an alt',
+    /social-preview\.png$/.test(meta.img) && /Thalweg/.test(meta.title) &&
+    meta.alt.length > 20 && meta.card === 'summary_large_image', JSON.stringify(meta));
+  check('the preview image is not in what the app downloads to work offline',
+    !(await page.evaluate(async () => {
+      const t = await (await fetch('sw.js')).text();
+      const m = /var PRECACHE = \[([\s\S]*?)\]/.exec(t);
+      return !m || /social-preview/.test(m[1]);
+    })));
+}
+
 check('a reach with no multibeam says so plainly',
   layers.includes('No published multibeam survey for this reach'), layers.slice(0, 600));
 /* The control carries the readable name now and the machine name sits under
