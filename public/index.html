@@ -2855,12 +2855,31 @@ function renderMarks(){
   erow.appendChild(dl);
   p.appendChild(erow);
 }
+/* What travels with an exported mark. A mark kept from a depth reading is
+   kept FOR the depth, and the export dropped it — the figure, the survey it
+   came from and the date it was surveyed all lived on the device and in
+   nothing that left it. The keys say their units, because a bare "depth" in
+   somebody else's chart plotter is a number with no story. */
+function markProps(m){
+  var out = { type:m.type, at:m.at, note:m.note, river:state.riverId };
+  if (isNum(m.depth)){
+    out.depth_ft = Number(m.depth.toFixed(2));
+    out.depth_is = m.depth <= 0 ? 'below the survey datum'
+                                : 'ABOVE the survey datum — bank, not bottom';
+    if (m.depthFrom)  out.depth_survey = m.depthFrom;
+    if (m.depthDate)  out.depth_surveyed = m.depthDate;
+    if (m.depthAway)  out.depth_measured_m_away = m.depthAway;
+    out.depth_note = 'As the survey published it. The vertical datum is not restated. Not for navigation.';
+  }
+  return out;
+}
+
 function marksGeoJSON(){
   return { type:'FeatureCollection',
     features: state.marks.map(function(m){
       return { type:'Feature',
         geometry:{ type:'Point', coordinates:[Number(m.lon.toFixed(6)), Number(m.lat.toFixed(6))] },
-        properties:{ type:m.type, at:m.at, note:m.note, river:state.riverId } };
+        properties: markProps(m) };
     }) };
 }
 
@@ -3914,7 +3933,7 @@ var RELEASES = [
       'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
       'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
-      'A mark you kept a depth in now shows that depth in the Marks list, not only on the map.',
+      'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export — the figure, which survey it came from and the date that survey was made.',
       'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
       'On opening, the app no longer tells you the network failed while it is still succeeding. Readings are called stored when they are actually old, not because one refresh missed; the landing says which rivers are stored rather than captioning all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
       'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',

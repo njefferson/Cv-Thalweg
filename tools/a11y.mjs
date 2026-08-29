@@ -360,6 +360,30 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      business making it. */
   await page.click('#tab-layers');
   await page.waitForTimeout(400);
+  /* An exported mark kept for its depth carried none of it: the figure, the
+     survey and the date all lived on the device and in nothing that left it,
+     which makes the export a worse copy of the thing it exports. */
+  check(`${name}: an exported mark carries the depth it was kept for`,
+    await page.evaluate(() => {
+      state.marks.push({ id:'x1', type:'hole', lat:38.4, lon:-121.5,
+        at:new Date().toISOString(), note:'', depth:-11.89,
+        depthFrom:'Sacramento River', depthDate:'2023-02-08', depthAway:0 });
+      const props = marksGeoJSON().features.slice(-1)[0].properties;
+      state.marks = state.marks.filter(m => m.id !== 'x1');
+      return props.depth_ft === -11.89 && props.depth_survey === 'Sacramento River' &&
+             props.depth_surveyed === '2023-02-08' && /datum/.test(props.depth_is || '');
+    }),
+    await page.evaluate(() => JSON.stringify(marksGeoJSON().features.slice(-1)[0] || {}).slice(0, 200)));
+  /* And a mark with no depth must not grow empty depth keys. */
+  check(`${name}: a mark with no depth exports no depth keys`,
+    await page.evaluate(() => {
+      state.marks.push({ id:'x2', type:'ramp', lat:38.4, lon:-121.5,
+        at:new Date().toISOString(), note:'' });
+      const props = marksGeoJSON().features.slice(-1)[0].properties;
+      state.marks = state.marks.filter(m => m.id !== 'x2');
+      return !Object.keys(props).some(k => /^depth/.test(k));
+    }));
+
   /* DWR's names are machine names and this list is where a reader chooses
      between twenty of them. The readable name is on the control; the machine
      name stays under it so what is on screen matches the catalogue. */

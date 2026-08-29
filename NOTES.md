@@ -167,6 +167,17 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **The second walk found the export was a worse copy of the thing it
+  exported.** A mark kept from a depth reading is kept FOR the depth, and the
+  GeoJSON carried `type`, `at`, `note` and `river` and none of it — the
+  figure, the survey and the survey date all lived on the device and in
+  nothing that left it. Exercising a control is not the same as reading the
+  screen it sits on: the Marks panel showed the depth correctly the whole
+  time. Two things the same walk did NOT find, having looked: the depth-ramp
+  toggle tracks `aria-pressed` correctly (an earlier reading of `false` was a
+  stale DOM node held across a panel re-render, not a defect), and the NOAA
+  chart control removes itself and says why when its tiles do not return,
+  which is the behaviour it was built for.
 - **The app told a first-time reader the network had failed while every
   request was succeeding, and a walkthrough is what found it.** On a cold
   open the header read "Flow and temperature seconds old — network did not
