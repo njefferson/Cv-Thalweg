@@ -31,7 +31,7 @@ permissions:
 jobs:
   # Everything the hub owns, in one line rather than eight steps that drift.
   hub-gates:
-    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@4a39638710907d1c413d8c14770ef4314a398a91
+    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@e2a5b7cb6b59311bdc7379abd0dea442edc8422f
     with:
       pwa: true
 
