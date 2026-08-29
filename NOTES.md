@@ -167,6 +167,15 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   whichever answers is drawn. Every Mokelumne gauge answers for now and
   publishes nothing over a week, which is a state the panel has to say out
   loud rather than render as a blank space.
+- **The suite had the same defect the app was fixed for: it asserted an
+  absence before the request finished.** `the Mokelumne has no published
+  history and says so` went red on a CI runner and green here, for the third
+  time in this project's short life. `state.trends.mokelumne` was still
+  undefined at the moment of the check, so every field read false and it
+  reported an absence nothing had established. The cause was a fixed
+  `waitForTimeout(22000)` — **a fixed wait is an assertion that the network is
+  as fast as the machine the test was written on.** `waitFor(page, fn, what)`
+  polls for the STATE and says out loud when it gives up.
 - **The basin sweep found four gauges across four rivers, and three of the
   four sweeps returned nothing at all.** Measured 2026-08-29 before demoting
   it: the Sacramento gave up four — above the Delta Cross Channel, below

@@ -27,6 +27,24 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, serviceWorkers: 'block' });
 
 const relayed = { ok: 0, fail: 0, hosts: new Set(), bytes: 0, boot: 0 };
+
+/* Wait for the STATE, not for a number of seconds.
+ *
+ * A fixed wait is an assertion that the network is as fast as the machine it
+ * was written on. `the Mokelumne has no published history and says so` went
+ * red on a runner for exactly that: state.trends.mokelumne was still
+ * undefined, every field read false, and the check reported an absence that
+ * had not been established — which is the same defect this app was fixed for
+ * twice over, in the suite that checks it. */
+async function waitFor(page, fn, what, ms = 45000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (await page.evaluate(fn)) return true;
+    await page.waitForTimeout(500);
+  }
+  console.log('        (gave up waiting for ' + what + ' after ' + (ms / 1000) + 's)');
+  return false;
+}
 await ctx.route(url => !url.hostname.startsWith('127.0.0.1') && url.hostname !== 'localhost',
   async route => {
     const req = route.request();
@@ -184,7 +202,8 @@ check('the Feather ribbon now plots its gauges',
 /* The American is the one river where both lines come from the same gauge,
    which makes it the case where a mistake in site selection would not show. */
 await page.selectOption('#riverpick', 'american');
-await page.waitForTimeout(22000);
+await waitFor(page, () => !!state.trends.american, 'the American trend to resolve');
+await page.waitForTimeout(1500);
 /* The layer tests above left the Layers panel showing, and a hidden panel
    has no width: the lines were drawn at their fallback size and measured at
    zero. They are redrawn when the Water tab is shown, which is what a reader
@@ -230,7 +249,8 @@ check('the accessible name carries the same sentence',
    history at all, though it reports one right now. Asking one gauge left
    that river with a flow line and the words "no temperature history" on it. */
 await page.selectOption('#riverpick', 'sacramento');
-await page.waitForTimeout(22000);
+await waitFor(page, () => !!state.trends.sacramento, 'the Sacramento trend to resolve');
+await page.waitForTimeout(1500);
 const sac = await page.evaluate(() => {
   const t = state.trends.sacramento;
   return { flowSite: t && t.flow && t.flow.site, tempSite: t && t.temp && t.temp.site,
@@ -244,7 +264,10 @@ check('and finds a temperature history at a different gauge',
 /* Every Mokelumne gauge answers for right now and publishes no history at
    all. An absent line has to be a sentence, not a blank space. */
 await page.selectOption('#riverpick', 'mokelumne');
-await page.waitForTimeout(22000);
+const mokReady = await waitFor(page, () => !!state.trends.mokelumne,
+  'the Mokelumne trend to resolve');
+check('the Mokelumne trend request finished at all', mokReady);
+await page.waitForTimeout(1500);
 const mok = await page.evaluate(() => {
   const t = state.trends.mokelumne;
   return { flow: !!(t && t.flow), temp: !!(t && t.temp),
