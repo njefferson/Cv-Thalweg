@@ -237,7 +237,7 @@ check('the declared station still has its NOAA name and position',
 /* And asking for the others is a deliberate act that then works. */
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('#panel-water button')]
-    .find(x => /Look for other stations/.test(x.textContent));
+    .find(x => /Look for other tide stations/.test(x.textContent));
   if (b) b.click();
 });
 await page.waitForTimeout(2500);
@@ -480,6 +480,22 @@ for (const [where, place] of [
   const r = await tapAndMeasure(place);
   check(`a pin ${where} shows its whole label`, r.open && r.inside, JSON.stringify(r));
 }
+/* A STATION IS A PLACE AND BELONGS ON THE MAP. They were never drawn — not the
+   ones the discovery button finds, and not even the declared one the tide is
+   being read from — so the picker was a list of names with no way to find out
+   where any of them is. And the gauge must still win the tap where the two sit
+   at the same place, which Rio Vista does. */
+check('tide stations are drawn on the map',
+  await page.evaluate(() => state.tideLayer && state.tideLayer.getLayers().length > 0),
+  'tide markers: ' + await page.evaluate(() => state.tideLayer ? state.tideLayer.getLayers().length : -1));
+check('the one being read is drawn differently from the rest',
+  await page.evaluate(() => {
+    const t = state.tides[state.riverId];
+    const live = state.tideLayer.getLayers()
+      .filter(m => Math.abs(m.options.radius - 8) < 0.01);
+    return !!t && live.length === 1;
+  }));
+
 check('the label carries the reading, not just the name',
   /cfs/i.test(await page.evaluate(() => {
     const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : ''; })),

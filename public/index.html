@@ -476,7 +476,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.2.1';
+var VERSION = '0.3.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -928,6 +928,7 @@ var state = {
   weirs:  {},             /* riverId -> { at, over, quiet, unknown } */
   marks:  [],             /* marks for the selected river */
   markLayer: null,
+  tideLayer: null,
   soundingLayer: null,
   soundingNote: '',
   ramp: false,            /* the depth ramp, off until asked for */
@@ -1392,6 +1393,20 @@ function nearbyTideStations(river){
       if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) return;
       list.push({ id:String(s.id), name:s.name, lat:lat, lon:lon, status:PROV.FOUND });
     });
+    /* RANKED AND CAPPED HERE, not only where the picker is drawn.
+       A river box is a RECTANGLE, and the Sacramento's runs from San Pablo
+       Bay to Redding — so "in the box" catches most of the estuary. The
+       picker already kept the nearest ten, but everything else was still
+       stored and, worse, `discoverTideStations` then asked NOAA for the
+       metadata of EVERY id it had kept. The cost of the button was the
+       number of stations in the rectangle rather than the number anybody
+       would ever look at. */
+    var c = river.center;
+    list.sort(function(x, y){
+      return metresBetween(c[0], c[1], x.lat, x.lon) -
+             metresBetween(c[0], c[1], y.lat, y.lon);
+    });
+    list = list.slice(0, 12);
     sput(river.id, 'tidestations', { at:Date.now(), list:list });
     return list;
   }, function(e){
@@ -2081,8 +2096,18 @@ function initMap(){
   state.map = m;
   setBasemap(sget('_shared','basemap') || 'imagery');
 
-  state.markLayer = L.layerGroup().addTo(m);
+  /* A PANE, NOT AN ADD ORDER. A tide station sits on top of the gauge at the
+     same place — Rio Vista has both — and whichever is drawn last swallows the
+     tap. Adding the layer group first is not enough: every vector shares one
+     pane, and this layer is REDRAWN whenever the tide changes, so its paths
+     land after the gauges' again on the next refresh. A pane with its own
+     z-index is the only version of this that stays true.
+     A station is context and a gauge is a reading, so the reading wins the tap. */
+  m.createPane('tidepane');
+  m.getPane('tidepane').style.zIndex = 380;   /* overlayPane is 400 */
+  state.tideLayer = L.layerGroup().addTo(m);
   state.gaugeLayer = L.layerGroup().addTo(m);
+  state.markLayer = L.layerGroup().addTo(m);
   state.soundingLayer = L.layerGroup().addTo(m);
 
   /* A tap used to drop a mark, silently, so exploring the map littered it.
@@ -2419,7 +2444,7 @@ function renderWater(){
           state.swept[river.id] = true;
           loadGauges(river).then(function(payload){
             state.gauges[river.id] = payload;
-            renderWater(); drawRibbon(); drawGaugeMarkers(); updateStaleness();
+            renderWater(); drawRibbon(); drawGaugeMarkers(); drawTideMarkers(); updateStaleness();
             announce('Sweep finished.');
           }, function(){
             swBtn.disabled = false;
@@ -2532,7 +2557,7 @@ function tideSection(river){
      result is kept and the question is not asked again. */
   if (river.tideDiscover && !sget(river.id,'tidestations')){
     var moreRow = el('div',{class:'rowline'});
-    var moreBtn = el('button',{type:'button',text:'Look for other stations near here'});
+    var moreBtn = el('button',{type:'button',text:'Look for other tide stations on this river'});
     moreBtn.addEventListener('click', function(){
       moreBtn.disabled = true;
       moreBtn.textContent = 'Asking NOAA — this one is a big file…';
@@ -2541,13 +2566,13 @@ function tideSection(river){
         announce('Nearby prediction stations loaded.');
       }, function(e){
         moreBtn.disabled = false;
-        moreBtn.textContent = 'Look for other stations near here';
+        moreBtn.textContent = 'Look for other tide stations on this river';
         announce('NOAA did not answer: ' + (e && e.message || e));
       });
     });
     moreRow.appendChild(moreBtn);
     moreRow.appendChild(el('span',{class:'note',
-      text:'NOAA publishes its station list as one two-megabyte file and will not filter it, so this is asked for on purpose rather than on every visit. It is kept afterwards.'}));
+      text:'NOAA publishes its station list as one two-megabyte file and will not filter it, so this is asked for on purpose rather than on every visit. What comes back is everything inside this river\u2019s bounding box \u2014 a rectangle, not a radius, and on the Sacramento it reaches from the bay to Redding \u2014 so the nearest twelve are kept and the rest discarded. They are drawn on the map with the one you are using marked.'}));
     box.appendChild(moreRow);
   }
 
@@ -2630,6 +2655,9 @@ function switchTideStation(river, id){
     if (t) t.stations = stations;
     state.tides[river.id] = t;
     renderWater();
+    /* The map has to agree about which one is being read, or the marker drawn
+       as "the one you are using" is the one you just stopped using. */
+    drawTideMarkers();
   });
 }
 
@@ -3508,7 +3536,7 @@ function refreshData(){
     }
     loadGauges(river).then(function(payload){
       state.gauges[river.id] = payload;
-      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers();
+      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers(); drawTideMarkers();
       /* The trend goes out after the readings, not beside them: which gauge
          to ask for a week of flow is decided by which gauge answered for
          right now, and on All rivers nothing asks at all — four rivers of
@@ -3576,7 +3604,53 @@ function loadTideFor(river){
       t.stations = stations;
       state.tides[river.id] = t;
       renderWater();
+      drawTideMarkers();
     });
+  });
+}
+
+/* TIDE STATIONS ON THE MAP.
+ *
+ * They were never drawn — not the ones the discovery button finds, and not
+ * even the declared one the app is reading the tide FROM. So the picker was a
+ * list of names with no way to find out where any of them is, and choosing
+ * between them meant knowing the estuary by heart. A station is a place; a
+ * place belongs on the map.
+ *
+ * The one in use is drawn differently rather than only labelled, because the
+ * question being asked of this layer is "which of these am I reading" and that
+ * should be answerable without opening anything.
+ */
+function drawTideMarkers(){
+  if (!state.tideLayer) return;
+  state.tideLayer.clearLayers();
+  if (!state.riverId) return;
+  var river = byId(state.riverId);
+  var t = state.tides[river.id];
+  if (!t || !t.stations) return;
+  t.stations.forEach(function(s){
+    if (!isNum(s.lat) || !isNum(s.lon)) return;
+    var live = s.id === t.station;
+    L.circleMarker([s.lat, s.lon], {
+      pane: 'tidepane',
+      radius: live ? 8 : 5,
+      weight: live ? 3 : 1,
+      color: live ? '#7BD5D9' : '#3C6E6B',
+      fillColor: '#0D1A19',
+      fillOpacity: live ? 1 : .8,
+    }).bindPopup(labelNode(
+      s.name || s.id,
+      /* NO READING ROW. A tide station is a place, not a measurement — the
+         numbers live in the tide panel. The first version of this put prose
+         in the value slot, which is for a figure and its unit, and rendered
+         the name and the description with no space between them. */
+      [],
+      (live ? 'Reading the tide here. ' : 'Tide station. ') + 'NOAA ' + s.id +
+        (river.center
+          ? ' · ' + Math.round(metresBetween(river.center[0], river.center[1], s.lat, s.lon) / 1000) +
+            ' km from the middle of this reach'
+          : '')
+    ), LABEL).addTo(state.tideLayer);
   });
 }
 
@@ -4371,6 +4445,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.3.0', date:'2026-08-30', changes:[
+      'Tide stations are on the map now. They never were \u2014 not the ones the \u201clook for other stations\u201d button finds, and not even the one the app was reading the tide from \u2014 so the picker was a list of names with no way to find out where any of them is. The one being read is drawn larger and brighter than the rest, so which one you are on is answerable without opening anything.',
+      'That button asked NOAA for everything inside the river\u2019s bounding box, which is a rectangle rather than a radius \u2014 on the Sacramento it reaches from San Pablo Bay to Redding. It kept the nearest twelve now instead of all of them, which also means it stops asking NOAA for the details of stations you were never going to be offered. It is renamed to say what it does.',
+      'Where a tide station and a river gauge sit at the same place \u2014 Rio Vista has both \u2014 tapping now opens the gauge, not the station. The reading wins over the label.',
+  ] },
   { v:'0.2.1', date:'2026-08-30', changes:[
       'The four rivers now lay out sensibly at every size they get read at, not just on a phone and a big desktop. On an iPad held upright they sit two by two \u2014 they used to wrap three across with the fourth river alone on a row of its own.',
       'The tabs stopped stretching. On anything wider than a phone the four words were spread a hand-span apart and had stopped reading as one control.',
