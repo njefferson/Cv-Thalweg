@@ -326,9 +326,26 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .leaflet-popup-content .pop-vals{ display:flex; gap:.7rem; flex-wrap:wrap; margin:.15rem 0 }
 .leaflet-popup-content .pop-sub{ color:var(--mute); font-size:.72rem; display:block; margin-top:.15rem }
 .legend{background:rgba(13,26,25,.9); border:1px solid var(--teal-line); padding:.4rem .5rem;
-  font-size:.7rem; color:var(--ink); line-height:1.35}
+  font-size:.7rem; color:var(--ink); line-height:1.35;
+  /* A KEY IS INFORMATION, NOT A TARGET. Sitting on the map it covers pins, and
+     a pin under it could not be tapped — which a check for a marker at the map
+     edge caught immediately. Its swatches and words let every tap through to
+     the map beneath; only its own two buttons take one. */
+  pointer-events:none; max-width:min(15rem,52vw)}
+.legend button{pointer-events:auto}
 .legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
   text-transform:uppercase; color:var(--mute); font-size:.62rem}
+.legend .keyrow{display:flex; align-items:center; gap:.4rem; margin:.15rem 0}
+.legend .keyrow span{white-space:nowrap}
+/* The swatch is drawn to the marker's own geometry — same diameter, same ring
+   thickness, same two colours — because a key whose dot is merely dot-shaped
+   teaches the reader a symbol the map does not use. */
+.legend i.sw{display:inline-block; flex:0 0 auto; border-radius:50%; box-sizing:border-box}
+.legend .keyhead{display:flex; align-items:center; gap:.5rem; justify-content:space-between}
+.legend .keyhead button{border:0; padding:0 .2rem; min-height:22px; color:var(--mute);
+  background:none; font-size:.7rem; line-height:1}
+.legend .keyhead button:hover{background:#16302e; color:var(--ink)}
+#keyopen{min-height:32px; padding:.2rem .5rem}
 
 /* The locate control. A finger on a riverbank is the hand this app is read
    with, so it is 44px through on both axes rather than the 30px Leaflet's own
@@ -517,7 +534,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.6.0';
+var VERSION = '0.7.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2210,11 +2227,19 @@ function initMap(){
     if (state.soundingActive) refreshSoundings();
   });
 
-  var legend = L.control({ position:'bottomleft' });
+  var legend = L.control({ position:'topright' });
   legend.onAdd = function(){
     var d = L.DomUtil.create('div', 'legend');
     d.id = 'maplegend';
     d.setAttribute('aria-live','polite');
+    /* THE SAME DEFECT THE LOCATE CONTROL HAD, and it arrived the moment this
+       stopped being a passive swatch and grew a Hide button: a control sits ON
+       the map, so a press on it is also a press on the map, and a press on the
+       map asks the survey how deep it is there. Every interactive control
+       added to this map needs this line — the tests caught it here by seeing a
+       depth popup open over a legend button. */
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.disableScrollPropagation(d);
     return d;
   };
   legend.addTo(m);
@@ -2373,6 +2398,8 @@ function drawHere(recentre){
      reader two hundred kilometres away is exactly what they asked for and
      leaves them looking at a rectangle with none of this app's river in it,
      with nothing saying why. */
+  updateLegend();
+
   var msg = 'You are on the map' +
     (acc !== null ? ', to about ' + kmText(acc) : '') +
     (near ? '. Nearest is ' + near.name + ', ' + kmText(near.d) + ' away' : '') + '.';
@@ -3266,19 +3293,102 @@ function depthColour(v, lo, hi){
   return mixHex('#0B3A4A', '#7BD5D9', t);
 }
 
+/* THE MAP HAD NO KEY. Gauges, tide stations, marks and your own position are
+   four different dots and the only way to find out which was which was to tap
+   one — so a reader looking at a screen full of circles could not tell what
+   any of them meant, and the two tide-station sizes (the one being read, and
+   the rest) looked deliberate without saying why.
+   It lists only what is actually drawn right now, so it can never name a
+   symbol that is not on the map. */
+function swatch(radius, weight, stroke, fill){
+  var d = radius * 2;
+  return el('i',{class:'sw',
+    style:'width:' + d + 'px;height:' + d + 'px;border:' + weight + 'px solid ' +
+          stroke + ';background:' + fill});
+}
+function keyRow(sw, text){
+  var r = el('div',{class:'keyrow'});
+  r.appendChild(sw);
+  r.appendChild(el('span',{text:text}));
+  return r;
+}
+/* Open by default where there is room, a labelled chip where there is not — a
+   key nobody finds is the same as no key, and "Key" is a great deal easier to
+   find than tapping dots until one explains itself. A stored choice wins over
+   both. */
+function legendCollapsed(){
+  var v = null;
+  try { v = Store.s.getItem('thalweg:_shared:legend'); } catch(e){}
+  if (v === 'shut') return true;
+  if (v === 'open') return false;
+  return narrowMQ.matches;
+}
 function updateLegend(){
   var d = document.getElementById('maplegend');
   if (!d) return;
-  if (!state.soundingActive || !state.soundingRange){ d.innerHTML = ''; return; }
   d.innerHTML = '';
-  d.appendChild(el('b',{text:'Sounding value'}));
-  var bar = el('div',{style:'height:8px;width:120px;background:linear-gradient(90deg,#0B3A4A,#7BD5D9);border:1px solid #2E7C76'});
-  d.appendChild(bar);
-  d.appendChild(el('div',{text:fmt(state.soundingRange[0],1)+'  to  '+fmt(state.soundingRange[1],1)}));
-  /* The full sentence lives in the Layers panel; over the map it only has
-     to say that what you are looking at is not all of it. */
-  if (state.soundingTruncated)
-    d.appendChild(el('div',{style:'color:#F2A65A',text:'truncated — zoom in'}));
+
+  var rows = [];
+  if (state.gaugeLayer && state.gaugeLayer.getLayers().length)
+    rows.push(keyRow(swatch(7, 2, '#0A1214', tempColour(60)),
+      'River gauge — fill is water temperature'));
+  if (state.tideLayer && state.tideLayer.getLayers().length){
+    rows.push(keyRow(swatch(8, 3, '#7BD5D9', '#0D1A19'),
+      'Tide station being read here'));
+    if (state.tideLayer.getLayers().length > 1)
+      rows.push(keyRow(swatch(5, 1, '#3C6E6B', '#0D1A19'),
+        'Other tide station — tap to switch'));
+  }
+  if (state.markLayer && state.markLayer.getLayers().length)
+    MARK_TYPES.forEach(function(t){
+      var any = (state.marks || []).some(function(m){ return m.type === t.id; });
+      if (any) rows.push(keyRow(swatch(6, 2, t.colour, '#0D1A19'), 'Your mark: ' + t.label.toLowerCase()));
+    });
+  if (state.hereLayer && state.hereLayer.getLayers().length)
+    rows.push(keyRow(swatch(7, 3, '#E76F9F', '#0D1A19'),
+      'You — the ring is how sure your device is'));
+
+  var showSound = state.soundingActive && state.soundingRange;
+  if (!rows.length && !showSound) return;
+
+  /* Collapsible, and it remembers. On a phone the map is small and a key that
+     covers a quarter of it is its own defect — but it opens by default,
+     because a key nobody finds is the same as no key, which is what this
+     was. */
+  if (legendCollapsed()){
+    var open = el('button',{type:'button',id:'keyopen',text:'Key'});
+    open.addEventListener('click', function(){
+      try { Store.s.setItem('thalweg:_shared:legend','open'); } catch(e){}
+      updateLegend();
+      var b = document.querySelector('#maplegend .keyhead button');
+      if (b) b.focus();
+    });
+    d.appendChild(open);
+    return;
+  }
+
+  var head = el('div',{class:'keyhead'});
+  head.appendChild(el('b',{text:'What the dots are'}));
+  var shut = el('button',{type:'button','aria-label':'Hide the key',text:'Hide'});
+  shut.addEventListener('click', function(){
+    try { Store.s.setItem('thalweg:_shared:legend','shut'); } catch(e){}
+    updateLegend();
+    var b = document.getElementById('keyopen');
+    if (b) b.focus();
+  });
+  head.appendChild(shut);
+  d.appendChild(head);
+  rows.forEach(function(r){ d.appendChild(r); });
+
+  if (showSound){
+    d.appendChild(el('b',{style:'margin-top:.35rem',text:'Sounding value'}));
+    d.appendChild(el('div',{style:'height:8px;width:120px;background:linear-gradient(90deg,#0B3A4A,#7BD5D9);border:1px solid #2E7C76'}));
+    d.appendChild(el('div',{text:fmt(state.soundingRange[0],1)+'  to  '+fmt(state.soundingRange[1],1)}));
+    /* The full sentence lives in the Layers panel; over the map it only has
+       to say that what you are looking at is not all of it. */
+    if (state.soundingTruncated)
+      d.appendChild(el('div',{style:'color:#F2A65A',text:'truncated — zoom in'}));
+  }
 }
 
 function toggleChart(btn){
@@ -3363,6 +3473,7 @@ function drawMarks(){
       .bindPopup(labelNode(def.label, vals, sub), LABEL)
       .addTo(state.markLayer);
   });
+  updateLegend();
 }
 function renderMarks(){
   var p = $('#panel-marks'); p.innerHTML = '';
@@ -3993,6 +4104,7 @@ function drawTideMarkers(){
           : '')
     ), LABEL).addTo(state.tideLayer);
   });
+  updateLegend();
 }
 
 function drawGaugeMarkers(){
@@ -4017,6 +4129,7 @@ function drawGaugeMarkers(){
       ), LABEL).addTo(state.gaugeLayer);
     });
   });
+  updateLegend();
 }
 
 /* =====================================================================
@@ -4786,6 +4899,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.7.0', date:'2026-08-30', changes:[
+      'The map has a key now. Gauges, tide stations, your own marks and your own position are four different dots, and the only way to find out which was which was to tap one \u2014 and the two sizes of tide station looked deliberate without ever saying why. The key lists only what is actually on the map at that moment, so it can never name something that is not there. On a phone it starts as a small Key button, because the map is small; on anything wider it is open.',
+      'The key never blocks the map. You can tap a pin that is sitting underneath it, which the first version of it stopped you doing.',
+  ] },
   { v:'0.6.0', date:'2026-08-30', changes:[
       'There is a Home button now. It takes you back to the four-river page the app opens on, at the top, in one press. You could always get there through the River menu, but a menu you have to open and then find the right line in is not the same as a way back.',
       'When your readings have gone old, the message now tells you what you can do about it. It says when the app last tried, that it tries again by itself every ten minutes and every time you come back to it, and that there is no waiting period stopping you. And there is a Try now button, which tells you whether anything new arrived or whether you are looking at the same readings.',

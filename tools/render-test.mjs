@@ -725,6 +725,59 @@ check('nothing on that screen is written at the developer',
   news.items.join(' ').slice(0, 200));
 await page.evaluate(() => document.getElementById('whatsnew').close());
 
+/* --- the key ------------------------------------------------------------
+   Gauges, tide stations, marks and your own position are four different dots,
+   and the only way to find out which was which was to tap one. The two
+   tide-station sizes in particular looked deliberate without saying why. */
+const key = await page.evaluate(() => {
+  const d = document.getElementById('maplegend');
+  const rows = [...d.querySelectorAll('.keyrow')].map(r => r.textContent.trim());
+  return { rows, swatches: d.querySelectorAll('.keyrow i.sw').length,
+           head: !!d.querySelector('.keyhead') };
+});
+check('the map has a key', key.head && key.rows.length > 0, JSON.stringify(key));
+check('it says what a gauge dot is',
+  key.rows.some(r => /gauge/i.test(r)), key.rows.join(' | '));
+check('it distinguishes the tide station being read from the others',
+  key.rows.some(r => /being read/i.test(r)) && key.rows.some(r => /Other tide station/i.test(r)),
+  key.rows.join(' | '));
+check('it says what your own position looks like',
+  key.rows.some(r => /^You\b/.test(r)), key.rows.join(' | '));
+/* A key whose dot is merely dot-shaped teaches a symbol the map does not use. */
+check('every entry carries a swatch drawn to the marker geometry',
+  key.swatches === key.rows.length, key.swatches + ' swatches for ' + key.rows.length + ' rows');
+/* IT MUST NEVER NAME A SYMBOL THAT IS NOT ON THE MAP. */
+const honest = await page.evaluate(() => {
+  const marks = state.markLayer.getLayers().length;
+  const rows = [...document.querySelectorAll('#maplegend .keyrow')].map(r => r.textContent);
+  return { marks, claimsMarks: rows.some(r => /Your mark/.test(r)) };
+});
+check('it does not name a mark type when no mark is drawn',
+  honest.marks > 0 || !honest.claimsMarks, JSON.stringify(honest));
+/* A KEY IS INFORMATION, NOT A TARGET. Sitting on the map it covers pins, and
+   the first version made every pin beneath it untappable — caught by the
+   marker-at-the-edge check, which simply stopped opening. This pans a gauge
+   under the key and taps it there. */
+const under = await tapAndMeasure(() => {
+  const m = state.gaugeLayer.getLayers()[0];
+  const d = document.getElementById('maplegend').getBoundingClientRect();
+  const map = document.getElementById('map').getBoundingClientRect();
+  const p = state.map.latLngToContainerPoint(m.getLatLng());
+  state.map.panBy([p.x - (d.left - map.left + d.width / 2),
+                   p.y - (d.top - map.top + d.height / 2)], { animate: false });
+});
+check('a pin underneath the key can still be tapped',
+  under.open, JSON.stringify(under));
+
+/* On a phone the map is small, so it can be put away — and it comes back. */
+await page.evaluate(() => document.querySelector('#maplegend .keyhead button').click());
+check('the key can be hidden, leaving a way back to it',
+  await page.evaluate(() => !!document.getElementById('keyopen') &&
+    !document.querySelector('#maplegend .keyrow')));
+await page.evaluate(() => document.getElementById('keyopen').click());
+check('and reopening it brings every entry back',
+  await page.evaluate(() => document.querySelectorAll('#maplegend .keyrow').length) === key.rows.length);
+
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));
 console.log(`\n${pass} passed, ${fail} failed.`);
