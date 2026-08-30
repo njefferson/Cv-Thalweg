@@ -137,6 +137,31 @@ await ctx.route('**/Bathy_TEST_Elsewhere/ImageServer?f=json', r =>
   json(r, imgMeta('Bathy_TEST_Elsewhere', 10.0, 50.0, 10.2, 50.2)));
 await ctx.route('**/MapServer/layers?f=json', r => json(r, SBM_LAYERS));
 
+/* getSamples along a POLYLINE — what the profile is built on. A channel shape
+   with a deep middle and shallow ends, and a real gap in it, because a survey
+   that measured nothing at a spot must leave a hole rather than a reading at
+   the surface. */
+let profileCalls = 0;
+await ctx.route('**/Bathy_TEST_SacramentoRvr/ImageServer/getSamples**', r => {
+  const u = new URL(r.request().url());
+  const g = JSON.parse(decodeURIComponent(u.searchParams.get('geometry')));
+  if (!g.paths) return r.fallback();          /* the envelope form, used elsewhere */
+  profileCalls++;
+  const [a0, b0] = [g.paths[0][0], g.paths[0][g.paths[0].length - 1]];
+  const n = Number(u.searchParams.get('sampleCount')) || 60;
+  const samples = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const lon = a0[0] + (b0[0] - a0[0]) * t;
+    const lat = a0[1] + (b0[1] - a0[1]) * t;
+    /* Deepest in the middle: a channel, not a ramp. */
+    const depth = -(4 + 26 * Math.sin(Math.PI * t));
+    const hole = t > 0.42 && t < 0.5;         /* weed, dropped by the sounder */
+    samples.push({ location: { x: lon, y: lat }, value: hole ? 'NoData' : depth.toFixed(2) });
+  }
+  return json(r, { samples });
+});
+
 /* The weirs. Nothing has been over its crest all summer, so the state that
    MATTERS cannot be verified against the live file — it is verified here
    instead: Tisdale over by 1.4 ft, Fremont blank (quiet), Colusa a value the
@@ -274,12 +299,15 @@ check('the button asks NOAA once and surfaces only what is new',
    nothing said what it had found, whether anything was added, or whether this
    was permanent or had to be done again every visit. */
 const disc = await page.evaluate(() => {
+  const fold = document.querySelector('#panel-water details.foldbox');
   const btn = [...document.querySelectorAll('#panel-water button')]
     .find(x => /Check NOAA/.test(x.textContent));
   const panel = document.getElementById('panel-water').textContent;
   return { still: !!btn, label: btn ? btn.textContent.trim() : '',
+           fold: !!fold, shut: fold ? !fold.open : null,
+           summary: fold ? fold.querySelector('summary').textContent.trim() : '',
            said: /Last checked/.test(panel),
-           permanence: /you do not need to (do this again|check again)/.test(panel),
+           permanence: /you do not need to (do this again|check again)|no need to check again/.test(panel),
            found: /NOAA had added/.test(panel) };
 });
 check('the stations button is still there after it has been used',
@@ -290,6 +318,42 @@ check('it says whether the result is kept or has to be done again',
   disc.permanence, JSON.stringify(disc));
 check('and it offers to check again rather than pretending it is finished',
   /again/i.test(disc.label), disc.label);
+/* IT WAS PUSHING THE TIDE OFF THE SCREEN — four sentences about NOAA's file
+   sizes between the station picker and the first high or low. Folded shut, and
+   its summary has to say what is inside without being opened. */
+check('the NOAA block is folded shut rather than filling the panel',
+  disc.fold && disc.shut === true, JSON.stringify(disc));
+check('its summary says what is inside without opening it',
+  /added since this build/i.test(disc.summary) && /found|none|not asked/i.test(disc.summary),
+  disc.summary);
+/* AND IT MUST NOT COUNT THE BAKED STATIONS AS NEW. Before the bake this button
+   stored every station in the river's box; read back afterwards under the new
+   question it reported forty-four "added since this build", which is the number
+   that SHIP with it. A stored answer whose meaning changed is not stale, it is
+   wrong. */
+const stamped = await page.evaluate(() => {
+  const raw = Object.keys(localStorage).filter(k => /tidestations/.test(k))
+    .map(k => JSON.parse(localStorage.getItem(k)));
+  return { any: raw.length, stamped: raw.every(r => typeof r.against === 'string'),
+           against: raw[0] && raw[0].against,
+           baked: (typeof TIDE_STATIONS_META === 'object' && TIDE_STATIONS_META.fetchedAt) || null };
+});
+check('a stored answer is stamped with the build it was measured against',
+  stamped.any > 0 && stamped.stamped && stamped.against === stamped.baked,
+  JSON.stringify(stamped));
+const foreign = await page.evaluate(() => {
+  const k = Object.keys(localStorage).find(x => /sacramento:tidestations/.test(x));
+  const was = localStorage.getItem(k);
+  const o = JSON.parse(was); o.against = 'an-older-build'; o.list = new Array(44).fill(0)
+    .map((_, i) => ({ id: 'x' + i, name: 'Baked ' + i, lat: 38.1, lon: -121.6 }));
+  localStorage.setItem(k, JSON.stringify(o));
+  renderWater();
+  const txt = document.getElementById('panel-water').textContent;
+  localStorage.setItem(k, was);
+  return { claims44: /added 44 station/.test(txt), saysNotAsked: /not asked/i.test(txt) };
+});
+check('an answer from an older build is not reported as new stations',
+  !foreign.claims44 && foreign.saysNotAsked, JSON.stringify(foreign));
 
 /* --- readings that have gone old ---------------------------------------
    The strip said they were old and nothing else: not when it last tried, not
@@ -816,6 +880,89 @@ check('the key can be hidden, leaving a way back to it',
 await page.evaluate(() => document.getElementById('keyopen').click());
 check('and reopening it brings every entry back',
   await page.evaluate(() => document.querySelectorAll('#maplegend .keyrow').length) === key.rows.length);
+
+/* --- the profile --------------------------------------------------------
+   The app is named after the deepest line in a channel and could not draw one.
+   A point says how deep it is where you stand; a line says where the channel
+   runs and which side of it you are on. */
+await page.click('#tab-layers');
+await page.waitForTimeout(1200);
+check('the Layers panel offers a profile, and says whose line it is',
+  await page.evaluate(() => {
+    const t = document.getElementById('panel-layers').textContent;
+    return /Depth along a line/.test(t) && /will not invent one/.test(t);
+  }),
+  (await page.textContent('#panel-layers')).slice(0, 200));
+/* The pointerless route: two taps on a map is a finger's job, and the same
+   question has to be askable without one. */
+/* Over water the survey actually covers. A line drawn across the whole basin
+   at zoom 9 leaves the surveyed reach entirely, and "no published survey covers
+   this line" would be the correct answer to the wrong question. */
+await page.evaluate(() => state.map.setView([38.45, -121.60], 13));
+await page.waitForTimeout(600);
+const before = profileCalls;
+await page.click('#panel-layers button:text-is("Profile across the map, bank to bank")');
+await page.waitForTimeout(3000);
+
+const prof = await page.evaluate(() => {
+  const svg = document.getElementById('profsvg');
+  const t = svg.querySelector('title');
+  const p = state.profile || {};
+  return {
+    shown: !document.getElementById('profile').hidden,
+    paths: svg.querySelectorAll('path').length,
+    note: document.getElementById('profnote').textContent,
+    title: t ? t.textContent : null,
+    none: p.none || null,
+    deepest: p.deepest,
+    bands: p.bands ? p.bands.length : 0,
+    onMap: state.profLayer.getLayers().length
+  };
+});
+check('the line found a survey to ask', !prof.none, JSON.stringify(prof).slice(0, 240));
+check('a profile is drawn', prof.shown && prof.paths > 0, JSON.stringify(prof));
+check('one request per survey, not one per sample',
+  profileCalls - before === 1, 'calls: ' + (profileCalls - before));
+check('the line it profiled is on the map too', prof.onMap >= 2, JSON.stringify(prof));
+check('it reports the deepest sounding it actually found',
+  Math.abs(Math.abs(prof.deepest) - 30) < 1.5, String(prof.deepest));
+check('the sentence names the survey and the depth',
+  /deepest published sounding is/.test(prof.note) &&
+  /TEST Sacramento Rvr/.test(prof.note),
+  prof.note.slice(0, 220));
+/* AND IT SAYS WHEN YOU ARE NOT ON IT. A profile with no marker and no sentence
+   leaves a reader assuming the line is where they are standing. */
+check('it says plainly when you are nowhere near the line you drew',
+  /you are not marked on it/.test(prof.note), prof.note.slice(0, 240));
+/* THE PICTURE IS STRETCHED VERTICALLY AND MUST SAY SO. A mile of river against
+   thirty feet of water drawn true to scale is a flat line; the shape is what
+   this is for, and a reader must not read a slope off it. */
+check('it says the vertical scale is stretched',
+  /vertical scale is stretched/.test(prof.note), prof.note.slice(-160));
+check('the drawing carries the same sentence for a screen reader',
+  prof.title === prof.note, prof.title.slice(0, 100));
+/* A GAP IS NOT A BOTTOM. Weed defeats the sounder and DWR drops those cells;
+   a line drawn straight across invents a bed between two places nobody
+   measured, so the run must be broken. */
+check('missing data breaks the line rather than being drawn through',
+  await page.evaluate(() => {
+    const ps = [...document.querySelectorAll('#profsvg path')].filter(p => p.getAttribute('stroke'));
+    return ps.length >= 2;
+  }),
+  await page.evaluate(() => [...document.querySelectorAll('#profsvg path')]
+    .map(p => p.getAttribute('stroke') || 'fill').join(',')));
+/* Zoom is scroll, so a finger already knows how to use it. */
+const w0 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
+await page.click('#profin');
+await page.waitForTimeout(400);
+const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
+check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
+  Math.round(w0) + ' -> ' + Math.round(w1));
+await page.click('#profclear');
+await page.waitForTimeout(400);
+check('clearing it takes the line off the map as well as the drawing',
+  await page.evaluate(() => document.getElementById('profile').hidden &&
+    state.profLayer.getLayers().length === 0));
 
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));

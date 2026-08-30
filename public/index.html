@@ -129,6 +129,22 @@ main{flex:1 1 auto; display:flex; min-height:0}
 #panel-map{flex:1 1 auto; display:flex; min-height:0; min-width:0;
   padding:0!important; overflow:hidden!important}
 #panel-map > #map{flex:1 1 auto; min-width:0}
+#panel-map{flex-direction:column}
+#profile{flex:0 0 auto; border-top:1px solid var(--teal); background:var(--panel-2);
+  display:flex; flex-direction:column; min-height:0}
+.profhead{display:flex; align-items:center; gap:.4rem; padding:.35rem .5rem;
+  border-bottom:1px solid var(--teal)}
+.profhead h2{font-size:.8rem; margin:0; font-weight:600; letter-spacing:.04em}
+.profhead .grow{flex:1 1 auto}
+.profhead button{min-height:34px; min-width:34px; padding:.2rem .5rem; font-size:.8rem}
+/* Scroll IS the pan, so a finger already knows how to use it and no gesture
+   has to be invented. The zoom buttons change how wide the drawing is; the
+   container scrolls it. */
+.profwrap{overflow-x:auto; overflow-y:hidden; flex:1 1 auto; min-height:0}
+#profsvg{display:block; height:100%}
+#profnote{margin:.3rem .5rem .45rem; font-size:.72rem}
+@media (max-width:900px){ #profile{height:44vh; height:44dvh} }
+@media (min-width:901px){ #profile{height:230px} }
 /* All rivers has no map — the map is per-river, and on All it could only
    show ungrounded dots — so neither the panel nor its tab exists there. */
 body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
@@ -357,6 +373,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .installbox{border:1px solid var(--teal-line); background:var(--panel-2);
   border-radius:3px; padding:.6rem .7rem; margin:1rem 0 .2rem}
 .installbox h3{color:var(--cyan); font-size:.9rem; margin:0 0 .3rem}
+/* Shut by default, and it has to LOOK shut-and-openable rather than like a
+   heading somebody forgot to fill in. */
+.foldbox{border:1px solid var(--teal-line); border-radius:3px; margin:.8rem 0 .2rem;
+  background:var(--panel-2)}
+.foldbox > summary{cursor:pointer; padding:.5rem .6rem; min-height:44px;
+  display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; font-size:.82rem}
+.foldbox > summary::marker{color:var(--mute)}
+.foldbox > summary:hover{background:#16302e}
+.foldbox .foldbody{padding:0 .6rem .6rem}
 .legend .keyrow{display:flex; align-items:center; gap:.4rem; margin:.15rem 0}
 .legend .keyrow span{white-space:nowrap}
 /* The swatch is drawn to the marker's own geometry — same diameter, same ring
@@ -488,6 +513,21 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   <div id="panel-map">
     <div id="map" tabindex="0" role="application"
          aria-label="Map. Arrow keys pan, plus and minus zoom. Use the Marks tab to add a mark without a pointer."></div>
+    <!-- The bottom along a line, under the map that drew it, so the shape and
+         the place are on screen together. Hidden until there is a line: an
+         empty axis reads as a river with no bottom. -->
+    <section id="profile" hidden aria-labelledby="proftitle">
+      <div class="profhead">
+        <h2 id="proftitle">Depth along your line</h2>
+        <span class="grow"></span>
+        <button type="button" id="profout" aria-label="Show more of the line">&minus;</button>
+        <button type="button" id="profin" aria-label="Stretch the line out">+</button>
+        <button type="button" id="profclear">Clear</button>
+      </div>
+      <div class="profwrap" id="profwrap"><svg id="profsvg" role="img"
+        aria-labelledby="profsvgtitle"><title id="profsvgtitle"></title></svg></div>
+      <p class="note" id="profnote"></p>
+    </section>
   </div>
   <div id="rail">
     <div role="tablist" aria-label="Panels">
@@ -556,7 +596,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.8.0';
+var VERSION = '0.9.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1474,6 +1514,8 @@ function discoverTideStations(river){
   var known = {};
   bakedStations(river).forEach(function(s){ known[s.id] = s; });
   var extra = sget(river.id, 'tidestations');
+  var bakedAt = (typeof TIDE_STATIONS_META === 'object' && TIDE_STATIONS_META && TIDE_STATIONS_META.fetchedAt) || '';
+  if (extra && extra.against !== bakedAt) extra = null;   /* another build's answer */
   if (extra && extra.list) extra.list.forEach(function(s){
     /* Found by the button, which means NOAA added it after this build. */
     if (isNum(s.lat) && isNum(s.lon)) known[s.id] = {
@@ -1525,7 +1567,13 @@ function nearbyTideStations(river){
              metresBetween(c[0], c[1], y.lat, y.lon);
     });
     fresh = fresh.slice(0, 12);
-    sput(river.id, 'tidestations', { at:Date.now(), list:fresh, inBox:list.length });
+    /* STAMPED WITH THE BAKE IT WAS MEASURED AGAINST. "Added since this build"
+       is only meaningful relative to a particular baked file, and a stored
+       answer that outlives its build is not stale, it is wrong — it was read
+       back after the bake shipped and reported forty-four stations as new when
+       forty-four is the number that ship with the app. */
+    sput(river.id, 'tidestations', { at:Date.now(), list:fresh, inBox:list.length,
+      against:(typeof TIDE_STATIONS_META === 'object' && TIDE_STATIONS_META && TIDE_STATIONS_META.fetchedAt) || '' });
     return fresh;
   }, function(e){
     logNet('CO-OPS station index', COOPS_MD, false, String(e && e.message || e));
@@ -2233,6 +2281,9 @@ function initMap(){
   m.createPane('herepane');
   m.getPane('herepane').style.zIndex = 385;
   state.hereLayer = L.layerGroup().addTo(m);
+  /* The profile line shares that pane: it is the reader's own drawing, like
+     their position, and it must not take a tap from a gauge either. */
+  state.profLayer = L.layerGroup().addTo(m);
 
   state.gaugeLayer = L.layerGroup().addTo(m);
   state.markLayer = L.layerGroup().addTo(m);
@@ -2264,6 +2315,10 @@ function initMap(){
 
   m.on('click', function(e){
     if (e.originalEvent && e.originalEvent.__onControl) return;
+    /* While a line is being drawn the map is answering a different question,
+       and a depth popup opening over the second tap would be the app talking
+       across the reader. */
+    if (state.profArm) return profilePoint(e.latlng.lat, e.latlng.lng);
     showDepthAt(e.latlng.lat, e.latlng.lng);
   });
   m.on('moveend', function(){
@@ -2853,6 +2908,76 @@ function gaugeRow(r){
   return wrap;
 }
 
+
+function discoverBox(river){
+  var d = el('details',{class:'foldbox'});
+  var sum = el('summary',{});
+  var seen = sget(river.id,'tidestations');
+  /* A STORED RESULT BELONGS TO THE BUILD THAT ASKED. Before the stations were
+     baked in, this button stored every station in the river's bounding box —
+     and after the bake shipped, that old list was read back under the new
+     question and reported as "NOAA had added 44 since this version was built".
+     Forty-four is the number of stations that SHIP with it. A stored answer
+     whose meaning changed is not a stale answer, it is a wrong one, so it is
+     stamped with the bake it was measured against and ignored otherwise. */
+  var bakedAt = (typeof TIDE_STATIONS_META === 'object' && TIDE_STATIONS_META && TIDE_STATIONS_META.fetchedAt) || '';
+  var valid = seen && seen.against === bakedAt ? seen : null;
+
+  sum.appendChild(el('b',{text:'Stations NOAA has added since this build'}));
+  sum.appendChild(el('span',{class:'note',
+    text: valid
+      ? (valid.list && valid.list.length
+          ? ' \u2014 ' + valid.list.length + ' found'
+          : ' \u2014 none, last time it was asked')
+      : ' \u2014 not asked yet'}));
+  d.appendChild(sum);
+
+  var body = el('div',{class:'foldbody'});
+  body.appendChild(el('p',{class:'note',style:'margin-top:0',
+    text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks the one thing that file cannot answer: whether NOAA has ADDED any since. It costs a two-megabyte download, because NOAA publishes its list as one file and will not filter it, which is why it is a button rather than something that happens to you. Usually the answer is none.'}));
+
+  var said = el('p',{class:'note'});
+  function saidText(res){
+    if (!res) return 'Not asked on this build yet.';
+    var t = 'Last checked ' + clockLocal(new Date(res.at).toISOString()) + ', ' +
+            dayLocal(new Date(res.at).toISOString()) + '. ';
+    return t + ((res.list && res.list.length)
+      ? 'NOAA had added ' + res.list.length + ' station(s) since this version was built: ' +
+        res.list.map(function(x){ return x.name || x.id; }).join(', ') +
+        '. They are in the list above and they stay there \u2014 you do not need to do this again.'
+      : 'NOAA had added none since this version was built. That is the usual answer, and it is kept, so there is no need to check again unless you want to.');
+  }
+  said.textContent = saidText(valid);
+
+  var row = el('div',{class:'rowline'});
+  var btn = el('button',{type:'button',
+    text: valid ? 'Check NOAA again' : 'Check NOAA for stations added since this build'});
+  btn.addEventListener('click', function(){
+    btn.disabled = true;
+    btn.textContent = 'Asking NOAA \u2014 this one is a big file\u2026';
+    nearbyTideStations(river).then(function(added){
+      loadTideFor(river);
+      said.textContent = saidText(sget(river.id,'tidestations'));
+      announce(added && added.length
+        ? added.length + ' station(s) NOAA has added since this build are now in the list, and they stay there.'
+        : 'NOAA has not added any stations on this river since this build. That answer is kept.');
+      btn.disabled = false;
+      btn.textContent = 'Check NOAA again';
+    }, function(e){
+      btn.disabled = false;
+      btn.textContent = 'Try NOAA again';
+      said.textContent = 'NOAA did not answer: ' + (e && e.message || e) +
+        ' Nothing changed, and the stations already in the list are unaffected.';
+      announce('NOAA did not answer.');
+    });
+  });
+  row.appendChild(btn);
+  body.appendChild(row);
+  body.appendChild(said);
+  d.appendChild(body);
+  return d;
+}
+
 function tideSection(river){
   var box = el('div',{});
   var t = state.tides[river.id];
@@ -2915,61 +3040,6 @@ function tideSection(river){
   /* Asking NOAA what else is out there costs two megabytes, so it is a
      button rather than something that happens to you. Once pressed, the
      result is kept and the question is not asked again. */
-  /* IT USED TO VANISH THE MOMENT IT WAS PRESSED, because it was only drawn
-     when nothing had been stored yet. So the reader pressed a button, the
-     button disappeared, and nothing said what it had found, whether anything
-     had been added, or whether this was permanent or had to be done again on
-     every visit. Every one of those was already known to the app. */
-  if (river.tideDiscover){
-    var seen = sget(river.id,'tidestations');
-    var moreRow = el('div',{class:'rowline'});
-    var moreBtn = el('button',{type:'button',
-      text: seen ? 'Check NOAA again' : 'Check NOAA for stations added since this build'});
-    var said = el('p',{class:'note',style:'margin:.35rem 0 0'});
-
-    /* What the last check found, and when. A result the app is holding and not
-       showing is the same as no result. */
-    function saidText(res){
-      if (!res) return '';
-      var t = 'Last checked ' + clockLocal(new Date(res.at).toISOString()) + ', ' +
-              dayLocal(new Date(res.at).toISOString()) + '. ';
-      t += (res.list && res.list.length)
-        ? 'NOAA had added ' + res.list.length + ' station(s) since this version was built' +
-          (res.list.length ? ': ' + res.list.map(function(x){ return x.name || x.id; }).join(', ') + '. ' : '. ') +
-          'They are in the list above and they stay there \u2014 you do not need to do this again.'
-        : 'NOAA had added none since this version was built. ' +
-          'That is the usual answer, and it is kept, so you do not need to check again unless you want to.';
-      return t;
-    }
-    said.textContent = saidText(seen);
-
-    moreBtn.addEventListener('click', function(){
-      moreBtn.disabled = true;
-      moreBtn.textContent = 'Asking NOAA \u2014 this one is a big file\u2026';
-      nearbyTideStations(river).then(function(added){
-        loadTideFor(river);
-        var res = sget(river.id,'tidestations');
-        said.textContent = saidText(res);
-        announce(added && added.length
-          ? added.length + ' station(s) NOAA has added since this build are now in the list, and they stay there.'
-          : 'NOAA has not added any stations on this river since this build. That answer is kept.');
-        moreBtn.disabled = false;
-        moreBtn.textContent = 'Check NOAA again';
-      }, function(e){
-        moreBtn.disabled = false;
-        moreBtn.textContent = 'Try NOAA again';
-        said.textContent = 'NOAA did not answer: ' + (e && e.message || e) +
-          ' Nothing changed, and the stations already in the list are unaffected.';
-        announce('NOAA did not answer.');
-      });
-    });
-    moreRow.appendChild(moreBtn);
-    box.appendChild(moreRow);
-    box.appendChild(el('span',{class:'note',
-      text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks whether NOAA has ADDED any since then. It costs a two-megabyte download because NOAA publishes its list as one file and will not filter it, which is why it is a button and not something that happens to you. Usually the answer is none.'}));
-    box.appendChild(said);
-  }
-
   var st = (t.stations||[]).filter(function(s){ return s.id === t.station; })[0];
   var head = el('p',{class:'note'});
   head.appendChild(document.createTextNode(
@@ -2999,6 +3069,13 @@ function tideSection(river){
   });
   if (!shown) box.appendChild(el('p',{class:'note',
     text:'No high or low water in the stored window. Reconnect to extend it.'}));
+  /* IT WAS PUSHING THE TIDE OFF THE SCREEN. This block explains a button most
+     readers will never press, and it sat BETWEEN the station picker and the
+     tide itself — so a newcomer opening the tide met four sentences about
+     NOAA's file sizes before a single high or low. It is last now, and shut.
+     Collapsed, not deleted: what it says is true and somebody will want it. */
+  if (river.tideDiscover) box.appendChild(discoverBox(river));
+
   return box;
 }
 
@@ -3117,6 +3194,50 @@ function renderLayers(){
   });
   centreRow.appendChild(centreBtn);
   p.appendChild(centreRow);
+
+  /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
+     ONE. A point answers "how deep is it here"; a line answers where the
+     channel runs, which side of it you are on, and how fast it drops away —
+     which is the question somebody standing on a bank actually has. */
+  p.appendChild(el('h2',{class:'sec',text:'Depth along a line'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Draw a line on the map and this reads the published survey the whole way along it, then draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section that shows you which side the channel is on. It is the same line either way \u2014 the app does not decide for you, because it has no published centreline for these rivers and will not invent one.'}));
+  var profRow = el('div',{class:'rowline'});
+  if (state.profArm){
+    profRow.appendChild(el('b',{text: state.profArm.length
+      ? 'Now tap the other end of the line.'
+      : 'Tap the start of your line on the map.'}));
+    var cancel = el('button',{type:'button',text:'Cancel'});
+    cancel.addEventListener('click', cancelProfile);
+    profRow.appendChild(cancel);
+  } else {
+    var draw = el('button',{type:'button',
+      text: state.profile ? 'Draw another line' : 'Draw a line to profile'});
+    draw.addEventListener('click', armProfile);
+    profRow.appendChild(draw);
+    /* The pointerless route, named for the hand that takes it: two taps on a
+       map is a finger's job, and a line across the middle of what is on screen
+       is the same question asked with a keyboard. */
+    var across = el('button',{type:'button',text:'Profile across the map, bank to bank'});
+    across.addEventListener('click', function(){
+      /* THE DRAWING APPEARS UNDER THE MAP, and on a phone the map is a tab of
+         its own — so pressing this from the Layers tab drew a profile into a
+         panel the reader could not see. The same move the depth-at-centre
+         button already makes. */
+      if (tabNames().indexOf('map') !== -1) selectTab('map');
+      var b2 = state.map.getBounds(), c = state.map.getCenter();
+      state.profArm = [];
+      profilePoint(c.lat, b2.getWest() + (c.lng - b2.getWest()) * 0.15);
+      profilePoint(c.lat, b2.getEast() - (b2.getEast() - c.lng) * 0.15);
+    });
+    profRow.appendChild(across);
+    if (state.profile){
+      var clr = el('button',{type:'button',text:'Clear the profile'});
+      clr.addEventListener('click', clearProfile);
+      profRow.appendChild(clr);
+    }
+  }
+  p.appendChild(profRow);
 
   if (state.catalog.rasterError)
     p.appendChild(el('div',{class:'warnbox',
@@ -4886,6 +5007,332 @@ function depthAt(lat, lon){
   });
 }
 
+/* =====================================================================
+   THE PROFILE — what the bottom does along a line.
+
+   A point tells you the depth where you are standing. A LINE tells you the
+   shape, which is the question actually being asked: where the channel is,
+   which side of it you are on, and how fast it drops away. The app is named
+   after the deepest line in a channel and could not draw one.
+
+   The line is the READER'S, and that is the whole design. A profile down the
+   middle of the river needs a published centreline this app does not have, and
+   the app's standing rule is that no coordinate is invented here — so rather
+   than guess a centreline, or guess which way "across" points, it profiles
+   whatever line you draw. Drawn down the channel it is a long profile; drawn
+   bank to bank it is a cross-section; and it is the same code either way.
+
+   ONE REQUEST PER SURVEY, not one per sample. The service answers getSamples
+   for a polyline with the samples ordered along it — measured against the live
+   ImageServer before this was written, because a rendering rule ArcGIS does
+   not understand comes back as HTTP 200 and an empty answer rather than an
+   error. Eighty samples down three miles of the Sacramento costs one call.
+   ===================================================================== */
+var PROFILE_SAMPLES = 90;   /* per survey, per line */
+
+function metresAlong(pts){
+  var out = [0];
+  for (var i = 1; i < pts.length; i++)
+    out.push(out[i - 1] + metresBetween(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]));
+  return out;
+}
+
+/* Every survey whose box the line passes through, so a line crossing two
+   surveys gets a band from each rather than silently taking one. */
+function surveysAlong(pts){
+  var cat = state.catalog;
+  if (!cat || !cat.raster) return [];
+  var hit = {};
+  pts.forEach(function(p){
+    surveysAt(p[0], p[1]).forEach(function(r){ hit[r.name] = r; });
+  });
+  return Object.keys(hit).map(function(k){ return hit[k]; }).slice(0, DEPTH_MAX_SURVEYS);
+}
+
+function sampleLine(path, pts){
+  var line = { paths:[ pts.map(function(p){ return [p[1], p[0]]; }) ],
+               spatialReference:{ wkid:4326 } };
+  var url = dwr(path + '/getSamples?f=json&outSR=4326&geometryType=esriGeometryPolyline' +
+    '&sampleCount=' + PROFILE_SAMPLES + '&geometry=' + encodeURIComponent(JSON.stringify(line)));
+  return getJSON(url, 25000).then(function(j){
+    var out = [];
+    (j && j.samples || []).forEach(function(sm){
+      if (!sm.location) return;
+      var lat = Number(sm.location.y), lon = Number(sm.location.x);
+      if (!isNum(lat) || !isNum(lon)) return;
+      /* NoData is not zero. A survey that did not measure a spot must leave a
+         gap in the line, not a reading at the surface. */
+      var v = (sm.value === '' || sm.value === null || sm.value === undefined ||
+               sm.value === 'NoData') ? null : Number(sm.value);
+      out.push({ lat:lat, lon:lon, v:isNum(v) ? v : null });
+    });
+    return out;
+  });
+}
+
+/* Distance of a point from the line, and how far along it that lands — so a
+   reader's own position can be put at the right place on the picture rather
+   than at the end of it. */
+function projectOnLine(pts, lat, lon){
+  var best = null, run = 0;
+  for (var i = 1; i < pts.length; i++){
+    var a = pts[i-1], b = pts[i];
+    var segLen = metresBetween(a[0], a[1], b[0], b[1]);
+    if (segLen < 1){ run += segLen; continue; }
+    /* Local flat approximation: fine over a segment, and this is a picture of
+       a river reach rather than a survey of one. */
+    var kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110540;
+    var ax = 0, ay = 0;
+    var bx = (b[1] - a[1]) * kx, by = (b[0] - a[0]) * ky;
+    var px = (lon  - a[1]) * kx, py = (lat  - a[0]) * ky;
+    var t = ((px - ax) * bx + (py - ay) * by) / (bx * bx + by * by);
+    t = Math.max(0, Math.min(1, t));
+    var dx = px - bx * t, dy = py - by * t;
+    var off = Math.sqrt(dx * dx + dy * dy);
+    if (!best || off < best.off) best = { off:off, along:run + segLen * t };
+    run += segLen;
+  }
+  return best;
+}
+
+function buildProfile(pts){
+  var surveys = surveysAlong(pts);
+  if (!surveys.length)
+    return Promise.resolve({ none:state.catalog && state.catalog.raster ? 'nowhere' : 'nocatalog',
+                             pts:pts });
+  return Promise.all(surveys.map(function(sv){
+    return sampleLine(sv.path, pts).then(function(rows){
+      return { survey:sv, rows:rows };
+    }, function(e){ return { survey:sv, failed:String(e && e.message || e), rows:[] }; });
+  })).then(function(bands){
+    /* Distance along the line for every sample, from the sample's OWN
+       position rather than from its index — the service is entitled to space
+       them how it likes, and an index would draw an even spacing it never
+       promised. */
+    bands.forEach(function(b){
+      b.pts = b.rows.map(function(r){
+        var pr = projectOnLine(pts, r.lat, r.lon);
+        return { d: pr ? pr.along : 0, v:r.v, lat:r.lat, lon:r.lon };
+      }).sort(function(x, y){ return x.d - y.d; });
+      var got = b.pts.filter(function(x){ return isNum(x.v); });
+      b.measured = got.length;
+      b.deepest = got.length ? Math.min.apply(null, got.map(function(x){ return x.v; })) : null;
+    });
+    var all = [];
+    bands.forEach(function(b){ b.pts.forEach(function(x){ if (isNum(x.v)) all.push(x.v); }); });
+    return {
+      pts: pts,
+      length: metresAlong(pts).pop(),
+      bands: bands,
+      deepest: all.length ? Math.min.apply(null, all) : null,
+      measured: all.length
+    };
+  });
+}
+
+/* ---- drawing it -------------------------------------------------------
+   Depth DOWN is the whole point, so the surface is the top edge and deeper is
+   further down — the shape a fisherman already has in their head. The vertical
+   scale is never shared with the horizontal one: a mile of river against
+   thirty feet of water drawn true to scale is a flat line, and the shape is
+   what the picture is for. The axis says so rather than letting the drawing
+   imply a slope nobody measured. */
+function renderProfile(){
+  var m = state.profile;
+  var sec = $('#profile'), svg = $('#profsvg'), note = $('#profnote');
+  if (!m){ sec.hidden = true; svg.innerHTML = ''; return; }
+  sec.hidden = false;
+
+  var wrap = $('#profwrap');
+  var H = Math.max(90, wrap.clientHeight || 150);
+  var base = Math.max(320, wrap.clientWidth || 360);
+  var W = Math.round(base * (state.profZoom || 1));
+  var padL = 34, padR = 10, padT = 10, padB = 18;
+  svg.setAttribute('width', W);
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.style.width = W + 'px';
+  svg.innerHTML = '';
+
+  var NS = 'http://www.w3.org/2000/svg';
+  function node(t, at){ var n = document.createElementNS(NS, t);
+    for (var k in at) if (at[k] !== null && at[k] !== undefined) n.setAttribute(k, at[k]);
+    return n; }
+
+  /* CLEARING THE DRAWING DELETED ITS OWN NAME. The <title> is a child of the
+     svg, so innerHTML = '' took it with the last render and left a role="img"
+     with nothing naming it — invisible on screen and total for anyone reading
+     by ear. It is rebuilt with the picture, every time. */
+  var ttl = node('title', { id:'profsvgtitle' });
+  svg.appendChild(ttl);
+  function name(t){ ttl.textContent = t; }
+
+  if (m.none || !isNum(m.deepest)){
+    var why = m.none === 'nocatalog'
+      ? 'The survey directory has not arrived, so this cannot be answered yet \u2014 which is not the same as there being no survey here.'
+      : m.none === 'nowhere'
+        ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Layers panel lists which reaches those are.'
+        : 'The survey covers this line but measured nothing along it. That is missing data, not flat bottom \u2014 dense weed defeats the sounder and those cells are dropped.';
+    note.textContent = why;
+    name('No depth along this line. ' + why);
+    return;
+  }
+
+  /* Deepest at the bottom of the picture, with a little air under it. */
+  var maxD = Math.abs(m.deepest) * 1.08 + 1;
+  var x = function(d){ return padL + (d / (m.length || 1)) * (W - padL - padR); };
+  var y = function(v){ return padT + (Math.abs(v) / maxD) * (H - padT - padB); };
+
+  /* The water itself, so the picture reads as a section through a river and
+     not as a graph that happens to go down. */
+  svg.appendChild(node('rect', { x:padL, y:padT, width:W - padL - padR,
+    height:H - padT - padB, fill:'#0B2430' }));
+
+  /* Depth grid, labelled, because a shape with no numbers is decoration. */
+  var step = maxD > 60 ? 20 : maxD > 24 ? 10 : 5;
+  for (var d = step; d < maxD; d += step){
+    svg.appendChild(node('line', { x1:padL, x2:W - padR, y1:y(d), y2:y(d),
+      stroke:'#2E7C76', 'stroke-width':1, opacity:.45 }));
+    var lab = node('text', { x:4, y:y(d) + 3, fill:'#9FB3B1', 'font-size':9 });
+    lab.textContent = d + 'ft';
+    svg.appendChild(lab);
+  }
+
+  /* One band per survey. Where two surveys cover the same water they are two
+     answers, measured on different days, and the app shows both rather than
+     picking one and calling it the bottom. */
+  var colours = ['#7BD5D9', '#C9A96A', '#9BD98C'];
+  m.bands.forEach(function(b, i){
+    var col = colours[i % colours.length];
+    /* Runs, split on missing data. A line drawn straight across a gap invents
+       a bottom between two places nobody measured. */
+    var run = [];
+    var runs = [];
+    b.pts.forEach(function(pt){
+      if (isNum(pt.v)) run.push(pt);
+      else if (run.length){ runs.push(run); run = []; }
+    });
+    if (run.length) runs.push(run);
+
+    runs.forEach(function(r){
+      if (r.length === 1){
+        svg.appendChild(node('circle', { cx:x(r[0].d), cy:y(r[0].v), r:2, fill:col }));
+        return;
+      }
+      var dd = r.map(function(pt){ return x(pt.d).toFixed(1) + ',' + y(pt.v).toFixed(1); });
+      /* The first band gets the filled envelope: surface down to the bottom it
+         measured, which is the water you would be fishing through. */
+      if (i === 0){
+        var area = node('path', { fill:col, opacity:.14,
+          d:'M' + x(r[0].d).toFixed(1) + ',' + y(0).toFixed(1) +
+            ' L' + dd.join(' L') +
+            ' L' + x(r[r.length-1].d).toFixed(1) + ',' + y(0).toFixed(1) + ' Z' });
+        svg.appendChild(area);
+      }
+      svg.appendChild(node('path', { fill:'none', stroke:col,
+        'stroke-width': i === 0 ? 2 : 1.4, 'stroke-linejoin':'round',
+        'stroke-dasharray': i === 0 ? null : '4 3',
+        d:'M' + dd.join(' L') }));
+    });
+  });
+
+  /* WHERE YOU ARE ON THE LINE. Only when you are actually near it — a marker
+     for somebody two miles away is a lie about the picture. */
+  var youText = '';
+  if (state.here){
+    var pr = projectOnLine(m.pts, state.here.lat, state.here.lon);
+    if (pr && pr.off < 200){
+      svg.appendChild(node('line', { x1:x(pr.along), x2:x(pr.along), y1:padT,
+        y2:H - padB, stroke:'#E76F9F', 'stroke-width':2 }));
+      var yl = node('text', { x:x(pr.along) + 3, y:padT + 9, fill:'#E76F9F', 'font-size':9 });
+      yl.textContent = 'you';
+      svg.appendChild(yl);
+      youText = ' You are ' + kmText(pr.along) + ' along it, ' + kmText(pr.off) + ' off the line.';
+    } else if (pr){
+      youText = ' You are ' + kmText(pr.off) + ' from this line, so you are not marked on it.';
+    }
+  }
+
+  /* Distance ticks along the foot. */
+  var span = m.length;
+  var dstep = span > 8000 ? 2000 : span > 3000 ? 1000 : span > 1200 ? 500 : 200;
+  for (var q = 0; q <= span; q += dstep){
+    var t = node('text', { x:x(q), y:H - 5, fill:'#9FB3B1', 'font-size':9,
+      'text-anchor': q === 0 ? 'start' : 'middle' });
+    t.textContent = kmText(q);
+    svg.appendChild(t);
+  }
+
+  var names = m.bands.filter(function(b){ return b.measured; })
+    .map(function(b){ return readableSurvey(b.survey) + (isNum(b.deepest)
+      ? ' (deepest ' + fmt(Math.abs(b.deepest),1) + ' ft)' : ''); });
+  var sentence = 'Along ' + kmText(m.length) + ' of line, the deepest published sounding is ' +
+    fmt(Math.abs(m.deepest), 1) + ' feet, from ' +
+    (names.length === 1 ? names[0] : names.length + ' surveys: ' + names.join('; ')) + '.' +
+    youText +
+    ' Depths are as the survey published them; the vertical scale is stretched, so read the shape and the numbers, not the slope.';
+  note.textContent = sentence;
+  name(sentence);
+}
+
+/* A survey's name as a reader can use it. */
+function readableSurvey(sv){
+  if (!sv) return 'a published survey';
+  var d = surveyDate(sv.name);
+  return surveyLabel(sv.name) + (d ? ', surveyed ' + d : '');
+}
+
+/* ---- drawing the line ------------------------------------------------- */
+function armProfile(){
+  state.profArm = [];
+  if (state.profLayer) state.profLayer.clearLayers();
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  announce('Tap the start of your line on the map, then tap the end.');
+  renderLayers();
+}
+function cancelProfile(){
+  state.profArm = null;
+  renderLayers();
+  announce('Line cancelled.');
+}
+function clearProfile(){
+  state.profile = null; state.profArm = null;
+  if (state.profLayer) state.profLayer.clearLayers();
+  renderProfile(); renderLayers();
+  announce('Profile cleared.');
+}
+function profilePoint(lat, lon){
+  state.profArm.push([lat, lon]);
+  state.profLayer.clearLayers();
+  state.profArm.forEach(function(p){
+    L.circleMarker(p, { pane:'herepane', radius:5, weight:2,
+      color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
+  });
+  if (state.profArm.length < 2){
+    announce('Start set. Now tap the other end.');
+    return;
+  }
+  var pts = state.profArm.slice();
+  state.profArm = null;
+  L.polyline(pts, { pane:'herepane', color:'#C9A96A', weight:2, dashArray:'5 4' })
+    .addTo(state.profLayer);
+  state.profile = { loading:true };
+  $('#profile').hidden = false;
+  $('#profnote').textContent = 'Asking the survey along this line…';
+  announce('Reading the bottom along your line.');
+  renderLayers();
+  buildProfile(pts).then(function(model){
+    state.profile = model;
+    state.profZoom = 1;
+    renderProfile();
+    announce($('#profnote').textContent);
+  }, function(e){
+    state.profile = { none:'failed' };
+    $('#profnote').textContent = 'The survey did not answer: ' + (e && e.message || e) +
+      '. Nothing is drawn, because nothing is known.';
+    renderProfile();
+  });
+}
+
 /* The reading, as a label on the map where the finger is. */
 function showDepthAt(lat, lon){
   if (!state.map) return;
@@ -4985,6 +5432,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.9.0', date:'2026-08-30', changes:[
+      'Depth along a line. Draw a line on the map and the app reads the published survey the whole way along it, then draws the bottom underneath the map so the shape and the place are on screen together. Drawn down the middle of the river it is a long profile; drawn from one bank to the other it is a cross-section that shows you which side the channel is on. It is the same line either way \u2014 the app does not choose for you, because there is no published centreline for these rivers and it will not invent one.',
+      'Where two surveys cover the same water you get both, drawn as separate lines, because they were measured on different days and neither is more the bottom than the other. Where the survey measured nothing the line breaks rather than running straight across \u2014 dense weed defeats the sounder and those cells are dropped, and a line drawn through a gap would be inventing a bed.',
+      'If you have used Where I am and you are near the line, it marks where you are on it. If you are not near it, it says how far off you are instead of leaving you to assume.',
+      'The profile stretches and scrolls. The vertical scale is deliberately not the horizontal one \u2014 a mile of river against thirty feet of water drawn true to scale is a flat line \u2014 so read the shape and the numbers, and it says so rather than letting you read a slope off it.',
+      'The block about checking NOAA for new tide stations was pushing the actual tide off the screen. It is folded shut at the bottom of the tide section now, and its heading says what is inside without being opened.',
+      'That block could also be wrong. If you had pressed the check on an older version, its answer was read back under the new question and reported the stations that ship with the app as newly added. An answer now belongs to the build that asked it.',
+  ] },
   { v:'0.8.0', date:'2026-08-30', changes:[
       'The first-run page did not fit on the screen it opened on. Reported from a real phone by somebody seeing the app for the first time \u2014 the panel had no height of its own, so it ran off the bottom.',
       'That page also buried the one thing worth doing before you leave the house. Putting Thalweg on your home screen is now its own box, immediately above the Start button, where somebody scrolling for the button actually passes it \u2014 and the line telling you everything else lives under the (i) is no longer set in small print beside it.',
@@ -5552,6 +6007,12 @@ function boot(){
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
   $('#newclose').addEventListener('click', function(){ $('#whatsnew').close(); });
+
+  $('#profclear').addEventListener('click', clearProfile);
+  $('#profin').addEventListener('click', function(){
+    state.profZoom = Math.min(8, (state.profZoom || 1) * 1.6); renderProfile(); });
+  $('#profout').addEventListener('click', function(){
+    state.profZoom = Math.max(1, (state.profZoom || 1) / 1.6); renderProfile(); });
 
   /* Home. Back to the four-river landing this app opens on, on the Water tab,
      scrolled to the top — all three, because arriving at the landing halfway
