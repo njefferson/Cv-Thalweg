@@ -36,6 +36,9 @@
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --water:Georgia,"Iowan Old Style","Palatino Linotype","Book Antiqua","Times New Roman",serif;
   --rail:340px;
+  /* The widest a column of prose or a row of river cards is allowed to get.
+     Four cards at ~270px plus gaps; beyond that the eye stops comparing. */
+  --wide:1180px;
 }
 *{box-sizing:border-box}
 /* The hidden attribute has to beat every display rule below it, or a panel
@@ -125,6 +128,48 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 /* Wide enough for both at once: the map sits beside the rail as a column
    rather than as one of the rail's tabs, so the tab is not offered. */
 @media (min-width:901px){ #tab-map{display:none} }
+
+/* ---------- the desktop shape ----------
+
+   THE RAIL USED TO CHANGE SIDES. `main` is a flex row of the map and then the
+   rail, so with a river picked the rail sits on the right — correct — and on
+   All rivers, where there is no map, the rail was the row's only child and
+   hugged the LEFT, with the rest of the screen empty. Picking a river moved
+   the whole panel across the window. Nothing decided that; source order did.
+
+   So on All rivers the rail stops being a 340px column and becomes the stage.
+   Its content is capped and centred, which is also what the view is FOR: four
+   rivers to compare, side by side, rather than stacked in a phone-width strip
+   with thirteen hundred pixels of nothing beside them. */
+@media (min-width:901px){
+  body.all-rivers #rail{ flex:1 1 auto; width:auto; border-left:0 }
+  body.all-rivers [role=tablist]{ max-width:var(--wide); margin-inline:auto; width:100% }
+  /* A tab is 1/4 of the rail on a phone, which is right there and wrong here:
+     stretched to a 1180px column the four words sit a hand-span apart and stop
+     reading as one control. Natural width, left where the content starts. */
+  body.all-rivers [role=tab]{ flex:0 0 auto; padding-inline:1rem }
+  body.all-rivers [role=tabpanel]{ padding:1rem 1.1rem }
+  body.all-rivers [role=tabpanel] > *{ max-width:var(--wide); margin-inline:auto }
+  /* Four across on a wide screen, two on a narrow one, one on a phone — and
+     the comparison the app is for actually happens in the eye. */
+  .rivergrid{ display:grid; gap:.7rem;
+    grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)) }
+  /* A stretched <button> CENTRES its content, so the two cards with a line
+     less of text floated eight pixels lower than the other two and the row of
+     names stopped being a row. The grid makes them equal height; this makes
+     them start at the top. */
+  .rivergrid .rivercard{ margin:0; display:flex; flex-direction:column;
+    align-items:stretch; justify-content:flex-start }
+  /* The season badge sat beside the name and wrapped or did not depending on
+     how long that river's name is — so four cards in a row put their badges on
+     two different lines and the whole row read as ragged. Always under. */
+  .rivergrid .rc-top{ flex-direction:column; align-items:flex-start; gap:.3rem }
+  /* The temperature scale is drawn at the right-hand end of the ribbon SVG.
+     Stretched to the window it ended up a screen away from the bars it
+     explains, and the bars became a near-empty rule. Both are capped to the
+     same column as everything else. */
+  #ribbonwrap > *{ max-width:var(--wide); margin-inline:auto }
+}
 #map{flex:1 1 auto; min-height:260px; background:#08100f}
 #rail{
   flex:0 0 var(--rail); width:var(--rail); background:var(--panel);
@@ -405,7 +450,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.1.0';
+var VERSION = '0.2.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2274,7 +2319,11 @@ function renderWater(){
 
   if (!state.riverId){
     p.appendChild(el('h2',{class:'sec',text:'Which river'}));
-    RIVERS.forEach(function(river){ p.appendChild(riverCard(river)); });
+    /* A container so the four can sit side by side on a wide screen. On a
+       phone it is a plain block and the cards stack exactly as before. */
+    var grid = el('div',{class:'rivergrid'});
+    RIVERS.forEach(function(river){ grid.appendChild(riverCard(river)); });
+    p.appendChild(grid);
     /* This read RIVERS[0] and said "these" about all four, so one river's
        bad minute captioned three rivers of live readings. */
     var old = RIVERS.filter(function(r){ return looksOld(state.gauges[r.id]); });
@@ -4296,6 +4345,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.2.0', date:'2026-08-30', changes:[
+      'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with most of the screen empty. That view exists to answer which of the four is worth the drive, and the comparison only works if you can see all four at once. Nothing changes on a phone, where they already stacked because that is the right shape there.',
+      'The panel used to move across the window when you picked a river \u2014 it sat on the left with all four rivers showing and jumped to the right once a map appeared. It stays where it belongs now.',
+      'Smaller things on a wide screen: the temperature scale sits with the bars it explains rather than a screen away from them, the tabs stop stretching a hand-span apart, and the four river names line up.',
+  ] },
   { v:'0.1.0', date:'2026-08-27', changes:[
       'First release. It opens on all four rivers, each with a card saying whether it is open, what the water temperature means, how much water is coming down and when the tide next turns — the go-or-not answer before you drive anywhere. Tap one for its own map, tide and depth.',
       'Thalweg does not rank the four. Reading a thermometer against a threshold is one thing; telling you where the fishing will be better is a forecast it has no basis for.',

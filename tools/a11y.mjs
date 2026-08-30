@@ -241,6 +241,43 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
       return !!(a && a.getAttribute && a.getAttribute('role') === 'tab');
     }));
 
+  /* ---- THE COMPARE VIEW ON A WIDE SCREEN ----
+   *
+   * This app was built phone-first and every geometry here was a phone or a
+   * desktop asked only whether anything overflowed. Nothing asked whether the
+   * result was COHERENT, and it was not: `main` is a flex row of the map and
+   * then the rail, so with a river picked the rail sat on the right — correct —
+   * and on All rivers, where there is no map, the rail was the row's only child
+   * and hugged the LEFT with thirteen hundred pixels of nothing beside it.
+   * Picking a river moved the whole panel across the window.
+   *
+   * "Nothing reaches past the edge" cannot see any of that. These can. */
+  if (name === 'desktop') {
+    // Put it in the state being asserted about. The first draft measured
+    // whatever happened to be on screen and read 0% — and its sibling check
+    // passed on four zeroes, which is a check that cannot fail.
+    await page.selectOption('#riverpick', '');
+    await page.click('#tab-water');
+    await page.waitForTimeout(600);
+
+    const w = await page.evaluate(() => {
+      const g = document.querySelector('.rivergrid');
+      return g ? g.getBoundingClientRect().width / window.innerWidth : 0;
+    });
+    check(`${name}: the compare view uses the width it is given`, w >= 0.6,
+      `river cards span ${Math.round(w * 100)}% of the viewport`);
+
+    /* Four rivers to compare, in a row, so the comparison happens in the eye
+       rather than by scrolling. Equal tops because a stretched <button>
+       centres its content, which floated the two cards with a line less of
+       text eight pixels below the other two. */
+    const tops = await page.evaluate(() =>
+      [...document.querySelectorAll('.rivergrid .rivercard')]
+        .map(c => Math.round(c.getBoundingClientRect().top)));
+    check(`${name}: every river card starts on the same line`,
+      tops.length === 4 && new Set(tops).size === 1 && tops[0] > 0, tops.join(', '));
+  }
+
   await page.click('#aboutbtn');
   await page.waitForTimeout(500);
   await audit(page, `${name}: about panel`);
