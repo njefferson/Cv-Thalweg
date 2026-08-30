@@ -128,29 +128,6 @@ async function noOverflow(page, label) {
   check(label, bad.out.length === 0 && bad.scrollW <= bad.vw + 1, JSON.stringify(bad));
 }
 
-/* WAIT FOR THE ANSWER, NOT FOR A DURATION.
- *
- * The depth check asked for a reading and then slept 2.5 seconds before
- * reading the label. On a runner that was sometimes not enough: the label
- * still said "Asking the survey…", and the check reported the app failing to
- * name its survey when what had actually happened was that nothing had come
- * back yet. The phone geometry ran the identical assertion seconds later and
- * passed, which is the tell.
- *
- * This is the same defect as tools/live-test.mjs had, fixed there the same
- * day — an assertion racing the thing it asserts about. A fixed wait is a
- * guess about somebody else's network, and the failure it produces accuses
- * the app of the tester's impatience. */
-async function until(page, fn, what, ms = 30000) {
-  const stop = Date.now() + ms;
-  while (Date.now() < stop) {
-    if (await page.evaluate(fn)) return true;
-    await page.waitForTimeout(250);
-  }
-  console.log('        (gave up waiting for ' + what + ' after ' + (ms / 1000) + 's)');
-  return false;
-}
-
 async function audit(page, label) {
   await page.addScriptTag({ content: axe });
   const res = await page.evaluate(async () => await window.axe.run(document, { resultTypes: ['violations'] }));
@@ -452,39 +429,38 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     const n = document.querySelector('.leaflet-popup-content');
     return n ? n.textContent.replace(/\s+/g, ' ') : '';
   });
-  const held = await page.evaluate(() => { const c = state.catalog; state.catalog = null; return !!c; });
+  // Clears the catalogue to force the no-catalogue state. The return value used
+  // to feed a "the catalogue came back" check, which went to the live suite
+  // with the rest of the round trip.
+  await page.evaluate(() => { state.catalog = null; });
   await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
   await page.waitForTimeout(700);
   const blind = await popText();
   check(`${name}: a depth reading with no catalogue says it has not asked`,
     /has not arrived|cannot be answered yet/.test(blind) &&
     !/No published survey covers/.test(blind), blind.slice(0, 160));
-  await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
-  await page.evaluate(() => { state.catalog = null; });
-  await page.evaluate(() => loadCatalog());
-  // Waits for the request to SETTLE, which is what this step asked for. An
-  // earlier version of this line waited for `raster` to have entries, on the
-  // reasoning that an empty catalogue cannot answer a depth — true, and it
-  // turned one CI failure into three, because it is an assertion about the
-  // upstream service dressed as an assertion about the app. Whether DWR
-  // published a survey for this point is not this suite's to require; whether
-  // the app asks, waits, and then says what it got, is.
-  const catalogued = await until(page, () => !!state.catalog, 'the survey catalogue');
-  // `held` says the catalogue was there BEFORE it was cleared, which proves
-  // nothing about the reload this step just asked for. Both, now.
-  check(`${name}: the catalogue came back`, held && catalogued);
+  /* THE LIVE ROUND TRIP BELONGS IN THE LIVE SUITE, and this is where it used
+     to be. Three assertions here asked DWR for a real survey and then read the
+     label: that the catalogue came back, that the reading names its survey and
+     its date, and the caveat with it. They are duplicates —
+     `tools/live-test.mjs` makes exactly those checks, against the real service,
+     in the suite whose job that is and which is allowed to go amber when an
+     upstream is down.
+     Here they were a category error. This suite is the OFFLINE and geometry
+     one: it runs six screen sizes and two engines against a local server, and
+     making its verdict depend on a state agency's ImageServer answering within
+     a timeout means a red run that says nothing about the commit. It failed on
+     the desktop geometry while the phone geometry passed the identical
+     assertion seconds later, which is what a race looks like from outside; two
+     attempts to wait more precisely made it worse, because the thing being
+     waited for was somebody else's uptime.
+     What stays is the part that is this suite's: the label is a surface, so it
+     is opened and audited. The no-catalogue path above opens it without the
+     network and is the honest state to audit — it is real, it is what a cold
+     start shows, and it is the one where a wrong answer would be a claim about
+     California from an app that has not asked. */
   await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
-  // The label is written twice: "Asking the survey…" the moment it is opened,
-  // and the answer when it arrives. Waiting for the absence of the first is
-  // what makes this an assertion about the app rather than about the clock.
-  await until(page, () => {
-    const n = document.querySelector('.leaflet-popup-content');
-    return !!n && !/Asking the survey/.test(n.textContent);
-  }, 'the depth answer');
-  const depth = await popText();
-  check(`${name}: a depth reading names its survey and its caveat`,
-    /ft/.test(depth) && /surveyed \d{4}-\d{2}-\d{2}/.test(depth) &&
-    /Not for navigation/.test(depth), depth.slice(0, 200));
+  await page.waitForTimeout(700);
   await audit(page, `${name}: depth label open`);
   await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
   await page.click('#tab-water');
