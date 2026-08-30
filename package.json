@@ -14,6 +14,7 @@
     "icons": "node tools/render-icons.mjs",
     "test:live": "node tools/live-test.mjs",
     "check:deploy": "node tools/check-deploy.mjs",
+    "check:notes": "node tools/notes-check.mjs",
     "check:functions": "npx --no-install wrangler pages functions build --outdir=.functions-build",
     "prepare": "node ../noahjefferson/branch-guard.mjs --repo . --install >/dev/null 2>&1 || true"
   },

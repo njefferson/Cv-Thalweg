@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.4.0.
+- Version 0.6.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,39 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **Patch notes are gated now, and the gate exists because prose lost.** Four
+  releases in a row explained the mechanism instead of the change: a bounding
+  box, a two-megabyte endpoint, a request per station. All true, none of it what
+  somebody who just pressed Update wants. `tools/notes-check.mjs` holds every
+  note to a closed vocabulary of machinery words, with a `.notes-allow` for a
+  declared exception checked both ways, and refuses a version bump whose newest
+  note is for an older version. Seen red on three planted violations before it
+  was trusted. It runs in CI and on every commit via `.branch-guard`'s `also=`.
+- **The what-changed dialog opened the About panel at its top**, which is "What
+  Thalweg is" — so a reader who had just pressed Update found the one thing they
+  asked for several screens down, under everything they already knew. It is its
+  own dialog now, leading with this version's notes and offering the history
+  rather than serving it. It had been wired at boot with no check on it at all;
+  it now has six, plus an axe pass in both geometries.
+- **0.1.0's release notes had ten known issues filed as changes.** The renderer
+  had supported a `broken` field the whole time and nothing used it, so "what is
+  still not right" rendered as though it were new work. They are in the right
+  field now.
+- **The locate control taught two things worth keeping.** First, a control that
+  sits on the map is also a press ON the map, and a press on the map asks the
+  survey how deep it is there — without `L.DomEvent.disableClickPropagation` the
+  button would have dropped a depth reading under itself on every use. Second,
+  an accuracy of zero is not perfect precision, it is the same absence as a
+  missing field: the first version stored it as a number and the dot read "good
+  to about 0 m", the most confident lie the app could tell. The guard lives in
+  the drawing function as well as where the fix is stored, because the drawing
+  function is the one making the claim.
+- **"The position never leaves the device" was too strong, and a test caught
+  it.** No request carries the coordinate — that is asserted, by pattern, over
+  every request the press causes. But moving the map to you loads basemap tiles
+  for that area, so something does go out, and at zoom 14 a tile is a couple of
+  kilometres. The About panel says so. The assertion that matters is the narrow
+  one: no coordinate in any path, query or body, and nothing but tiles.
 - **This repo carried two `zizmor: ignore[...]` declarations and never ran
   zizmor.** The suppressions were written into `deploy.yml` and `stations.yml`
   in the belief the audit was wired; it was not, so nothing was suppressing

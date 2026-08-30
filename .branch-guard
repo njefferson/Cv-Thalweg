@@ -12,6 +12,12 @@
 # found in its first week was one that only appears on the real device — a
 # first-run panel opening at its own last line, readings squeezed to 22px with
 # a keyboard up. None of those is visible from a desktop browser or a test.
+# Checks that run on EVERY commit here, including a promote, because they are
+# about WHAT is being committed rather than where. The patch notes are the one
+# thing in this app that a passing test suite cannot protect: a release can be
+# perfect and still reach a reader as an update that will not say what it did.
+also=tools/notes-check.mjs
+
 work=staging
 promote=main
 escape=THALWEG_PROMOTE

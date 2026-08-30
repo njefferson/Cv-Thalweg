@@ -94,7 +94,13 @@ const b = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
    with a response, and a service worker sitting in front of the fixtures
    would be testing the worker instead. Offline behaviour is tools/a11y.mjs
    and the real thing. */
-const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+/* Geolocation is granted here and a fixed position is set, because a locate
+   button nobody has pressed is a button that has never been shown to work.
+   The coordinate is Rio Vista's landing, roughly — it only has to be near
+   this reach for the "how far are you" arithmetic to have something to say. */
+const HERE = { latitude: 38.1554, longitude: -121.6910, accuracy: 65 };
+const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block',
+  permissions: ['geolocation'], geolocation: HERE });
 
 const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json',
   headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
@@ -113,6 +119,11 @@ const MD_STATIONS = [
   { id: '9415257', name: 'Terminous, South Fork', lat: 38.1103, lng: -121.5006 },
   { id: '9999999', name: 'Synthetic Mokelumne', lat: 38.15, lng: -121.40 }];
 let mdIndexHits = 0;
+/* Every request the page makes, so "the position never leaves the device" can
+   be asserted rather than asserted about. A count is not enough — when it
+   fails, the name of what went out is the whole diagnosis. */
+const netCalls = [];
+ctx.on('request', r => netCalls.push(r.url()));
 await ctx.route('**/mdapi/**', r => {
   const m = /\/stations\/(\d+)\.json/.exec(r.request().url());
   if (m) return json(r, { stations: MD_STATIONS.filter(s => s.id === m[1]) });
@@ -258,6 +269,69 @@ check('the button asks NOAA once and surfaces only what is new',
   await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
     return !!s && [...s.options].some(o => /Synthetic Mokelumne/.test(o.textContent)); }),
   'index fetched ' + mdIndexHits + ' time(s)');
+/* IT USED TO VANISH THE MOMENT IT WAS PRESSED — it was only drawn when nothing
+   had been stored yet — so a reader pressed a button, the button went away, and
+   nothing said what it had found, whether anything was added, or whether this
+   was permanent or had to be done again every visit. */
+const disc = await page.evaluate(() => {
+  const btn = [...document.querySelectorAll('#panel-water button')]
+    .find(x => /Check NOAA/.test(x.textContent));
+  const panel = document.getElementById('panel-water').textContent;
+  return { still: !!btn, label: btn ? btn.textContent.trim() : '',
+           said: /Last checked/.test(panel),
+           permanence: /you do not need to (do this again|check again)/.test(panel),
+           found: /NOAA had added/.test(panel) };
+});
+check('the stations button is still there after it has been used',
+  disc.still, JSON.stringify(disc));
+check('it says when it last checked and what it found',
+  disc.said && disc.found, JSON.stringify(disc));
+check('it says whether the result is kept or has to be done again',
+  disc.permanence, JSON.stringify(disc));
+check('and it offers to check again rather than pretending it is finished',
+  /again/i.test(disc.label), disc.label);
+
+/* --- readings that have gone old ---------------------------------------
+   The strip said they were old and nothing else: not when it last tried, not
+   when it would try next, not how to ask now. All three were already true
+   facts about the app and none was on screen. */
+const stale = await page.evaluate(() => {
+  const g = state.gauges[state.riverId];
+  g.fetchedAt = Date.now() - 10 * 3600 * 1000;
+  g.stale = true;
+  renderWater();
+  const t = document.getElementById('panel-water').textContent;
+  return {
+    saysOld: /Stored readings, \d+ h old/.test(t),
+    saysWhenTried: /Last tried at/.test(t),
+    saysNext: /every ten minutes|not trying|offline/.test(t),
+    saysNoCooldown: /no waiting period/.test(t),
+    button: !!document.getElementById('retrybtn')
+  };
+});
+check('a stale reading says when the app last tried', stale.saysWhenTried, JSON.stringify(stale));
+check('it says when it will try again on its own', stale.saysNext, JSON.stringify(stale));
+check('it says there is no waiting period', stale.saysNoCooldown, JSON.stringify(stale));
+check('and it offers a way to ask right now', stale.button, JSON.stringify(stale));
+
+/* --- home ---------------------------------------------------------------
+   The picker could always reach the landing, but a menu you have to open and
+   find the right line in is not a way back. */
+check('Home is offered once you are inside a river',
+  await page.evaluate(() => !document.getElementById('homebtn').hidden));
+await page.click('#homebtn');
+await page.waitForTimeout(1500);
+const home = await page.evaluate(() => ({
+  river: document.getElementById('riverpick').value,
+  hidden: document.getElementById('homebtn').hidden,
+  allRivers: document.body.classList.contains('all-rivers')
+}));
+check('Home goes back to the page the app opens on',
+  home.river === '' && home.allRivers, JSON.stringify(home));
+check('and it stops being offered once you are already there',
+  home.hidden, JSON.stringify(home));
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(2000);
 
 /* --- layers --- */
 await page.click('#tab-layers'); await page.waitForTimeout(1200);
@@ -512,6 +586,144 @@ check('the label carries the reading, not just the name',
   /cfs/i.test(await page.evaluate(() => {
     const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : ''; })),
   await page.evaluate(() => { const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : '(none)'; }));
+
+/* --- where I am ---------------------------------------------------------
+   The dot, the ring, and the two rules that make it honest: the ring is the
+   browser's own accuracy to scale rather than decoration, and nothing about
+   the position may reach the network. */
+check('the map carries a locate control',
+  await page.evaluate(() => !!document.getElementById('herebtn')));
+check('the locate control is big enough for a thumb',
+  await page.evaluate(() => {
+    const r = document.getElementById('herebtn').getBoundingClientRect();
+    return r.width >= 44 && r.height >= 44;
+  }),
+  await page.evaluate(() => {
+    const r = document.getElementById('herebtn').getBoundingClientRect();
+    return Math.round(r.width) + 'x' + Math.round(r.height);
+  }));
+
+const netBefore = netCalls.length;
+await page.click('#herebtn');
+await page.waitForFunction(() => window.state && window.state.here, null, { timeout: 10000 });
+await page.waitForTimeout(600);
+
+check('pressing it puts you on the map',
+  await page.evaluate(() => state.hereLayer && state.hereLayer.getLayers().length > 0),
+  'layers: ' + await page.evaluate(() => state.hereLayer ? state.hereLayer.getLayers().length : -1));
+check('the position it drew is the position the browser gave',
+  await page.evaluate(h => Math.abs(state.here.lat - h.latitude) < 1e-6 &&
+                           Math.abs(state.here.lon - h.longitude) < 1e-6, HERE),
+  await page.evaluate(() => JSON.stringify(state.here)));
+/* A browser two kilometres sure of itself and one eight metres sure hand back
+   the same shape of answer. Drawing both as a bare dot claims a precision only
+   one of them has. */
+check('an accuracy ring is drawn to scale, and does not take the tap',
+  await page.evaluate(() => {
+    const ring = state.hereLayer.getLayers().filter(l => typeof l.getRadius === 'function' &&
+      l.options.interactive === false)[0];
+    return !!ring && ring.getRadius() > 0;
+  }),
+  await page.evaluate(() => state.hereLayer.getLayers().map(l => l.options.interactive + ':' +
+    (l.getRadius ? Math.round(l.getRadius()) : 'n/a')).join(' ')));
+check('the map moved to where you are',
+  await page.evaluate(h => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - h.latitude) < 0.05 && Math.abs(c.lng - h.longitude) < 0.05;
+  }, HERE),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+/* YOUR COORDINATE NEVER LEAVES THE DEVICE — which is not the same claim as
+   "nothing goes out", and the first version of this check made the stronger
+   one and was wrong. Moving the map to you loads basemap tiles for that area,
+   so something DOES go out; what must never go out is the position itself, in
+   a query string, a path or a body. That is the sentence the About panel makes
+   and this is what holds it. */
+const after = netCalls.slice(netBefore);
+const leaked = after.filter(u =>
+  /38\.15|-?121\.69|38%2E15|121%2E69/.test(u) ||
+  /lat|lon|lng|point|geometry/i.test(u));
+check('locating never puts your coordinate in a request',
+  leaked.length === 0, leaked.join(', '));
+/* And the only thing it may cause is the basemap drawing where you now are. */
+const notTiles = after.filter(u => !/arcgisonline\.com|basemaps|tile/i.test(u));
+check('the only requests locating causes are basemap tiles',
+  notTiles.length === 0, notTiles.join(', '));
+/* A control sits on the map, so a press on it is also a press on the map, and
+   a press on the map asks the survey how deep it is there. */
+check('pressing it does not also ask for a depth',
+  !(await page.evaluate(() => !!document.querySelector('.leaflet-popup') &&
+    /deep|depth|survey/i.test(document.querySelector('.leaflet-popup').textContent))));
+check('the dot says when the fix was taken and that it is not kept',
+  await page.evaluate(() => {
+    const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+    if (!dot) return '';
+    const n = dot.getPopup().getContent();
+    return typeof n === 'string' ? n : n.textContent;
+  }).then(t => /taken at/.test(t) && /not saved/.test(t) && /not sent anywhere/.test(t)),
+  await page.evaluate(() => {
+    const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+    if (!dot) return '(no dot)';
+    const n = dot.getPopup().getContent();
+    return typeof n === 'string' ? n : n.textContent;
+  }));
+
+/* A browser that hands back accuracy 0 is not one that is perfectly sure — it
+   is one that did not answer. The first version stored that as a number and
+   the dot said "good to about 0 m", which is the most confident lie the app
+   could tell. No ring, and it says so in words. */
+const vague = await page.evaluate(() => {
+  state.here = { lat: 38.1554, lon: -121.6910, acc: 0, at: Date.now() };
+  drawHere(false);
+  const rings = state.hereLayer.getLayers().filter(l => l.options.interactive === false);
+  const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+  const n = dot && dot.getPopup().getContent();
+  return { rings: rings.length, text: n ? (typeof n === 'string' ? n : n.textContent) : '' };
+});
+check('an accuracy of zero draws no ring and claims no precision',
+  vague.rings === 0 && /did not say how accurate/.test(vague.text) && !/about 0/.test(vague.text),
+  JSON.stringify(vague));
+
+/* --- what changed, after an update -------------------------------------
+   The strip that offers an update belongs to the OLD build and has never heard
+   of the release it is offering, so the only moment anything in this app knows
+   what changed is after the reload. That dialog was wired at boot and had no
+   check on it at all: it opened the whole About panel at its top, which is
+   "What Thalweg is" — so the one thing a reader had just asked for was several
+   screens down under everything they already knew. */
+const news = await page.evaluate(() => {
+  showWhatsNew();
+  const d = document.getElementById('whatsnew');
+  const body = document.getElementById('newbody');
+  return {
+    open: d.open,
+    title: document.getElementById('newtitle').textContent,
+    items: [...body.querySelectorAll('li')].map(li => li.textContent),
+    focused: document.activeElement && document.activeElement.id,
+    older: !!document.getElementById('newolder'),
+    aboutOpen: document.getElementById('about').open
+  };
+});
+check('an update opens a dialog that leads with what changed',
+  news.open && !news.aboutOpen, JSON.stringify({ open: news.open, aboutOpen: news.aboutOpen }));
+check('it names the version you just got',
+  news.title.includes(await page.evaluate(() => VERSION)), news.title);
+check('it lists this version\u2019s changes, and only this version\u2019s',
+  news.items.length === await page.evaluate(() =>
+    RELEASES.filter(r => r.v === VERSION)[0].changes.length),
+  news.items.length + ' shown');
+check('the first thing in it is a change, not the front of the About panel',
+  news.items.length > 0 && !/What Thalweg is/.test(news.items[0] || ''), news.items[0]);
+check('the whole history is one press away rather than in your way', news.older);
+check('the dialog takes focus when it opens', news.focused === 'newtitle', news.focused);
+/* Patch notes are for the reader. This is the app's own copy asserted against
+   the same closed vocabulary tools/notes-check.mjs holds the source to, so a
+   note that reaches the screen cannot be machinery even if it got past the
+   file gate some other way. */
+check('nothing on that screen is written at the developer',
+  !/\b(endpoint|bounding box|JSON|regex|callback|z-index|service worker|cached?|identifier)\b/i
+    .test(news.items.join(' ')),
+  news.items.join(' ').slice(0, 200));
+await page.evaluate(() => document.getElementById('whatsnew').close());
 
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));

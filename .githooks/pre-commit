@@ -5,6 +5,15 @@
 # Committing on the wrong branch looks exactly like committing on the right
 # one, which is why an instruction in a file never caught it and this does.
 
+if [ ! -x "tools/notes-check.mjs" ]; then
+  echo "" >&2
+  echo "  REFUSED — .branch-guard declares also=tools/notes-check.mjs and it is missing or not executable." >&2
+  echo "  A declared check that silently stops running is worse than no check." >&2
+  echo "" >&2
+  exit 1
+fi
+"tools/notes-check.mjs" || exit 1
+
 branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo '')
 
 if [ "$branch" = "staging" ]; then exit 0; fi
