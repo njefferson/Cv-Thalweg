@@ -1,1 +1,17 @@
-work=main
+# Thalweg commits to `staging`. `main` is production: it is the Cloudflare Pages
+# production branch, so a commit landing there is a commit landing on the address
+# the owner opens. Promotion is a merge, said out loud.
+#
+# THIS REPO RAN ON `main` ALONE UNTIL 2026-08-29, and the reason it did has
+# expired. It was three days old, not deployed and not linked from anywhere —
+# there was nothing for a staging gate to protect and one branch was less to
+# carry. It is now live at cv-thalweg.pages.dev and on the hub's front page.
+#
+# It is also the app in the family that needs the on-device pass MOST rather
+# than least: it is read one-handed on a riverbank, and every defect this repo
+# found in its first week was one that only appears on the real device — a
+# first-run panel opening at its own last line, readings squeezed to 22px with
+# a keyboard up. None of those is visible from a desktop browser or a test.
+work=staging
+promote=main
+escape=THALWEG_PROMOTE

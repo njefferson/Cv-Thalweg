@@ -1,6 +1,13 @@
 name: Deploy
 
-# main -> production (cv-thalweg.pages.dev)
+# main    -> production (cv-thalweg.pages.dev)
+# staging -> preview    (staging.cv-thalweg.pages.dev)
+#
+# The staging deploy exists because the staging gate (Doctrine §7) needs a
+# preview URL that can be opened on a real device before anything is promoted.
+# This app is read one-handed on a riverbank and its defects have all been ones
+# that only appear there, so the preview is the point rather than a formality.
+#
 # Deploys public/ to Cloudflare Pages, with functions/ beside it, via
 # wrangler. Needs two repo secrets: CLOUDFLARE_API_TOKEN and
 # CLOUDFLARE_ACCOUNT_ID. There is no Cloudflare dashboard step: the
@@ -15,12 +22,15 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref_name }}
-  cancel-in-progress: true
+  # NEVER cancel a PRODUCTION deploy — a half-finished promote is the one state
+  # nobody can read off the site. On staging, latest-wins is right: an older
+  # candidate being replaced by a newer one is what staging is for.
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
 
 permissions:
   contents: read
@@ -108,12 +118,25 @@ jobs:
       # site which commit it is serving, and whether DWR still comes through
       # /bathy. A deploy that reports success and serves the previous build
       # fails here instead of being discovered weeks later.
+      # ASKS THE SITE IT JUST DEPLOYED TO, not always production. A staging push
+      # verified against cv-thalweg.pages.dev would read the PREVIOUS production
+      # commit and fail, or — worse, on a promote — read the right commit for
+      # the wrong reason. The branch decides the host.
       - name: Verify the live site is serving this commit
         if: steps.cf.outputs.ready == 'true'
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
+          if [ "$BRANCH" = "main" ]; then
+            SITE="https://cv-thalweg.pages.dev"
+          else
+            SITE="https://$BRANCH.cv-thalweg.pages.dev"
+          fi
+          echo "Verifying $SITE"
           for attempt in 1 2 3 4 5 6; do
             echo "--- attempt $attempt"
-            if node tools/check-deploy.mjs https://cv-thalweg.pages.dev "$GITHUB_SHA"; then
+            if node tools/check-deploy.mjs "$SITE" "$GITHUB_SHA"; then
+              echo "$SITE is serving $GITHUB_SHA"
               exit 0
             fi
             sleep 15
