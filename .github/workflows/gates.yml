@@ -37,6 +37,11 @@ jobs:
     uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@e2a5b7cb6b59311bdc7379abd0dea442edc8422f
     with:
       pwa: true
+      # This repo carries three workflows, one of which holds a write token, and
+      # two `zizmor: ignore[...]` declarations that had never been read by
+      # zizmor — the suppressions were written and the audit was not wired, so
+      # nothing was suppressing anything and nothing was auditing anything.
+      zizmor: true
 
   # This repo's own gates stay here. They are about THIS app — its proxy, its
   # rendering, its walks — and nothing in the hub knows about them.

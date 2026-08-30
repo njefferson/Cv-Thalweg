@@ -258,6 +258,14 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **This repo carried two `zizmor: ignore[...]` declarations and never ran
+  zizmor.** The suppressions were written into `deploy.yml` and `stations.yml`
+  in the belief the audit was wired; it was not, so nothing was suppressing
+  anything and nothing was auditing anything either. `gates.yml` now passes
+  `zizmor: true` to the hub's reusable workflow, which installs it at the hub's
+  pinned version and hash and runs it `--offline --strict-collection`. Offline
+  matters: the online audit lists tags for each action and answers 401 without a
+  token, which fails the whole run rather than the one check. Clean as wired.
 - **A first load is now 1.09MB, from 5.56MB, and there is a gate on it.**
   `live-test.mjs` counts the bytes the landing pulls off the network and fails
   over a megabyte. That number is the only thing standing between this app and
