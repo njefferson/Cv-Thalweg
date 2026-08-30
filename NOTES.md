@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.1.0.
+- Version 0.4.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -230,6 +230,42 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   the case changed on screen; and a `.then(ok, fail)` pair does NOT catch a
   throw raised inside its own `ok` branch — that threw six unhandled rejections
   onto the page before a test said so.
+- **And then the per-station requests went too, because the whole list is baked
+  in.** `tools/fetch-stations.mjs` asks NOAA once, at build time, and writes
+  `public/tide-stations.js` — 61 stations inside the two tidal rivers' boxes,
+  5.4KB, precached. The rule that no station coordinate is typed into this app
+  by hand is unchanged; these are still NOAA's numbers fetched from NOAA. What
+  moved is WHEN. On a normal load the app now makes no station requests at all.
+  Three things worth knowing before touching it:
+  **The endpoint matters more than it looks.** `stations.json` alone returns 301
+  primary stations — 3 on the Sacramento, 0 on the Mokelumne. The app's own
+  `COOPS_MD` carries `?type=tidepredictions&units=english`, which is what returns
+  the subordinate stations too: 61 here. The generator reads that URL out of
+  `public/index.html` rather than repeating it, and `--check` fails if they
+  differ, because the bake and the button must be looking at the same list or
+  the button reports additions that were only ever a different query.
+  **The generator reads the rivers by evaluating the declaration, not by regex.**
+  A pattern over `var RIVERS` found two of the four and got their `tidal` flags
+  wrong, silently. It now takes the balanced brackets and runs them.
+  **A cap applied across two populations hides the smaller one.** The picker kept
+  the nearest ten; once 44 baked stations existed, anything the button found was
+  ranked out by distance before it could be offered — the one thing the button
+  exists to surface. Rows carry an `origin` now, and a new one is never capped.
+- **The station bake has its own workflow and its own gate.** `stations.yml`
+  runs on dispatch and monthly, regenerates the file and commits only that file
+  to `staging`; the gates job runs `--check`, which asks NOAA nothing and only
+  refuses a bake that is absent, undated, from the wrong endpoint, missing a
+  tidal river, or carrying a station with no position. Fetching and checking are
+  separate on purpose: a gate that reached NOAA would put a public agency's
+  uptime inside this repo's verdict.
+- **This repo carried two `zizmor: ignore[...]` declarations and never ran
+  zizmor.** The suppressions were written into `deploy.yml` and `stations.yml`
+  in the belief the audit was wired; it was not, so nothing was suppressing
+  anything and nothing was auditing anything either. `gates.yml` now passes
+  `zizmor: true` to the hub's reusable workflow, which installs it at the hub's
+  pinned version and hash and runs it `--offline --strict-collection`. Offline
+  matters: the online audit lists tags for each action and answers 401 without a
+  token, which fails the whole run rather than the one check. Clean as wired.
 - **A first load is now 1.09MB, from 5.56MB, and there is a gate on it.**
   `live-test.mjs` counts the bytes the landing pulls off the network and fails
   over a megabyte. That number is the only thing standing between this app and

@@ -93,6 +93,13 @@ header{
 }
 .pickwrap{display:inline-flex; align-items:center; gap:.35rem}
 .stale{color:var(--warn); font-size:.72rem; max-width:100%}
+/* Below this the header cannot fit the brand, the warning and the controls on
+   one line, and what wrapped was the (i) BUTTON — alone on a second row, away
+   from the controls it belongs with. The sentence is the thing that should take
+   its own row; it is prose, and it is the widest item. */
+@media (max-width:1100px){
+  .stale{ flex:1 1 100%; order:9 }
+}
 .stale:empty{display:none}
 button{font-family:inherit; font-size:inherit; color:inherit; background:none;
   border:1px solid var(--teal-line); padding:.3rem .55rem; cursor:pointer; border-radius:2px}
@@ -144,16 +151,18 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 @media (min-width:901px){
   body.all-rivers #rail{ flex:1 1 auto; width:auto; border-left:0 }
   body.all-rivers [role=tablist]{ max-width:var(--wide); margin-inline:auto; width:100% }
-  /* A tab is 1/4 of the rail on a phone, which is right there and wrong here:
-     stretched to a 1180px column the four words sit a hand-span apart and stop
-     reading as one control. Natural width, left where the content starts. */
-  body.all-rivers [role=tab]{ flex:0 0 auto; padding-inline:1rem }
+
   body.all-rivers [role=tabpanel]{ padding:1rem 1.1rem }
   body.all-rivers [role=tabpanel] > *{ max-width:var(--wide); margin-inline:auto }
-  /* Four across on a wide screen, two on a narrow one, one on a phone — and
-     the comparison the app is for actually happens in the eye. */
-  .rivergrid{ display:grid; gap:.7rem;
-    grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)) }
+  /* EXPLICIT COLUMN COUNTS, not auto-fit. There are exactly four rivers, so a
+     track count that "fits as many as it can" will sooner or later fit THREE —
+     and it did, on an iPad Pro 12.9 in portrait, leaving the fourth river alone
+     on a row of its own. Four cards want a factor of four: two, or four.
+     1200 up: all four side by side, which is what the compare view is for.
+     901–1199: two by two, so nothing is orphaned and nothing is 190px wide.
+     Below 901 they stack, which is right on a phone and on a tablet held
+     upright. */
+  .rivergrid{ display:grid; gap:.7rem; grid-template-columns:repeat(2,1fr) }
   /* A stretched <button> CENTRES its content, so the two cards with a line
      less of text floated eight pixels lower than the other two and the row of
      names stopped being a row. The grid makes them equal height; this makes
@@ -169,6 +178,9 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
      explains, and the bars became a near-empty rule. Both are capped to the
      same column as everything else. */
   #ribbonwrap > *{ max-width:var(--wide); margin-inline:auto }
+}
+@media (min-width:1200px){
+  .rivergrid{ grid-template-columns:repeat(4,1fr) }
 }
 #map{flex:1 1 auto; min-height:260px; background:#08100f}
 #rail{
@@ -190,6 +202,14 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 [role=tab][aria-selected=true]{color:var(--ink); border-bottom-color:var(--cyan); background:#16302e}
 [role=tabpanel]{padding:.7rem; overflow-y:auto; flex:1 1 auto; min-height:0}
 [role=tabpanel][hidden]{display:none}
+/* A tab is a quarter of the row on a phone, which is right: four equal targets
+   filling the width. It is wrong on anything wider — on a tablet in portrait,
+   or a 1180px column, the four words sit a hand-span apart and stop reading as
+   one control, and the first one's focus ring is drawn off the left edge.
+   Natural width from tablet size up. */
+@media (min-width:560px){
+  [role=tab]{ flex:0 0 auto; padding-inline:1.1rem }
+}
 h2.sec{font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
   color:var(--mute); margin:1.1rem 0 .35rem; border-bottom:1px solid var(--teal); padding-bottom:.2rem}
 h2.sec:first-child{margin-top:0}
@@ -357,7 +377,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 <header>
   <div class="brand">
     <h1>Thalweg</h1>
-    <span class="ver" id="verchip">v0.1.0</span>
+    <!-- EMPTY ON PURPOSE. This carried a hard-coded "v0.1.0" and the script
+         only overwrote it when /version answered with a build SHA — so on any
+         host where that endpoint is absent, the reader was shown a version
+         number that had been left behind by the last release. A stamp exists so
+         a screenshot says which build you are on; one that can be wrong is
+         worse than one that is blank. Filled from VERSION on boot. -->
+    <span class="ver" id="verchip"></span>
     <span>Central Valley depth &amp; conditions</span>
   </div>
   <span class="notnav">Not for navigation</span>
@@ -433,6 +459,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 </dialog>
 
 <script src="vendor/leaflet.js"></script>
+<!-- NOAA's tide stations, baked at build time by tools/fetch-stations.mjs.
+     A reader gets them on the map from first load, offline, without paying for
+     NOAA's two-megabyte index on a phone. Its absence is survivable: the app
+     falls back to the declared stations and the button still works. -->
+<script src="tide-stations.js"></script>
 <script>
 /* =====================================================================
    Thalweg — depth and conditions for the Central Valley fall-run fishery.
@@ -450,7 +481,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.2.0';
+var VERSION = '0.4.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -902,6 +933,7 @@ var state = {
   weirs:  {},             /* riverId -> { at, over, quiet, unknown } */
   marks:  [],             /* marks for the selected river */
   markLayer: null,
+  tideLayer: null,
   soundingLayer: null,
   soundingNote: '',
   ramp: false,            /* the depth ramp, off until asked for */
@@ -1341,15 +1373,52 @@ function stationMeta(id){
 /* The declared stations only. The full index is a separate, deliberate act —
    see nearbyTideStations — because it costs two megabytes and nobody should
    pay that to read the tide at a station this app already knows. */
+/* Where the extra stations come from, in order of preference:
+   the file baked into the app, then anything the button has found SINCE that
+   file was made. The baked list needs no network and no permission; the stored
+   one only ever holds what NOAA has added since the last bake. */
+function bakedStations(river){
+  var t = (typeof TIDE_STATIONS === 'object' && TIDE_STATIONS) || {};
+  return (t[river.id] || []).map(function(s){
+    return { id:String(s.id), name:s.name, lat:s.lat, lon:s.lon, status:PROV.FOUND };
+  });
+}
+
+/* WHAT WE ALREADY KNOW COSTS NOTHING TO USE.
+ *
+ * This used to ask NOAA for the metadata of EVERY station it had an id for,
+ * one request each, on every load — which is what made a long list expensive
+ * and is why the button's cost scaled with the size of a rectangle rather than
+ * with anything a reader would see.
+ *
+ * The baked file carries the name and the position, so a station that is in it
+ * is already answered. Only an id we have no position for is asked about, and
+ * that is now a handful at most: a declared station on a build made before the
+ * bake, or something the button has turned up since. */
 function discoverTideStations(river){
-  var wanted = (river.tideStations || []).map(function(s){ return s.id; });
+  var known = {};
+  bakedStations(river).forEach(function(s){ known[s.id] = s; });
   var extra = sget(river.id, 'tidestations');
-  if (extra && extra.list) wanted = wanted.concat(extra.list.map(function(s){ return s.id; }));
+  if (extra && extra.list) extra.list.forEach(function(s){
+    /* Found by the button, which means NOAA added it after this build. */
+    if (isNum(s.lat) && isNum(s.lon)) known[s.id] = {
+      id:String(s.id), name:s.name, lat:s.lat, lon:s.lon,
+      status:PROV.FOUND, origin:'new' };
+  });
+
+  var wanted = (river.tideStations || []).map(function(s){ return s.id; });
+  Object.keys(known).forEach(function(id){ wanted.push(id); });
   var seen = {};
   wanted = wanted.filter(function(id){ if (seen[id]) return false; seen[id] = true; return true; });
-  return Promise.all(wanted.map(stationMeta)).then(function(rows){
-    return rows.filter(function(r){ return isNum(r.lat) && isNum(r.lon); })
-               .map(function(r){ r.status = PROV.FOUND; return r; });
+
+  var ask = wanted.filter(function(id){ return !known[id]; });
+  return Promise.all(ask.map(stationMeta)).then(function(rows){
+    rows.forEach(function(r){
+      if (isNum(r.lat) && isNum(r.lon)) known[r.id] = { id:r.id, name:r.name,
+        lat:r.lat, lon:r.lon, status:PROV.FOUND };
+    });
+    return wanted.map(function(id){ return known[id]; })
+                 .filter(function(r){ return r && isNum(r.lat) && isNum(r.lon); });
   });
 }
 
@@ -1366,8 +1435,23 @@ function nearbyTideStations(river){
       if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) return;
       list.push({ id:String(s.id), name:s.name, lat:lat, lon:lon, status:PROV.FOUND });
     });
-    sput(river.id, 'tidestations', { at:Date.now(), list:list });
-    return list;
+    /* ONLY WHAT IS NEW. The stations in this river's box already ship with the
+       app — tools/fetch-stations.mjs asked NOAA once and baked them in — so
+       there is nothing here to download twice. What this answers is the one
+       question the baked file cannot: has NOAA added a station since the build.
+       Usually the answer is none, and saying none is the useful answer. */
+    var already = {};
+    bakedStations(river).forEach(function(s){ already[s.id] = true; });
+    (river.tideStations || []).forEach(function(s){ already[s.id] = true; });
+    var fresh = list.filter(function(s){ return !already[s.id]; });
+    var c = river.center;
+    fresh.sort(function(x, y){
+      return metresBetween(c[0], c[1], x.lat, x.lon) -
+             metresBetween(c[0], c[1], y.lat, y.lon);
+    });
+    fresh = fresh.slice(0, 12);
+    sput(river.id, 'tidestations', { at:Date.now(), list:fresh, inBox:list.length });
+    return fresh;
   }, function(e){
     logNet('CO-OPS station index', COOPS_MD, false, String(e && e.message || e));
     throw e;
@@ -2055,8 +2139,18 @@ function initMap(){
   state.map = m;
   setBasemap(sget('_shared','basemap') || 'imagery');
 
-  state.markLayer = L.layerGroup().addTo(m);
+  /* A PANE, NOT AN ADD ORDER. A tide station sits on top of the gauge at the
+     same place — Rio Vista has both — and whichever is drawn last swallows the
+     tap. Adding the layer group first is not enough: every vector shares one
+     pane, and this layer is REDRAWN whenever the tide changes, so its paths
+     land after the gauges' again on the next refresh. A pane with its own
+     z-index is the only version of this that stays true.
+     A station is context and a gauge is a reading, so the reading wins the tap. */
+  m.createPane('tidepane');
+  m.getPane('tidepane').style.zIndex = 380;   /* overlayPane is 400 */
+  state.tideLayer = L.layerGroup().addTo(m);
   state.gaugeLayer = L.layerGroup().addTo(m);
+  state.markLayer = L.layerGroup().addTo(m);
   state.soundingLayer = L.layerGroup().addTo(m);
 
   /* A tap used to drop a mark, silently, so exploring the map littered it.
@@ -2393,7 +2487,7 @@ function renderWater(){
           state.swept[river.id] = true;
           loadGauges(river).then(function(payload){
             state.gauges[river.id] = payload;
-            renderWater(); drawRibbon(); drawGaugeMarkers(); updateStaleness();
+            renderWater(); drawRibbon(); drawGaugeMarkers(); drawTideMarkers(); updateStaleness();
             announce('Sweep finished.');
           }, function(){
             swBtn.disabled = false;
@@ -2506,22 +2600,29 @@ function tideSection(river){
      result is kept and the question is not asked again. */
   if (river.tideDiscover && !sget(river.id,'tidestations')){
     var moreRow = el('div',{class:'rowline'});
-    var moreBtn = el('button',{type:'button',text:'Look for other stations near here'});
+    var moreBtn = el('button',{type:'button',text:'Check NOAA for stations added since this build'});
     moreBtn.addEventListener('click', function(){
       moreBtn.disabled = true;
       moreBtn.textContent = 'Asking NOAA — this one is a big file…';
-      nearbyTideStations(river).then(function(){
+      nearbyTideStations(river).then(function(added){
         loadTideFor(river);
-        announce('Nearby prediction stations loaded.');
+        /* Say what happened, including when what happened was nothing. A button
+           that goes quiet on "none" leaves a reader wondering whether it ran. */
+        announce(added && added.length
+          ? added.length + ' station(s) NOAA has added since this build are now in the list.'
+          : 'NOAA has not added any stations on this river since this build.');
+        moreBtn.textContent = added && added.length
+          ? added.length + ' new station(s) added'
+          : 'NOAA has added none since this build';
       }, function(e){
         moreBtn.disabled = false;
-        moreBtn.textContent = 'Look for other stations near here';
+        moreBtn.textContent = 'Check NOAA for stations added since this build';
         announce('NOAA did not answer: ' + (e && e.message || e));
       });
     });
     moreRow.appendChild(moreBtn);
     moreRow.appendChild(el('span',{class:'note',
-      text:'NOAA publishes its station list as one two-megabyte file and will not filter it, so this is asked for on purpose rather than on every visit. It is kept afterwards.'}));
+      text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks whether NOAA has ADDED any since then. It costs a two-megabyte download because NOAA publishes its list as one file and will not filter it, which is why it is a button and not something that happens to you. Usually the answer is none.'}));
     box.appendChild(moreRow);
   }
 
@@ -2604,6 +2705,9 @@ function switchTideStation(river, id){
     if (t) t.stations = stations;
     state.tides[river.id] = t;
     renderWater();
+    /* The map has to agree about which one is being read, or the marker drawn
+       as "the one you are using" is the one you just stopped using. */
+    drawTideMarkers();
   });
 }
 
@@ -3482,7 +3586,7 @@ function refreshData(){
     }
     loadGauges(river).then(function(payload){
       state.gauges[river.id] = payload;
-      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers();
+      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers(); drawTideMarkers();
       /* The trend goes out after the readings, not beside them: which gauge
          to ask for a week of flow is decided by which gauge answered for
          right now, and on All rivers nothing asks at all — four rivers of
@@ -3532,14 +3636,20 @@ function loadTideFor(river){
        declared stations, then the nearest handful, so the picker stays a
        picker. */
     var c = river.center;
-    var near = found.filter(function(f){ return !seen[f.id]; })
+    var rest = found.filter(function(f){ return !seen[f.id]; })
       .map(function(f){
-        f.d = Math.pow(f.lat - c[0], 2) + Math.pow(f.lon - c[1], 2);
+        f.d = metresBetween(c[0], c[1], f.lat, f.lon);
         return f;
       })
-      .sort(function(a, b){ return a.d - b.d; })
-      .slice(0, 10);
-    var stations = declared.concat(near);
+      .sort(function(a, b){ return a.d - b.d; });
+    /* ANYTHING NEW IS NEVER RANKED OUT. A station the button just found is the
+       one thing the reader pressed it to see, and there are forty-odd baked
+       stations on this river — so on distance alone a new one two bends away
+       loses to a shipped one, and pressing the button appears to do nothing.
+       New first, then the nearest of what already shipped. */
+    var fresh = rest.filter(function(f){ return f.origin === 'new'; });
+    var known = rest.filter(function(f){ return f.origin !== 'new'; }).slice(0, 10);
+    var stations = declared.concat(fresh, known);
     if (!stations.length){
       state.tides[river.id] = { failed:'no prediction station found for this reach' };
       renderWater(); return;
@@ -3550,7 +3660,53 @@ function loadTideFor(river){
       t.stations = stations;
       state.tides[river.id] = t;
       renderWater();
+      drawTideMarkers();
     });
+  });
+}
+
+/* TIDE STATIONS ON THE MAP.
+ *
+ * They were never drawn — not the ones the discovery button finds, and not
+ * even the declared one the app is reading the tide FROM. So the picker was a
+ * list of names with no way to find out where any of them is, and choosing
+ * between them meant knowing the estuary by heart. A station is a place; a
+ * place belongs on the map.
+ *
+ * The one in use is drawn differently rather than only labelled, because the
+ * question being asked of this layer is "which of these am I reading" and that
+ * should be answerable without opening anything.
+ */
+function drawTideMarkers(){
+  if (!state.tideLayer) return;
+  state.tideLayer.clearLayers();
+  if (!state.riverId) return;
+  var river = byId(state.riverId);
+  var t = state.tides[river.id];
+  if (!t || !t.stations) return;
+  t.stations.forEach(function(s){
+    if (!isNum(s.lat) || !isNum(s.lon)) return;
+    var live = s.id === t.station;
+    L.circleMarker([s.lat, s.lon], {
+      pane: 'tidepane',
+      radius: live ? 8 : 5,
+      weight: live ? 3 : 1,
+      color: live ? '#7BD5D9' : '#3C6E6B',
+      fillColor: '#0D1A19',
+      fillOpacity: live ? 1 : .8,
+    }).bindPopup(labelNode(
+      s.name || s.id,
+      /* NO READING ROW. A tide station is a place, not a measurement — the
+         numbers live in the tide panel. The first version of this put prose
+         in the value slot, which is for a figure and its unit, and rendered
+         the name and the description with no space between them. */
+      [],
+      (live ? 'Reading the tide here. ' : 'Tide station. ') + 'NOAA ' + s.id +
+        (river.center
+          ? ' · ' + Math.round(metresBetween(river.center[0], river.center[1], s.lat, s.lon) / 1000) +
+            ' km from the middle of this reach'
+          : '')
+    ), LABEL).addTo(state.tideLayer);
   });
 }
 
@@ -4345,6 +4501,22 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.4.0', date:'2026-08-30', changes:[
+      'Every tide station on the river now ships with the app. NOAA publishes its list as one two-megabyte file it will not filter, so the app used to make each reader download the whole thing to find out that sixty-one stations exist on these rivers — and then keep none of them. They are asked for once now, when the version is built, and they are on the map from the first load, with no signal and no permission.',
+      'The button that used to fetch that file is now a much narrower question: has NOAA added a station since this build. It says so when the answer is none, which it usually is. Anything it does find is kept, and is never crowded out of the picker by the stations that already shipped — finding it is the whole reason the button exists.',
+      'Opening a river no longer asks NOAA for the details of each station one request at a time. The baked list already carries the name and the position, so on a normal load that is now no requests at all.',
+  ] },
+  { v:'0.3.0', date:'2026-08-30', changes:[
+      'Tide stations are on the map now. They never were \u2014 not the ones the \u201clook for other stations\u201d button finds, and not even the one the app was reading the tide from \u2014 so the picker was a list of names with no way to find out where any of them is. The one being read is drawn larger and brighter than the rest, so which one you are on is answerable without opening anything.',
+      'That button asked NOAA for everything inside the river\u2019s bounding box, which is a rectangle rather than a radius \u2014 on the Sacramento it reaches from San Pablo Bay to Redding. It kept the nearest twelve now instead of all of them, which also means it stops asking NOAA for the details of stations you were never going to be offered. It is renamed to say what it does.',
+      'Where a tide station and a river gauge sit at the same place \u2014 Rio Vista has both \u2014 tapping now opens the gauge, not the station. The reading wins over the label.',
+  ] },
+  { v:'0.2.1', date:'2026-08-30', changes:[
+      'The four rivers now lay out sensibly at every size they get read at, not just on a phone and a big desktop. On an iPad held upright they sit two by two \u2014 they used to wrap three across with the fourth river alone on a row of its own.',
+      'The tabs stopped stretching. On anything wider than a phone the four words were spread a hand-span apart and had stopped reading as one control.',
+      'The version stamp in the corner could be wrong. It was written into the page as a fixed number and only corrected when the server answered with a build id \u2014 so anywhere that did not answer, it showed whatever version was current when that line was last edited. It now reads the running version directly. A stamp exists so a screenshot tells you which build you are on; one that can lie is worse than one that is blank.',
+      'On a narrower screen the header used to push the (i) button onto a line by itself, away from the controls it belongs with. The warning sentence takes that line instead.',
+  ] },
   { v:'0.2.0', date:'2026-08-30', changes:[
       'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with most of the screen empty. That view exists to answer which of the four is worth the drive, and the comparison only works if you can see all four at once. Nothing changes on a phone, where they already stacked because that is the right shape there.',
       'The panel used to move across the window when you picked a river \u2014 it sat on the left with all four rivers showing and jumped to the right once a map appeared. It stays where it belongs now.',
@@ -4840,6 +5012,8 @@ function boot(){
   setInterval(function(){ if (navigator.onLine) refreshData(); }, 10 * 60 * 1000);
   setInterval(updateStaleness, 60 * 1000);
 
+  var chip0 = document.getElementById('verchip');
+  if (chip0) chip0.textContent = 'v' + VERSION;
   buildLine().then(function(txt){
     var chip = document.getElementById('verchip');
     if (!chip) return;

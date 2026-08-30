@@ -228,20 +228,32 @@ check('high and low table populated', /High ·|Low ·/.test(water), water.slice(
    and a half megabytes a first-time reader paid. */
 check('the two-megabyte station index is not fetched on load',
   mdIndexHits === 0, 'index fetched ' + mdIndexHits + ' time(s)');
-check('the declared station still has its NOAA name and position',
+/* The coordinate this used to assert — 38.1583 — was the fixture's own
+   invention, served back to the app by the fixture and checked against itself.
+   NOAA publishes 38.145 from both its index and its per-station endpoint. The
+   app reads the baked file now, so the position is NOAA's; what this checks is
+   that a declared station still resolves to its name and to somewhere real,
+   and `fetch-stations --check` is what holds every baked station to having a
+   position at all. */
+check('the declared station still has its NOAA name and a real position',
   await page.evaluate(() => {
     const t = state.tides.sacramento || {};
     const st = (t.stations || []).filter(s => s.id === '9415316')[0];
-    return !!st && st.name === 'Rio Vista' && Math.abs(st.lat - 38.1583) < 0.001;
+    return !!st && st.name === 'Rio Vista' &&
+           Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
+           st.lat > 37 && st.lat < 41;
   }));
 /* And asking for the others is a deliberate act that then works. */
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('#panel-water button')]
-    .find(x => /Look for other stations/.test(x.textContent));
+    .find(x => /stations added since this build/.test(x.textContent));
   if (b) b.click();
 });
 await page.waitForTimeout(2500);
-check('pressing the button fetches the index once and offers the extra station',
+/* The button no longer downloads stations the app already ships — it asks
+   whether NOAA has ADDED any since the build, so what it must surface is the
+   one the fixture invented and the baked file has never heard of. */
+check('the button asks NOAA once and surfaces only what is new',
   mdIndexHits === 1 &&
   await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
     return !!s && [...s.options].some(o => /Synthetic Mokelumne/.test(o.textContent)); }),
@@ -480,6 +492,22 @@ for (const [where, place] of [
   const r = await tapAndMeasure(place);
   check(`a pin ${where} shows its whole label`, r.open && r.inside, JSON.stringify(r));
 }
+/* A STATION IS A PLACE AND BELONGS ON THE MAP. They were never drawn — not the
+   ones the discovery button finds, and not even the declared one the tide is
+   being read from — so the picker was a list of names with no way to find out
+   where any of them is. And the gauge must still win the tap where the two sit
+   at the same place, which Rio Vista does. */
+check('tide stations are drawn on the map',
+  await page.evaluate(() => state.tideLayer && state.tideLayer.getLayers().length > 0),
+  'tide markers: ' + await page.evaluate(() => state.tideLayer ? state.tideLayer.getLayers().length : -1));
+check('the one being read is drawn differently from the rest',
+  await page.evaluate(() => {
+    const t = state.tides[state.riverId];
+    const live = state.tideLayer.getLayers()
+      .filter(m => Math.abs(m.options.radius - 8) < 0.01);
+    return !!t && live.length === 1;
+  }));
+
 check('the label carries the reading, not just the name',
   /cfs/i.test(await page.evaluate(() => {
     const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : ''; })),

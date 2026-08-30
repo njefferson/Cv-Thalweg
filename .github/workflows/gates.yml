@@ -37,6 +37,11 @@ jobs:
     uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@e2a5b7cb6b59311bdc7379abd0dea442edc8422f
     with:
       pwa: true
+      # This repo carries three workflows, one of which holds a write token, and
+      # two `zizmor: ignore[...]` declarations that had never been read by
+      # zizmor — the suppressions were written and the audit was not wired, so
+      # nothing was suppressing anything and nothing was auditing anything.
+      zizmor: true
 
   # This repo's own gates stay here. They are about THIS app — its proxy, its
   # rendering, its walks — and nothing in the hub knows about them.
@@ -58,6 +63,15 @@ jobs:
       # because it is what stands between a survey proxy and an open proxy.
       - name: The proxy's allow-list
         run: node tools/test-worker.mjs
+
+      # The baked station list is generated, so it can go stale in the tree the
+      # same way any generated file can. This does not ask NOAA anything — it
+      # reads what was committed and asserts the file is there, says when it was
+      # fetched, names the endpoint the app itself declares, covers every river
+      # that has tides, and gives every station a position. Fetching lives in
+      # its own workflow; this only refuses a bad or absent bake.
+      - name: The baked tide stations
+        run: node tools/fetch-stations.mjs --check
 
       # playwright-core, not playwright: this repo depends on the core package
       # and `npx playwright install` therefore had nothing to run, which

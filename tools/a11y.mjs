@@ -139,6 +139,15 @@ async function audit(page, label) {
    authority on that, not a number remembered from a spec sheet. This suite
    spent its whole life measuring a phone 27% taller than the one the app is
    read on. */
+/* THE RANGE THIS IS ACTUALLY READ ON, rather than two widths a session picked.
+ * Phones portrait and landscape, iPads in BOTH orientations — which matters
+ * more here than anywhere, because every iPad in portrait is 744–834px and
+ * lands on the narrow side of the 901px breakpoint while every iPad in
+ * landscape lands on the wide side, so one device gets both layouts — and the
+ * laptop and desktop widths above that.
+ *
+ * The heaviest checks run on two of these; the rest get the geometry pass,
+ * which is what a layout defect shows up in. */
 for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]]) {
   const ctx = await browser.newContext({ viewport: { width, height } });
   const page = await ctx.newPage();
@@ -731,6 +740,85 @@ for (const [label, width, height] of [
     check('WebKit, iPhone 13: no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
     await wk.close();
+  }
+}
+
+/* ---- THE DEVICE RANGE ----
+ *
+ * Cheap and broad: every geometry gets loaded, opened and measured for the
+ * things a layout breaks in — something past the edge, a control stranded in a
+ * phone-width column on a wide screen, a row of cards that is not a row. The
+ * deep passes above stay on two geometries because they drive a browser through
+ * twenty states each.
+ *
+ * The wide assertion is NOT "fills 60% of the screen". A centred column with
+ * gutters is a deliberate and comfortable desktop shape, and demanding a share
+ * of the viewport would fail 1920 and 2560 for being tidy. What it must not be
+ * is STRANDED — the defect this was written after was a 340px rail on a 1680px
+ * screen, so the floor is an absolute width. */
+{
+  const RANGE = [
+    ['iPhone SE',        320,  568],
+    ['iPhone 8',         375,  667],
+    ['Android',          360,  800],
+    ['iPhone 15',        393,  852],
+    ['iPhone Pro Max',   430,  932],
+    ['iPhone landscape', 844,  390],
+    ['iPad mini',        744, 1133],
+    ['iPad 10.2',        810, 1080],
+    ['iPad Air',         820, 1180],
+    ['iPad Pro 11',      834, 1194],
+    ['iPad Pro 12.9',   1024, 1366],
+    ['iPad mini land',  1133,  744],
+    ['iPad Air land',   1180,  820],
+    ['iPad Pro land',   1366, 1024],
+    ['laptop',          1440,  900],
+    ['desktop',         1536,  864],
+    ['desktop wide',    1920, 1080],
+    ['ultrawide',       2560, 1440],
+  ];
+  for (const [label, w, h] of RANGE) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h } });
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on('pageerror', e => errs.push(e.message));
+    await page.goto(BASE + '/', { waitUntil: 'load' });
+    await page.waitForTimeout(1800);
+    await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach(d => d.close()));
+    await page.waitForTimeout(400);
+
+    const m = await page.evaluate(() => {
+      const de = document.documentElement;
+      const g = document.querySelector('.rivergrid');
+      const cards = [...document.querySelectorAll('.rivergrid .rivercard')];
+      const chip = document.getElementById('verchip');
+      return {
+        over: Math.max(0, de.scrollWidth - de.clientWidth),
+        grid: g ? Math.round(g.getBoundingClientRect().width) : 0,
+        tops: cards.map(c => Math.round(c.getBoundingClientRect().top)),
+        cards: cards.length,
+        chip: (chip && chip.textContent || '').trim(),
+      };
+    });
+
+    check(`${label} ${w}×${h}: nothing reaches past the edge`, m.over === 0, m.over + 'px');
+    check(`${label} ${w}×${h}: all four rivers are offered`, m.cards === 4, String(m.cards));
+    /* NOT "they are one row" — between 901 and 1199 two by two is the right
+       shape and one row of four would be 190px wide. What is never right is an
+       ORPHAN: four cards in rows of three leaves the fourth river alone, which
+       is what auto-fit did on an iPad Pro in portrait. So the rule is that every
+       row holds the same number, which for four means four, two or one. */
+    const perRow = m.tops.filter(t => t === m.tops[0]).length;
+    check(`${label} ${w}×${h}: no river is left on a row of its own`,
+      m.cards === 4 && m.cards % perRow === 0, `${perRow} per row (${m.tops.join(', ')})`);
+    if (w >= 1200)
+      check(`${label} ${w}×${h}: the compare view is not stranded in a narrow column`,
+        m.grid >= 900, m.grid + 'px');
+    /* A stamp that can be wrong is worse than one that is blank. */
+    check(`${label} ${w}×${h}: the version stamp says a version`,
+      /^v\d+\.\d+\.\d+/.test(m.chip), m.chip || '(empty)');
+    check(`${label} ${w}×${h}: no page errors`, errs.length === 0, errs[0]);
+    await ctx.close();
   }
 }
 
