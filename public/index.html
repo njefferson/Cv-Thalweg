@@ -406,6 +406,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <select id="riverpick"></select>
   </span>
   <span class="stale" id="staleness" role="status"></span>
+  <!-- Back to the page this opens on. The river picker could already get here
+       — All rivers is its first option — but that is a menu you have to know
+       to open and then find the right line in, which is not the same as a way
+       back. Hidden, not disabled, while you are already there: a control that
+       does nothing is worse than one that is not offered. The accessible name
+       carries the word on the face of it, because a label that merely overlaps
+       passes a substring check by accident (hub LESSONS 29). -->
+  <button id="homebtn" hidden title="Home — back to all four rivers"
+          aria-label="Home — back to all four rivers">Home</button>
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
@@ -456,6 +465,19 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   </div>
 </main>
 
+<!-- What you just got. The strip that offered the update belongs to the OLD
+     build and has never heard of the release it is offering, so the only
+     moment anything in this app knows what changed is after the reload. This
+     leads with THIS version's notes; the whole history is one press away and
+     is not what somebody who just pressed Update came for. -->
+<dialog id="whatsnew" aria-labelledby="newtitle">
+  <div class="dlg-head">
+    <h2 class="grow" id="newtitle" tabindex="-1" style="font-size:1rem">What changed</h2>
+    <button id="newclose" aria-label="Close">Close</button>
+  </div>
+  <div class="dlg-body" id="newbody"></div>
+</dialog>
+
 <dialog id="about" aria-labelledby="abouttitle">
   <div class="dlg-head">
     <h2 class="grow" id="abouttitle" tabindex="-1" style="font-size:1rem">About Thalweg</h2>
@@ -495,7 +517,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.5.0';
+var VERSION = '0.6.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2646,9 +2668,7 @@ function renderWater(){
     } else {
       if (payload.noData) p.appendChild(el('div',{class:'warnbox',
         text:'Nothing answered this time. Every row below is what the request came back with, not a reading.'}));
-      if (looksOld(payload) && !payload.noData) p.appendChild(el('div',{class:'warnbox',
-        text:'Stored readings, ' + ageText(Date.now() - payload.fetchedAt) +
-             '. The network did not answer, so these are the last that arrived.'}));
+      if (looksOld(payload) && !payload.noData) p.appendChild(staleBox(payload));
       var onRiver = payload.rows.filter(function(r){ return !r.context; });
       var tribs   = payload.rows.filter(function(r){ return r.context; });
       if (!onRiver.length && river.noLiveGauges)
@@ -2782,32 +2802,59 @@ function tideSection(river){
   /* Asking NOAA what else is out there costs two megabytes, so it is a
      button rather than something that happens to you. Once pressed, the
      result is kept and the question is not asked again. */
-  if (river.tideDiscover && !sget(river.id,'tidestations')){
+  /* IT USED TO VANISH THE MOMENT IT WAS PRESSED, because it was only drawn
+     when nothing had been stored yet. So the reader pressed a button, the
+     button disappeared, and nothing said what it had found, whether anything
+     had been added, or whether this was permanent or had to be done again on
+     every visit. Every one of those was already known to the app. */
+  if (river.tideDiscover){
+    var seen = sget(river.id,'tidestations');
     var moreRow = el('div',{class:'rowline'});
-    var moreBtn = el('button',{type:'button',text:'Check NOAA for stations added since this build'});
+    var moreBtn = el('button',{type:'button',
+      text: seen ? 'Check NOAA again' : 'Check NOAA for stations added since this build'});
+    var said = el('p',{class:'note',style:'margin:.35rem 0 0'});
+
+    /* What the last check found, and when. A result the app is holding and not
+       showing is the same as no result. */
+    function saidText(res){
+      if (!res) return '';
+      var t = 'Last checked ' + clockLocal(new Date(res.at).toISOString()) + ', ' +
+              dayLocal(new Date(res.at).toISOString()) + '. ';
+      t += (res.list && res.list.length)
+        ? 'NOAA had added ' + res.list.length + ' station(s) since this version was built' +
+          (res.list.length ? ': ' + res.list.map(function(x){ return x.name || x.id; }).join(', ') + '. ' : '. ') +
+          'They are in the list above and they stay there \u2014 you do not need to do this again.'
+        : 'NOAA had added none since this version was built. ' +
+          'That is the usual answer, and it is kept, so you do not need to check again unless you want to.';
+      return t;
+    }
+    said.textContent = saidText(seen);
+
     moreBtn.addEventListener('click', function(){
       moreBtn.disabled = true;
-      moreBtn.textContent = 'Asking NOAA — this one is a big file…';
+      moreBtn.textContent = 'Asking NOAA \u2014 this one is a big file\u2026';
       nearbyTideStations(river).then(function(added){
         loadTideFor(river);
-        /* Say what happened, including when what happened was nothing. A button
-           that goes quiet on "none" leaves a reader wondering whether it ran. */
+        var res = sget(river.id,'tidestations');
+        said.textContent = saidText(res);
         announce(added && added.length
-          ? added.length + ' station(s) NOAA has added since this build are now in the list.'
-          : 'NOAA has not added any stations on this river since this build.');
-        moreBtn.textContent = added && added.length
-          ? added.length + ' new station(s) added'
-          : 'NOAA has added none since this build';
+          ? added.length + ' station(s) NOAA has added since this build are now in the list, and they stay there.'
+          : 'NOAA has not added any stations on this river since this build. That answer is kept.');
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Check NOAA again';
       }, function(e){
         moreBtn.disabled = false;
-        moreBtn.textContent = 'Check NOAA for stations added since this build';
-        announce('NOAA did not answer: ' + (e && e.message || e));
+        moreBtn.textContent = 'Try NOAA again';
+        said.textContent = 'NOAA did not answer: ' + (e && e.message || e) +
+          ' Nothing changed, and the stations already in the list are unaffected.';
+        announce('NOAA did not answer.');
       });
     });
     moreRow.appendChild(moreBtn);
-    moreRow.appendChild(el('span',{class:'note',
-      text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks whether NOAA has ADDED any since then. It costs a two-megabyte download because NOAA publishes its list as one file and will not filter it, which is why it is a button and not something that happens to you. Usually the answer is none.'}));
     box.appendChild(moreRow);
+    box.appendChild(el('span',{class:'note',
+      text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks whether NOAA has ADDED any since then. It costs a two-megabyte download because NOAA publishes its list as one file and will not filter it, which is why it is a button and not something that happens to you. Usually the answer is none.'}));
+    box.appendChild(said);
   }
 
   var st = (t.stations||[]).filter(function(s){ return s.id === t.station; })[0];
@@ -3696,6 +3743,10 @@ function selectRiver(id){
   updateLegend();
 
   document.body.classList.toggle('all-rivers', !state.riverId);
+  /* Offered only where it goes somewhere. Hidden rather than disabled: a
+     control that does nothing still asks to be understood. */
+  var home = $('#homebtn');
+  if (home) home.hidden = !state.riverId;
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -3760,7 +3811,57 @@ function updateStaleness(){
   $('#staleness').textContent = out;
 }
 
+/* How often it goes and looks by itself. Named, because the strip that tells a
+   reader their readings are old has to be able to say when it will try again —
+   a number in one place and a sentence in another is how those two stop
+   agreeing. */
+var REFRESH_MS = 10 * 60 * 1000;
+
+/* THE STRIP SAID THE READINGS WERE OLD AND NOTHING ELSE. It did not say when it
+   had last tried, when it would try next, or how to ask now, so the only
+   honest reading of it was "this is broken and there is nothing you can do".
+   All three of those were already true facts about the app; none of them was
+   on screen. */
+function staleBox(payload){
+  var box = el('div',{class:'warnbox'});
+  box.appendChild(el('p',{style:'margin:0 0 .35rem',
+    text:'Stored readings, ' + ageText(Date.now() - payload.fetchedAt) +
+         '. The network did not answer, so these are the last that arrived.'}));
+
+  var when = state.lastAttempt
+    ? 'Last tried at ' + clockLocal(new Date(state.lastAttempt).toISOString()) + '. '
+    : '';
+  var next = navigator.onLine
+    ? 'It tries again on its own every ten minutes, and each time you come back to the app.'
+    : 'Your device says it is offline, so it is not trying. It will start again by itself the moment a connection comes back.';
+  box.appendChild(el('p',{class:'note',style:'margin:0 0 .35rem',
+    text:when + next + ' There is no waiting period — you can ask it to try now, as often as you like.'}));
+
+  var row = el('div',{class:'rowline'});
+  var btn = el('button',{type:'button',id:'retrybtn',text:'Try now'});
+  btn.addEventListener('click', function(){
+    btn.disabled = true;
+    btn.textContent = 'Asking…';
+    announce('Asking the gauges again.');
+    var was = payload.fetchedAt;
+    refreshData();
+    /* Say what happened either way. A button that goes quiet leaves a reader
+       pressing it again to find out whether it did anything. */
+    setTimeout(function(){
+      var now = state.gauges[state.riverId] || payload;
+      var moved = now.fetchedAt && now.fetchedAt !== was;
+      announce(moved ? 'New readings arrived.'
+                     : 'Still nothing. The readings on screen are the same ones.');
+      if (!moved){ btn.disabled = false; btn.textContent = 'Try again'; }
+    }, 6000);
+  });
+  row.appendChild(btn);
+  box.appendChild(row);
+  return box;
+}
+
 function refreshData(){
+  state.lastAttempt = Date.now();
   var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
   rivers.forEach(function(river){
     var cached = sget(river.id,'gauges');
@@ -4685,70 +4786,73 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.6.0', date:'2026-08-30', changes:[
+      'There is a Home button now. It takes you back to the four-river page the app opens on, at the top, in one press. You could always get there through the River menu, but a menu you have to open and then find the right line in is not the same as a way back.',
+      'When your readings have gone old, the message now tells you what you can do about it. It says when the app last tried, that it tries again by itself every ten minutes and every time you come back to it, and that there is no waiting period stopping you. And there is a Try now button, which tells you whether anything new arrived or whether you are looking at the same readings.',
+      'The app also goes and looks the moment you come back to it. Left open in a pocket for an hour, it used to sit on old readings until its ten-minute timer came round again.',
+      'The button that checks NOAA for new tide stations used to disappear the moment you pressed it, without saying what it had done. It stays now, and tells you when it last checked, what it found, and that the answer is kept \u2014 so you do not have to press it again every visit to find out.',
+  ] },
   { v:'0.5.0', date:'2026-08-30', changes:[
-      'A Where I am button, on the map. It puts you on it, with a ring showing how sure your device actually is \u2014 a phone that is eight metres sure and one that is two kilometres sure hand back the same pair of numbers, and drawing both as the same dot would claim a precision only one of them has. It also says what is nearest and how far, which is the question you actually have standing on a bank.',
-      'Your position is not saved between visits and your coordinate is not sent anywhere \u2014 not to this app, not to the depth service. One caveat, written down because it is true: moving the map to you loads map tiles for that area, so whoever serves the basemap can tell roughly where you are looking. That is the same thing that happens if you scroll there by hand.',
-      'When it cannot find you it says which of the four reasons it was \u2014 permission refused, no fix, timed out, or a browser with no location service at all \u2014 rather than one sentence that would be true every time and useful none of them.',
+      'There is a Where I am button on the map now. It puts you on the map, with a circle around you showing how close your phone actually got \u2014 some are sure to a few paces, others only to a mile or two, and now you can see which one you got instead of trusting a dot that looks the same either way. It also tells you what is nearest and how far off it is.',
+      'Where you are stays with you. It is not kept after you close the app and it is not sent to anyone. One thing worth knowing: moving the map to you loads map pictures for that patch of ground, so whoever provides those pictures can tell roughly where you are looking \u2014 the same as if you had scrolled there yourself.',
+      'If it cannot find you it tells you which of the four reasons it was: you have location switched off for this page, your phone could not get a fix, it took too long, or this browser cannot do it at all.',
   ] },
   { v:'0.4.0', date:'2026-08-30', changes:[
-      'Every tide station on the river now ships with the app. NOAA publishes its list as one two-megabyte file it will not filter, so the app used to make each reader download the whole thing to find out that sixty-one stations exist on these rivers — and then keep none of them. They are asked for once now, when the version is built, and they are on the map from the first load, with no signal and no permission.',
-      'The button that used to fetch that file is now a much narrower question: has NOAA added a station since this build. It says so when the answer is none, which it usually is. Anything it does find is kept, and is never crowded out of the picker by the stations that already shipped — finding it is the whole reason the button exists.',
-      'Opening a river no longer asks NOAA for the details of each station one request at a time. The baked list already carries the name and the position, so on a normal load that is now no requests at all.',
+      'Every tide station on these rivers now comes with the app \u2014 sixty-one of them, on the map the moment you open it, with no signal needed and nothing to wait for. They used to show up only if you went looking, cost you a large download when you did, and were gone again the next time you opened the app.',
+      'That button now answers a smaller question: has NOAA put in a new station since this version was made. Usually the answer is none, and it tells you so instead of going quiet. Anything new it does turn up stays in your list from then on.',
+      'Opening a river is quicker, because it no longer has to go and ask about each station one at a time.',
   ] },
   { v:'0.3.0', date:'2026-08-30', changes:[
-      'Tide stations are on the map now. They never were \u2014 not the ones the \u201clook for other stations\u201d button finds, and not even the one the app was reading the tide from \u2014 so the picker was a list of names with no way to find out where any of them is. The one being read is drawn larger and brighter than the rest, so which one you are on is answerable without opening anything.',
-      'That button asked NOAA for everything inside the river\u2019s bounding box, which is a rectangle rather than a radius \u2014 on the Sacramento it reaches from San Pablo Bay to Redding. It kept the nearest twelve now instead of all of them, which also means it stops asking NOAA for the details of stations you were never going to be offered. It is renamed to say what it does.',
-      'Where a tide station and a river gauge sit at the same place \u2014 Rio Vista has both \u2014 tapping now opens the gauge, not the station. The reading wins over the label.',
+      'Tide stations are on the map. They never used to be \u2014 not even the one your tide reading was coming from \u2014 so the list of station names left you no way to tell where any of them was. The one being read is drawn bigger and brighter, so you can see which one you are on without opening anything.',
+      'Looking for other stations used to offer you every station in a rectangle covering the whole river; on the Sacramento that stretches from San Pablo Bay to Redding, so most of what it found was nowhere near you. It offers the closest twelve now.',
+      'Where a tide station and a river gauge sit on the same spot, as they do at Rio Vista, tapping now opens the gauge and its readings rather than just the station name.',
   ] },
   { v:'0.2.1', date:'2026-08-30', changes:[
-      'The four rivers now lay out sensibly at every size they get read at, not just on a phone and a big desktop. On an iPad held upright they sit two by two \u2014 they used to wrap three across with the fourth river alone on a row of its own.',
-      'The tabs stopped stretching. On anything wider than a phone the four words were spread a hand-span apart and had stopped reading as one control.',
-      'The version stamp in the corner could be wrong. It was written into the page as a fixed number and only corrected when the server answered with a build id \u2014 so anywhere that did not answer, it showed whatever version was current when that line was last edited. It now reads the running version directly. A stamp exists so a screenshot tells you which build you are on; one that can lie is worse than one that is blank.',
-      'On a narrower screen the header used to push the (i) button onto a line by itself, away from the controls it belongs with. The warning sentence takes that line instead.',
+      'The four rivers now sit sensibly at every screen size, not just on a phone and a wide desktop. On an iPad held upright they are two by two; they used to leave the fourth river stranded on a row of its own.',
+      'The tabs stopped stretching. On anything wider than a phone the four words were spread so far apart they had stopped looking like one control.',
+      'The version number in the corner could be wrong, which matters when you send a screenshot to say something is broken. It now always shows the version you are actually running.',
+      'On a narrower screen the (i) button used to get pushed onto a line of its own, away from the controls it belongs with.',
   ] },
   { v:'0.2.0', date:'2026-08-30', changes:[
-      'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with most of the screen empty. That view exists to answer which of the four is worth the drive, and the comparison only works if you can see all four at once. Nothing changes on a phone, where they already stacked because that is the right shape there.',
-      'The panel used to move across the window when you picked a river \u2014 it sat on the left with all four rivers showing and jumped to the right once a map appeared. It stays where it belongs now.',
-      'Smaller things on a wide screen: the temperature scale sits with the bars it explains rather than a screen away from them, the tabs stop stretching a hand-span apart, and the four river names line up.',
+      'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with the rest of the screen empty. That view is for deciding which river is worth the drive, and that only works if you can see all four at once. Nothing changes on a phone, where stacked is the right shape.',
+      'The panel used to jump from one side of the window to the other when you picked a river. It stays where it is now.',
+      'Also on a wide screen: the temperature scale sits next to the bars it explains instead of a screen away from them, and the four river names line up.',
   ] },
   { v:'0.1.0', date:'2026-08-27', changes:[
-      'First release. It opens on all four rivers, each with a card saying whether it is open, what the water temperature means, how much water is coming down and when the tide next turns — the go-or-not answer before you drive anywhere. Tap one for its own map, tide and depth.',
+      'First release. It opens on all four rivers, each with a card saying whether it is open, what the water temperature means, how much water is coming down and when the tide next turns \u2014 the go-or-not answer before you drive anywhere. Tap one for its own map, tide and depth.',
       'Thalweg does not rank the four. Reading a thermometer against a threshold is one thing; telling you where the fishing will be better is a forecast it has no basis for.',
-      'Tide for the tidal water — the Sacramento and the lower Mokelumne — with the next highs and lows, fetched a week ahead so they still work with no signal.',
-      'Published depth surveys where the state has them: continuous multibeam where the bottom was mapped as a surface, and single beam soundings where it was measured along the boat’s track. Where a reach has never been surveyed it says so rather than offering an empty switch.',
-      'Flow, height and water temperature from every gauge that reports, with the name the service itself gives it, so a wrong identifier shows as an error rather than a plausible wrong reading.',
-      'The Feather reads from the state’s own gauges rather than USGS, which publishes nothing current for that river.',
+      'Tide for the tidal water \u2014 the Sacramento and the lower Mokelumne \u2014 with the next highs and lows, brought down a week ahead so they still work with no signal.',
+      'Published depth surveys where the state has them: continuous multibeam where the bottom was mapped as a surface, and single beam soundings where it was measured along the boat\u2019s track. Where a reach has never been surveyed it says so rather than offering an empty switch.',
+      'Flow, height and water temperature from every gauge that reports, under the name the service itself uses. If a gauge is misnamed you get an error rather than a plausible wrong reading from somewhere else.',
+      'The Feather reads from the state\u2019s own gauges rather than USGS, which publishes nothing current for that river.',
       'Season dates and reach boundaries in the words of the regulation, with a note where the printed rules are the last word.',
       'Drop marks for holes, hazards, ramps and fish; export them as a file. They never leave your device.',
       'On a phone the map is a tab beside the others, so the readings get the screen until you ask for it.',
-      'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey has no reading at that exact spot you get the nearest place it did measure and how far away that was, rather than a shrug. Reading the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
+      'Tap anywhere on the map and it asks the published survey how deep it is there, then offers to keep the point as a mark carrying that depth and the date it was surveyed. Where the survey never measured that exact spot you get the nearest place it did, and how far away that was, rather than a shrug. Read the depth at the map centre is a button in the Layers panel, for anyone not using a finger.',
       'A tap on the map used to drop a mark without asking, so looking around left marks everywhere. It reads the depth now, and the mark is yours to keep or not.',
-      'A weir over its crest now says so in a standing strip at the top of the screen, on any view, rather than only inside the panel for the river it belongs to. It names the weir, how far over, which river and which bypass, and a button takes you to the detail.',
-      'The four weirs on the Sacramento — Fremont, Tisdale, Colusa, Moulton. When one goes over its crest the river stops being one channel: water leaves for a bypass and takes the fish in it with it. It says which weir, how far over, and which bypass. The source also publishes a forecast for the days ahead; that is somebody’s model and is not repeated here.',
-      'Four more Sacramento gauges are named and checked rather than swept up: above the Delta Cross Channel, below Georgiana Slough, the Deep Water Ship Channel near Freeport, and below the Walnut Grove bridge. They used to appear only if a basin-wide sweep happened to run.',
-      'That sweep is a button now, at the bottom of the gauges. It costs 234KB and about nine seconds, it was running for all four rivers on every visit, and across all four it found four gauges — every one of them on the Sacramento, and all four now named above. On the Feather, the American and the Mokelumne it returned nothing at all. It is still there because a gauge can appear later, and what it finds is kept.',
-      'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in — and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the discharge at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
-      'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words — clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
-      'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export — the figure, which survey it came from and the date that survey was made.',
-      'The depth surveys are listed by a readable name and their survey date rather than by the identifier DWR files them under. The identifier is still printed under each one, so what is on screen can be matched to the catalogue.',
-      'On opening, the app no longer tells you the network failed while it is still succeeding. Readings are called stored when they are actually old, not because one refresh missed; the landing says which rivers are stored rather than captioning all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
-      'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line — rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now and publishes no history, it says so instead of drawing a flat line.',
-      'It opens on a fraction of what it used to cost. NOAA publishes its whole prediction-station list as one two-megabyte file and will not filter it, and this app was fetching that once per tidal river on every visit — four megabytes of the five and a half a first load took, to learn the position of four stations it already names. Those now come one at a time at 2.6KB each, and the big file is a button for when you want to see what else is nearby. A basin-wide gauge sweep that ran for all four rivers at once now runs only for the river you are reading. A first load is under a megabyte.',
-      'Works offline once loaded, and can be installed to a home screen. A depth you have read once reads again with no signal, and so does a mark you kept it in.'
-    ],
-    broken:[
-      'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number. Neither measures turbidity, so the Feather has no clarity figure at all.',
-      'Velocity, like clarity, is only where there is an instrument for it. It is published on the tidal reaches and the lower river and not on the upper Sacramento, the American or the Feather.',
-      'The clarity words — clear, lightly coloured, stained, muddy — are this app’s own plain description of how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, what the fish do about it is not.',
-      'The NOAA chart overlay may not load — that service was unreachable while this was built, so the layer switches itself off if the tiles do not arrive.',
-      'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
+      'A weir over its crest now says so in a strip at the top of the screen, on any view, rather than only inside the panel for the river it belongs to. It names the weir, how far over, which river and which bypass, and a button takes you to the detail.',
+      'The four weirs on the Sacramento \u2014 Fremont, Tisdale, Colusa, Moulton. When one goes over its crest the river stops being one channel: water leaves for a bypass and takes the fish in it with it. It says which weir, how far over, and which bypass. The source also publishes a forecast for the days ahead; that is somebody\u2019s model and is not repeated here.',
+      'Four more Sacramento gauges are named and checked rather than swept up: above the Delta Cross Channel, below Georgiana Slough, the Deep Water Ship Channel near Freeport, and below the Walnut Grove bridge. They used to appear only if a wider search happened to run.',
+      'That wider search is a button now, at the bottom of the gauges, because it is slow and it costs you data. It was running for all four rivers every time you opened the app, and across all four it ever found four gauges \u2014 every one of them on the Sacramento, and all four now named above. On the Feather, the American and the Mokelumne it found nothing at all. It is still there because a gauge can appear later, and what it finds is kept.',
+      'Which way the water is going, where a gauge measures it: mean water velocity in feet per second, with the direction in words. On tidal water a negative reading means the tide is pushing in \u2014 and that is a measurement of this moment where the tide table is a prediction. Where the velocity and the flow at the same gauge disagree about the direction, the app says the two disagree rather than picking one.',
+      'Water clarity, where a gauge measures it: turbidity in FNU beside the flow and the temperature, described in plain words \u2014 clear, lightly coloured, stained, muddy. Most gauges have no sensor for it. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water too clear to measure.',
+      'A mark you kept a depth in now shows that depth in the Marks list, not only on the map, and carries it out through the export \u2014 the figure, which survey it came from and the date that survey was made.',
+      'The depth surveys are listed by a readable name and the date they were surveyed, rather than by the code the state files them under. That code is still printed under each one, so what is on screen can be matched to the state\u2019s own catalogue.',
+      'On opening, the app no longer tells you the connection failed while it is still working. Readings are called stored when they really are old, not because one refresh missed; the landing says which rivers are stored rather than labelling all four; and a river whose own gauges did not answer says that, instead of reading as a river with no instruments on it.',
+      'The last seven days of flow and water temperature, drawn under the gauges for whichever river you have picked, with what it did in words as well as a line \u2014 rising or falling, by how much, and how much of that was in the last day. Where a gauge answers for right now but keeps no history, it says so instead of drawing a flat line.',
+      'It opens on a fraction of the data it used to cost you. A first load is under a megabyte, down from five and a half.',
+  ], broken:[
+      'The Feather has two gauges where the Sacramento has six, and one of them has no temperature sensor, so that reading is a dash rather than a number. Neither measures how clear the water is, so the Feather has no clarity figure at all.',
+      'Which way the water is going, like clarity, is only where there is an instrument for it. It is published on the tidal reaches and the lower river, and not on the upper Sacramento, the American or the Feather.',
+      'The clarity words \u2014 clear, lightly coloured, stained, muddy \u2014 are this app\u2019s own plain description of how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, what the fish do about it is not.',
+      'The NOAA chart overlay may not load. That service was unreachable while this was built, so the layer switches itself off if nothing arrives.',
+      'Season dates are each reach\u2019s standing open season. The Commission can start a reach later or end it earlier, and the final dates were given in a meeting document that is not published. Check the printed regulations before you fish.',
       'One stretch of the American River is listed as closed by a third-party guide and open by the regulation itself. The Brief panel explains which is which; the printed regulations are still the authority.',
-      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead. None of its gauges publishes a week of history either, so that river gets no seven-day lines at all.',
-      'The seven-day lines cover one gauge for flow and one for temperature, not every gauge on the river. A week of readings at fifteen-minute spacing is about 55KB a gauge and the services will not send a coarser version, so asking all of them would be most of a megabyte for lines a phone cannot show.',
-      'Depth figures are shown as the survey published them. Thalweg does not restate a datum it has not checked, so treat them as relative, not as a chart sounding.',
-      'Nothing has gone over a weir crest all summer, so the state that matters — a weir actually overtopping — has been checked against a made-up file rather than a real one. What you will see if it happens has been tested; that it happens correctly on the day has not.',
-      'A tapped depth can come back above the survey’s datum rather than below it — that is bank, or a bar that was dry when the survey boat went past. It is labelled as bank rather than dressed up as two feet of water, but it means the edge of a survey is a rough edge.'
-    ] }
+      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying. The card says so; there is no gauge above the tide on that river to ask instead. None of its gauges keeps a week of history either, so that river gets no seven-day lines at all.',
+      'The seven-day lines cover one gauge for flow and one for temperature, not every gauge on the river. A week of readings at fifteen-minute spacing is a large download per gauge and the services will not send a coarser version, so asking all of them would cost you most of a megabyte for lines a phone cannot show anyway.',
+      'Depth figures are shown as the survey published them. Thalweg does not restate a depth against a datum it has not checked, so treat them as relative, and not as a charted sounding.',
+      'Nothing has gone over a weir crest all summer, so the one state that really matters \u2014 a weir actually overtopping \u2014 has only ever been checked against a made-up file. What you will see if it happens has been tested; that it happens correctly on the day has not.',
+  ] },
 ];
 
 /* Which device this is, so the install instructions lead with the one that
@@ -5159,10 +5263,56 @@ function offerUpdate(reg){
 function maybeWhatChanged(){
   if (Store.s.getItem('thalweg:_shared:justUpdated') !== '1') return;
   try { Store.s.removeItem('thalweg:_shared:justUpdated'); } catch(e){}
-  renderAbout();
-  var dlg = $('#about');
-  if (dlg.showModal) dlg.showModal();
-  announce('Updated to ' + VERSION + '.');
+  showWhatsNew();
+}
+
+/* THE READER PRESSED UPDATE AND IS OWED AN ANSWER TO ONE QUESTION. This used
+   to open the whole About panel at its top, which is "What Thalweg is" — so
+   the one thing they had just asked for was several screens down, under
+   everything they already knew. */
+function showWhatsNew(){
+  var r = RELEASES.filter(function(x){ return x.v === VERSION; })[0];
+  var body = $('#newbody');
+  body.textContent = '';
+  $('#newtitle').textContent = 'What changed in ' + VERSION;
+
+  if (!r){
+    /* A version with no note is a defect, not a blank panel. notes-check
+       refuses it before it can ship, and this is what a reader sees if one
+       ever gets past that. */
+    body.appendChild(el('p',{ text:'This version arrived without its notes, which is a fault in the app rather than in your copy. Everything else works.' }));
+  } else {
+    var u = el('ul',{class:'tight'});
+    r.changes.forEach(function(c){ u.appendChild(el('li',{text:c})); });
+    body.appendChild(u);
+    if (r.broken && r.broken.length){
+      body.appendChild(el('p',{class:'note',style:'margin-bottom:.2rem',
+        text:'Still not right, and worth knowing before you rely on it:'}));
+      var u2 = el('ul',{class:'tight'});
+      r.broken.forEach(function(c){ u2.appendChild(el('li',{text:c})); });
+      body.appendChild(u2);
+    }
+  }
+
+  var row = el('div',{class:'rowline'});
+  var older = el('button',{type:'button',id:'newolder',text:'Earlier versions, and everything else about Thalweg'});
+  older.addEventListener('click', function(){
+    $('#whatsnew').close();
+    renderAbout();
+    var d = $('#about');
+    if (d.showModal) d.showModal(); else d.setAttribute('open','open');
+    $('#aboutbody').scrollTop = 0;
+    $('#abouttitle').focus();
+  });
+  row.appendChild(older);
+  body.appendChild(row);
+
+  var dlg = $('#whatsnew');
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open','open');
+  body.scrollTop = 0;
+  $('#newtitle').focus();
+  announce('Updated to ' + VERSION + '. ' +
+    (r ? r.changes.length + ' change(s) in this version.' : ''));
 }
 
 /* =====================================================================
@@ -5182,6 +5332,18 @@ function boot(){
     $('#abouttitle').focus();
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
+  $('#newclose').addEventListener('click', function(){ $('#whatsnew').close(); });
+
+  /* Home. Back to the four-river landing this app opens on, on the Water tab,
+     scrolled to the top — all three, because arriving at the landing halfway
+     down a panel is not arriving at the landing. */
+  $('#homebtn').addEventListener('click', function(){
+    selectRiver('');
+    selectTab('water');
+    var panel = $('#panel-water');
+    if (panel) panel.scrollTop = 0;
+    announce('Back to all four rivers.');
+  });
 
   var initial = Store.s.getItem('thalweg:_shared:river');
   selectRiver(initial === null ? '' : initial);
@@ -5198,8 +5360,14 @@ function boot(){
   });
 
   window.addEventListener('online',  function(){ refreshData(); announce('Back online.'); });
+  /* Coming back to the app is the moment a reader most expects it to have
+     looked. It only asked on a ten-minute timer, so an app left open in a
+     pocket for an hour and reopened showed the strip and then sat there. */
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden && navigator.onLine) refreshData();
+  });
   window.addEventListener('offline', function(){ updateStaleness(); announce('Offline. Stored readings only.'); });
-  setInterval(function(){ if (navigator.onLine) refreshData(); }, 10 * 60 * 1000);
+  setInterval(function(){ if (navigator.onLine) refreshData(); }, REFRESH_MS);
   setInterval(updateStaleness, 60 * 1000);
 
   var chip0 = document.getElementById('verchip');

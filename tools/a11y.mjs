@@ -264,6 +264,30 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
         b.focus();
         return document.activeElement === b && b.tabIndex >= 0;
       }));
+    /* HOME IS A HEADER CONTROL ON THE TIGHTEST SCREEN THERE IS. The header
+       already lost a fight at this width once — the (i) got pushed onto a line
+       of its own, away from the controls it belongs with — so adding a button
+       to it is measured, not assumed. */
+    const home = await page.evaluate(() => {
+      const b = document.getElementById('homebtn');
+      if (!b || b.hidden) return { shown: false };
+      const r = b.getBoundingClientRect();
+      const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+      return { shown: true, w: Math.round(r.width), h: Math.round(r.height),
+               inView: r.right <= window.innerWidth + 1 && r.left >= -1,
+               onTop: !!(hit && (hit === b || b.contains(hit))),
+               name: (b.textContent || '').trim(),
+               label: b.getAttribute('aria-label') || '' };
+    });
+    check('phone: Home is offered inside a river and is fully on screen',
+      home.shown && home.inView, JSON.stringify(home));
+    check('phone: nothing is sitting on top of Home', home.onTop, JSON.stringify(home));
+    /* SC 2.5.3 — the accessible name must contain the visible words, and an
+       aria-label that merely overlaps passes a substring check by accident
+       (hub LESSONS 29). This asserts containment, not overlap. */
+    check('phone: Home\u2019s accessible name contains the word on its face',
+      home.label.toLowerCase().includes(home.name.toLowerCase()) && /home/i.test(home.name),
+      JSON.stringify(home));
     await audit(page, 'phone: map tab open');
     await page.click('#tab-water');
     await page.waitForTimeout(500);
@@ -363,6 +387,34 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   await page.click('#aboutbtn');
   await page.waitForTimeout(400);
   await page.click('#aboutclose');
+
+  /* THE UPDATE DIALOG IS A SURFACE AND JOINS THIS GATE IN THE COMMIT THAT
+     BUILDS IT (hub LESSONS 28). It is also the one surface nobody sees on
+     purpose — it appears once, after a reload, to a reader who has just
+     pressed Update — so it is exactly the kind of screen that ships
+     unmeasured and stays that way for release after release. */
+  await page.evaluate(() => showWhatsNew());
+  await page.waitForTimeout(400);
+  await audit(page, `${name}: what changed, after an update`);
+  check(`${name}: the update dialog opens at the top of itself, with focus in it`,
+    await page.evaluate(() => document.getElementById('newbody').scrollTop === 0 &&
+      document.activeElement.id === 'newtitle'),
+    await page.evaluate(() => document.getElementById('newbody').scrollTop + ' / ' +
+      document.activeElement.id));
+  /* A reader who just updated wants this version, not the history. It has to
+     lead with the changes and offer the rest rather than serve it. */
+  check(`${name}: it shows this version's changes and offers the rest`,
+    await page.evaluate(() => {
+      const n = document.getElementById('newbody').querySelectorAll('li').length;
+      return n === RELEASES.filter(r => r.v === VERSION)[0].changes.length &&
+             !!document.getElementById('newolder');
+    }),
+    await page.evaluate(() => document.getElementById('newbody').querySelectorAll('li').length + ' items'));
+  check(`${name}: the update dialog can be closed`,
+    await page.evaluate(async () => {
+      document.getElementById('newclose').click();
+      return !document.getElementById('whatsnew').open;
+    }));
 
   /* The seven-day section with nothing answering. A panel that renders an
      empty box when its own request fails is the shape this app exists not to

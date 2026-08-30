@@ -269,6 +269,69 @@ check('the button asks NOAA once and surfaces only what is new',
   await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
     return !!s && [...s.options].some(o => /Synthetic Mokelumne/.test(o.textContent)); }),
   'index fetched ' + mdIndexHits + ' time(s)');
+/* IT USED TO VANISH THE MOMENT IT WAS PRESSED — it was only drawn when nothing
+   had been stored yet — so a reader pressed a button, the button went away, and
+   nothing said what it had found, whether anything was added, or whether this
+   was permanent or had to be done again every visit. */
+const disc = await page.evaluate(() => {
+  const btn = [...document.querySelectorAll('#panel-water button')]
+    .find(x => /Check NOAA/.test(x.textContent));
+  const panel = document.getElementById('panel-water').textContent;
+  return { still: !!btn, label: btn ? btn.textContent.trim() : '',
+           said: /Last checked/.test(panel),
+           permanence: /you do not need to (do this again|check again)/.test(panel),
+           found: /NOAA had added/.test(panel) };
+});
+check('the stations button is still there after it has been used',
+  disc.still, JSON.stringify(disc));
+check('it says when it last checked and what it found',
+  disc.said && disc.found, JSON.stringify(disc));
+check('it says whether the result is kept or has to be done again',
+  disc.permanence, JSON.stringify(disc));
+check('and it offers to check again rather than pretending it is finished',
+  /again/i.test(disc.label), disc.label);
+
+/* --- readings that have gone old ---------------------------------------
+   The strip said they were old and nothing else: not when it last tried, not
+   when it would try next, not how to ask now. All three were already true
+   facts about the app and none was on screen. */
+const stale = await page.evaluate(() => {
+  const g = state.gauges[state.riverId];
+  g.fetchedAt = Date.now() - 10 * 3600 * 1000;
+  g.stale = true;
+  renderWater();
+  const t = document.getElementById('panel-water').textContent;
+  return {
+    saysOld: /Stored readings, \d+ h old/.test(t),
+    saysWhenTried: /Last tried at/.test(t),
+    saysNext: /every ten minutes|not trying|offline/.test(t),
+    saysNoCooldown: /no waiting period/.test(t),
+    button: !!document.getElementById('retrybtn')
+  };
+});
+check('a stale reading says when the app last tried', stale.saysWhenTried, JSON.stringify(stale));
+check('it says when it will try again on its own', stale.saysNext, JSON.stringify(stale));
+check('it says there is no waiting period', stale.saysNoCooldown, JSON.stringify(stale));
+check('and it offers a way to ask right now', stale.button, JSON.stringify(stale));
+
+/* --- home ---------------------------------------------------------------
+   The picker could always reach the landing, but a menu you have to open and
+   find the right line in is not a way back. */
+check('Home is offered once you are inside a river',
+  await page.evaluate(() => !document.getElementById('homebtn').hidden));
+await page.click('#homebtn');
+await page.waitForTimeout(1500);
+const home = await page.evaluate(() => ({
+  river: document.getElementById('riverpick').value,
+  hidden: document.getElementById('homebtn').hidden,
+  allRivers: document.body.classList.contains('all-rivers')
+}));
+check('Home goes back to the page the app opens on',
+  home.river === '' && home.allRivers, JSON.stringify(home));
+check('and it stops being offered once you are already there',
+  home.hidden, JSON.stringify(home));
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(2000);
 
 /* --- layers --- */
 await page.click('#tab-layers'); await page.waitForTimeout(1200);
@@ -619,6 +682,48 @@ const vague = await page.evaluate(() => {
 check('an accuracy of zero draws no ring and claims no precision',
   vague.rings === 0 && /did not say how accurate/.test(vague.text) && !/about 0/.test(vague.text),
   JSON.stringify(vague));
+
+/* --- what changed, after an update -------------------------------------
+   The strip that offers an update belongs to the OLD build and has never heard
+   of the release it is offering, so the only moment anything in this app knows
+   what changed is after the reload. That dialog was wired at boot and had no
+   check on it at all: it opened the whole About panel at its top, which is
+   "What Thalweg is" — so the one thing a reader had just asked for was several
+   screens down under everything they already knew. */
+const news = await page.evaluate(() => {
+  showWhatsNew();
+  const d = document.getElementById('whatsnew');
+  const body = document.getElementById('newbody');
+  return {
+    open: d.open,
+    title: document.getElementById('newtitle').textContent,
+    items: [...body.querySelectorAll('li')].map(li => li.textContent),
+    focused: document.activeElement && document.activeElement.id,
+    older: !!document.getElementById('newolder'),
+    aboutOpen: document.getElementById('about').open
+  };
+});
+check('an update opens a dialog that leads with what changed',
+  news.open && !news.aboutOpen, JSON.stringify({ open: news.open, aboutOpen: news.aboutOpen }));
+check('it names the version you just got',
+  news.title.includes(await page.evaluate(() => VERSION)), news.title);
+check('it lists this version\u2019s changes, and only this version\u2019s',
+  news.items.length === await page.evaluate(() =>
+    RELEASES.filter(r => r.v === VERSION)[0].changes.length),
+  news.items.length + ' shown');
+check('the first thing in it is a change, not the front of the About panel',
+  news.items.length > 0 && !/What Thalweg is/.test(news.items[0] || ''), news.items[0]);
+check('the whole history is one press away rather than in your way', news.older);
+check('the dialog takes focus when it opens', news.focused === 'newtitle', news.focused);
+/* Patch notes are for the reader. This is the app's own copy asserted against
+   the same closed vocabulary tools/notes-check.mjs holds the source to, so a
+   note that reaches the screen cannot be machinery even if it got past the
+   file gate some other way. */
+check('nothing on that screen is written at the developer',
+  !/\b(endpoint|bounding box|JSON|regex|callback|z-index|service worker|cached?|identifier)\b/i
+    .test(news.items.join(' ')),
+  news.items.join(' ').slice(0, 200));
+await page.evaluate(() => document.getElementById('whatsnew').close());
 
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));
