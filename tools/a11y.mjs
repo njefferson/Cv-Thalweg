@@ -55,6 +55,25 @@ const browser = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }
    it can find and that button was Start, at the bottom of a scrolling body.
    Everything the panel existed to say was above the fold, upwards, with
    nothing to say so. */
+/* IT DID NOT FIT ITS OWN FRAME — reported from a real phone by somebody meeting
+   the app for the first time. The dialog had no height of its own; only its
+   body did, so head plus body plus borders ran off the bottom. Nothing here
+   measured the dialog's own box against the screen, which is why it shipped. */
+async function dialogFits(page, id, label) {
+  const m = await page.evaluate(sel => {
+    const d = document.getElementById(sel);
+    if (!d || !d.open) return null;
+    const r = d.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom),
+             h: Math.round(r.height), vh: window.innerHeight,
+             left: Math.round(r.left), right: Math.round(r.right),
+             vw: window.innerWidth };
+  }, id);
+  check(`${label}: it fits on the screen it opened on`,
+    !!m && m.top >= -1 && m.bottom <= m.vh + 1 && m.left >= -1 && m.right <= m.vw + 1,
+    JSON.stringify(m));
+}
+
 async function welcomeChecks(page, name) {
   const open = await page.evaluate(() => {
     const d = document.getElementById('welcome'), b = document.getElementById('welcomebody');
@@ -77,6 +96,28 @@ async function welcomeChecks(page, name) {
      the viewport, not about what a reader can reach (hub LESSONS §174). */
   check(`${name}: first run shows a way out in the first frame`,
     open.closeVisible && open.hit === 'welcomeclose', JSON.stringify(open));
+  await dialogFits(page, 'welcome', `${name}: first run`);
+  /* A WALL OF TEXT AND A START BUTTON. The install offer sat mid-scroll and a
+     first-time reader heading for the button went straight past it, and so did
+     the one line saying where everything had gone. Both must come AFTER the
+     last heading a scroller passes — which means below the Start button's own
+     position in the document is wrong, and above it by a little is right. */
+  const order = await page.evaluate(() => {
+    const b = document.getElementById('welcomebody');
+    const txt = b.textContent;
+    const inst = b.querySelector('.installbox');
+    const start = [...b.querySelectorAll('button')].find(x => /start/i.test(x.textContent));
+    if (!inst || !start) return { inst: !!inst, start: !!start };
+    return { inst: true, start: true,
+      instBeforeStart: inst.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING ? true : false,
+      instLate: inst.offsetTop > b.scrollHeight * 0.5,
+      pointsAtI: /under the \(i\) button/.test(txt) };
+  });
+  check(`${name}: the install offer is the last thing before Start`,
+    order.inst && order.start && order.instBeforeStart && order.instLate,
+    JSON.stringify(order));
+  check(`${name}: it says where everything it just showed you has gone`,
+    order.pointsAtI, JSON.stringify(order));
   check(`${name}: first run offers a way out at the end as well`,
     open.bottomOut, JSON.stringify(open));
   check(`${name}: first run is bounded by the screen`,
@@ -964,6 +1005,67 @@ for (const [label, width, height] of [
     check(`${label} ${w}×${h}: no page errors`, errs.length === 0, errs[0]);
     await ctx.close();
   }
+}
+
+/* A FINGER, NOT A POINTER.
+ *
+ * Every geometry above is a narrow WINDOW, which is not the same thing as a
+ * touch device, and the difference hid a real defect for two releases. A
+ * control sits on the map, so a press on it is a press on the map — and
+ * Leaflet's disableClickPropagation stops that for a mouse and does not stop
+ * it for a finger, because on touch the map's click is synthesised from the
+ * touch sequence. Tapping the key's Hide button, or Where I am, dropped a
+ * depth query underneath it. Every desktop check passed the whole time.
+ *
+ * So this context has touch, and it taps every control on the map. */
+{
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', e => errs.push(e.message));
+  await page.goto(BASE + '/', { waitUntil: 'load' });
+  await page.waitForTimeout(2500);
+  await page.evaluate(() => { const d = document.getElementById('welcome');
+    if (d && d.open) d.querySelector('button').click(); });
+  await page.waitForTimeout(1200);
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(2500);
+  await page.click('#tab-map');
+  await page.waitForTimeout(1500);
+
+  const noDepth = async label => {
+    const open = await page.evaluate(() => {
+      const p = document.querySelector('.leaflet-popup-content');
+      return p ? p.textContent.slice(0, 80) : null;
+    });
+    check(`touch: tapping ${label} does not also ask for a depth`, open === null, open);
+  };
+
+  if (await page.locator('#keyopen').count()) {
+    await page.click('#keyopen');
+    await page.waitForTimeout(900);
+    await noDepth('the Key chip');
+  }
+  await page.click('#maplegend .keyhead button');
+  await page.waitForTimeout(900);
+  await noDepth('the key\u2019s Hide button');
+
+  await page.click('#herebtn');
+  await page.waitForTimeout(1500);
+  await noDepth('Where I am');
+
+  /* And the map itself must still answer a finger — a guard that swallowed
+     every tap would pass all three above and break the app. */
+  const box = await page.evaluate(() => {
+    const m = document.getElementById('map').getBoundingClientRect();
+    return { x: Math.round(m.left + m.width / 2), y: Math.round(m.top + m.height / 2) };
+  });
+  await page.mouse.click(box.x, box.y);
+  await page.waitForTimeout(2500);
+  check('touch: a tap on the open map still reads the depth there',
+    await page.evaluate(() => !!document.querySelector('.leaflet-popup-content')));
+  check('touch: no page errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
 }
 
 /* Offline. */

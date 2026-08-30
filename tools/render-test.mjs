@@ -725,6 +725,45 @@ check('nothing on that screen is written at the developer',
   news.items.join(' ').slice(0, 200));
 await page.evaluate(() => document.getElementById('whatsnew').close());
 
+/* --- the tide is predicted at ONE place ---------------------------------
+   A reader who has not been told assumes a tide is a property of the river. On
+   this water it is not: high water at Rio Vista and at Freeport are hours
+   apart. The picker said "Station" and nothing else, so a chart could be read
+   against the wrong place with nothing on screen to suggest it was a choice. */
+const tideCopy = await page.evaluate(() => {
+  const p = document.getElementById('panel-water').textContent;
+  const lab = [...document.querySelectorAll('#panel-water label')]
+    .map(l => l.textContent.trim());
+  return { saysOnePlace: /not for the river/.test(p),
+           saysDiffers: /turns at different times along it/.test(p),
+           saysPickNearest: /nearest where you will actually be/.test(p),
+           label: lab.find(l => /Predicted at|Station/.test(l)) || '' };
+});
+check('the tide says it is predicted at one place, not for the river',
+  tideCopy.saysOnePlace, JSON.stringify(tideCopy));
+check('it says the tide turns at different times along the river',
+  tideCopy.saysDiffers, JSON.stringify(tideCopy));
+check('it tells you to pick the one nearest you',
+  tideCopy.saysPickNearest, JSON.stringify(tideCopy));
+check('the picker is labelled with what it does, not just "Station"',
+  /Predicted at/.test(tideCopy.label), tideCopy.label);
+/* And once the app knows where you are, it stops making you solve it — with no
+   help from this test. The first version re-rendered the panel here and passed,
+   which proved only that the section CAN draw the offer; the app was not
+   redrawing it when a position arrived, so a reader pressed Where I am and the
+   tide panel went on saying nothing. */
+const nearest = await page.evaluate(() => {
+  const btn = [...document.querySelectorAll('#panel-water button')]
+    .find(b => /^Use .+ from you$/.test(b.textContent.trim()));
+  const said = /nearest station to where you are/.test(document.getElementById('panel-water').textContent);
+  return { offered: !!btn, label: btn ? btn.textContent.trim() : '', alreadyNearest: said,
+           here: state.here || null,
+           stations: (state.tides[state.riverId] || {}).stations
+             ? (state.tides[state.riverId].stations || []).length : -1 };
+});
+check('knowing where you are, it names the nearest station or says you are on it',
+  nearest.offered || nearest.alreadyNearest, JSON.stringify(nearest));
+
 /* --- the key ------------------------------------------------------------
    Gauges, tide stations, marks and your own position are four different dots,
    and the only way to find out which was which was to tap one. The two

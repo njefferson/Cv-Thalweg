@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.7.0.
+- Version 0.8.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,22 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE STRANGER'S WALK — `tools/walk.mjs`, and it must never become a gate.**
+  It opens the app on a phone, walks every surface in the order a newcomer meets
+  them, and writes out a picture and the visible words of each. A gate asks a
+  question it already knows how to ask; this asks the one no assertion can hold,
+  which is what somebody who has been told nothing would think a screen means.
+  Run it from time to time, not on every commit. A live walk needs the browser
+  pointed at this container's egress proxy with loopback bypassed — without
+  that, every service fails and the walk describes an app full of "did not
+  answer", which is a finding about the container.
+- **`display:flex` on `dialog` broke every dialog in the app.** A bare rule
+  overrides the browser's own `display:none` for a CLOSED dialog, so dismissing
+  one left it on screen. It is `dialog[open]` now. One line of layout, every
+  dialog.
+- **And `vh` is the wrong unit for a dialog on a phone** — it is measured
+  against the viewport with the address bar hidden, so 70vh is more than 70% of
+  what a reader can see (LESSONS 176). `dvh`, with `vh` first as the fallback.
 - **EVERY INTERACTIVE CONTROL ADDED TO THE MAP NEEDS
   `L.DomEvent.disableClickPropagation`, and this has now been learned twice.** A
   control sits ON the map, so a press on it is also a press on the map, and a
@@ -265,6 +281,16 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   it first; the legend hit it the moment it stopped being a passive swatch and
   grew a Hide button. Both times the render suite caught it by finding a depth
   popup open over the control.
+  **AND disableClickPropagation IS NOT ENOUGH ON TOUCH.** It holds for a mouse
+  and not for a finger, because on a touch device the map's click is synthesised
+  from the touch sequence and arrives anyway. Every desktop check passed for two
+  releases. The guard is now one capture-phase listener on the map container
+  that marks any event whose target sits inside a `.leaflet-control` — capture,
+  because a control's own handler often rebuilds its contents (the key does),
+  which DETACHES the clicked element, so by the time the map's handler asks the
+  target for its ancestors there are none and the press looks like open map.
+  There is a touch-context block in `tools/a11y.mjs` that taps every control,
+  and asserts the open map still answers a tap.
 - **And a key is information, not a target.** The first version covered pins and
   made them untappable — caught by the marker-at-the-edge check, which simply
   stopped opening. `.legend` is `pointer-events:none` with its buttons set back
