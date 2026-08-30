@@ -459,6 +459,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 </dialog>
 
 <script src="vendor/leaflet.js"></script>
+<!-- NOAA's tide stations, baked at build time by tools/fetch-stations.mjs.
+     A reader gets them on the map from first load, offline, without paying for
+     NOAA's two-megabyte index on a phone. Its absence is survivable: the app
+     falls back to the declared stations and the button still works. -->
+<script src="tide-stations.js"></script>
 <script>
 /* =====================================================================
    Thalweg — depth and conditions for the Central Valley fall-run fishery.
@@ -476,7 +481,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.3.0';
+var VERSION = '0.4.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1368,15 +1373,52 @@ function stationMeta(id){
 /* The declared stations only. The full index is a separate, deliberate act —
    see nearbyTideStations — because it costs two megabytes and nobody should
    pay that to read the tide at a station this app already knows. */
+/* Where the extra stations come from, in order of preference:
+   the file baked into the app, then anything the button has found SINCE that
+   file was made. The baked list needs no network and no permission; the stored
+   one only ever holds what NOAA has added since the last bake. */
+function bakedStations(river){
+  var t = (typeof TIDE_STATIONS === 'object' && TIDE_STATIONS) || {};
+  return (t[river.id] || []).map(function(s){
+    return { id:String(s.id), name:s.name, lat:s.lat, lon:s.lon, status:PROV.FOUND };
+  });
+}
+
+/* WHAT WE ALREADY KNOW COSTS NOTHING TO USE.
+ *
+ * This used to ask NOAA for the metadata of EVERY station it had an id for,
+ * one request each, on every load — which is what made a long list expensive
+ * and is why the button's cost scaled with the size of a rectangle rather than
+ * with anything a reader would see.
+ *
+ * The baked file carries the name and the position, so a station that is in it
+ * is already answered. Only an id we have no position for is asked about, and
+ * that is now a handful at most: a declared station on a build made before the
+ * bake, or something the button has turned up since. */
 function discoverTideStations(river){
-  var wanted = (river.tideStations || []).map(function(s){ return s.id; });
+  var known = {};
+  bakedStations(river).forEach(function(s){ known[s.id] = s; });
   var extra = sget(river.id, 'tidestations');
-  if (extra && extra.list) wanted = wanted.concat(extra.list.map(function(s){ return s.id; }));
+  if (extra && extra.list) extra.list.forEach(function(s){
+    /* Found by the button, which means NOAA added it after this build. */
+    if (isNum(s.lat) && isNum(s.lon)) known[s.id] = {
+      id:String(s.id), name:s.name, lat:s.lat, lon:s.lon,
+      status:PROV.FOUND, origin:'new' };
+  });
+
+  var wanted = (river.tideStations || []).map(function(s){ return s.id; });
+  Object.keys(known).forEach(function(id){ wanted.push(id); });
   var seen = {};
   wanted = wanted.filter(function(id){ if (seen[id]) return false; seen[id] = true; return true; });
-  return Promise.all(wanted.map(stationMeta)).then(function(rows){
-    return rows.filter(function(r){ return isNum(r.lat) && isNum(r.lon); })
-               .map(function(r){ r.status = PROV.FOUND; return r; });
+
+  var ask = wanted.filter(function(id){ return !known[id]; });
+  return Promise.all(ask.map(stationMeta)).then(function(rows){
+    rows.forEach(function(r){
+      if (isNum(r.lat) && isNum(r.lon)) known[r.id] = { id:r.id, name:r.name,
+        lat:r.lat, lon:r.lon, status:PROV.FOUND };
+    });
+    return wanted.map(function(id){ return known[id]; })
+                 .filter(function(r){ return r && isNum(r.lat) && isNum(r.lon); });
   });
 }
 
@@ -1393,22 +1435,23 @@ function nearbyTideStations(river){
       if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) return;
       list.push({ id:String(s.id), name:s.name, lat:lat, lon:lon, status:PROV.FOUND });
     });
-    /* RANKED AND CAPPED HERE, not only where the picker is drawn.
-       A river box is a RECTANGLE, and the Sacramento's runs from San Pablo
-       Bay to Redding — so "in the box" catches most of the estuary. The
-       picker already kept the nearest ten, but everything else was still
-       stored and, worse, `discoverTideStations` then asked NOAA for the
-       metadata of EVERY id it had kept. The cost of the button was the
-       number of stations in the rectangle rather than the number anybody
-       would ever look at. */
+    /* ONLY WHAT IS NEW. The stations in this river's box already ship with the
+       app — tools/fetch-stations.mjs asked NOAA once and baked them in — so
+       there is nothing here to download twice. What this answers is the one
+       question the baked file cannot: has NOAA added a station since the build.
+       Usually the answer is none, and saying none is the useful answer. */
+    var already = {};
+    bakedStations(river).forEach(function(s){ already[s.id] = true; });
+    (river.tideStations || []).forEach(function(s){ already[s.id] = true; });
+    var fresh = list.filter(function(s){ return !already[s.id]; });
     var c = river.center;
-    list.sort(function(x, y){
+    fresh.sort(function(x, y){
       return metresBetween(c[0], c[1], x.lat, x.lon) -
              metresBetween(c[0], c[1], y.lat, y.lon);
     });
-    list = list.slice(0, 12);
-    sput(river.id, 'tidestations', { at:Date.now(), list:list });
-    return list;
+    fresh = fresh.slice(0, 12);
+    sput(river.id, 'tidestations', { at:Date.now(), list:fresh, inBox:list.length });
+    return fresh;
   }, function(e){
     logNet('CO-OPS station index', COOPS_MD, false, String(e && e.message || e));
     throw e;
@@ -2557,22 +2600,29 @@ function tideSection(river){
      result is kept and the question is not asked again. */
   if (river.tideDiscover && !sget(river.id,'tidestations')){
     var moreRow = el('div',{class:'rowline'});
-    var moreBtn = el('button',{type:'button',text:'Look for other tide stations on this river'});
+    var moreBtn = el('button',{type:'button',text:'Check NOAA for stations added since this build'});
     moreBtn.addEventListener('click', function(){
       moreBtn.disabled = true;
       moreBtn.textContent = 'Asking NOAA — this one is a big file…';
-      nearbyTideStations(river).then(function(){
+      nearbyTideStations(river).then(function(added){
         loadTideFor(river);
-        announce('Nearby prediction stations loaded.');
+        /* Say what happened, including when what happened was nothing. A button
+           that goes quiet on "none" leaves a reader wondering whether it ran. */
+        announce(added && added.length
+          ? added.length + ' station(s) NOAA has added since this build are now in the list.'
+          : 'NOAA has not added any stations on this river since this build.');
+        moreBtn.textContent = added && added.length
+          ? added.length + ' new station(s) added'
+          : 'NOAA has added none since this build';
       }, function(e){
         moreBtn.disabled = false;
-        moreBtn.textContent = 'Look for other tide stations on this river';
+        moreBtn.textContent = 'Check NOAA for stations added since this build';
         announce('NOAA did not answer: ' + (e && e.message || e));
       });
     });
     moreRow.appendChild(moreBtn);
     moreRow.appendChild(el('span',{class:'note',
-      text:'NOAA publishes its station list as one two-megabyte file and will not filter it, so this is asked for on purpose rather than on every visit. What comes back is everything inside this river\u2019s bounding box \u2014 a rectangle, not a radius, and on the Sacramento it reaches from the bay to Redding \u2014 so the nearest twelve are kept and the rest discarded. They are drawn on the map with the one you are using marked.'}));
+      text:'The stations on this river already ship with the app and are on the map \u2014 NOAA was asked once, when this version was built, so you never pay for it. This asks whether NOAA has ADDED any since then. It costs a two-megabyte download because NOAA publishes its list as one file and will not filter it, which is why it is a button and not something that happens to you. Usually the answer is none.'}));
     box.appendChild(moreRow);
   }
 
@@ -3586,14 +3636,20 @@ function loadTideFor(river){
        declared stations, then the nearest handful, so the picker stays a
        picker. */
     var c = river.center;
-    var near = found.filter(function(f){ return !seen[f.id]; })
+    var rest = found.filter(function(f){ return !seen[f.id]; })
       .map(function(f){
-        f.d = Math.pow(f.lat - c[0], 2) + Math.pow(f.lon - c[1], 2);
+        f.d = metresBetween(c[0], c[1], f.lat, f.lon);
         return f;
       })
-      .sort(function(a, b){ return a.d - b.d; })
-      .slice(0, 10);
-    var stations = declared.concat(near);
+      .sort(function(a, b){ return a.d - b.d; });
+    /* ANYTHING NEW IS NEVER RANKED OUT. A station the button just found is the
+       one thing the reader pressed it to see, and there are forty-odd baked
+       stations on this river — so on distance alone a new one two bends away
+       loses to a shipped one, and pressing the button appears to do nothing.
+       New first, then the nearest of what already shipped. */
+    var fresh = rest.filter(function(f){ return f.origin === 'new'; });
+    var known = rest.filter(function(f){ return f.origin !== 'new'; }).slice(0, 10);
+    var stations = declared.concat(fresh, known);
     if (!stations.length){
       state.tides[river.id] = { failed:'no prediction station found for this reach' };
       renderWater(); return;
@@ -4445,6 +4501,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.4.0', date:'2026-08-30', changes:[
+      'Every tide station on the river now ships with the app. NOAA publishes its list as one two-megabyte file it will not filter, so the app used to make each reader download the whole thing to find out that sixty-one stations exist on these rivers — and then keep none of them. They are asked for once now, when the version is built, and they are on the map from the first load, with no signal and no permission.',
+      'The button that used to fetch that file is now a much narrower question: has NOAA added a station since this build. It says so when the answer is none, which it usually is. Anything it does find is kept, and is never crowded out of the picker by the stations that already shipped — finding it is the whole reason the button exists.',
+      'Opening a river no longer asks NOAA for the details of each station one request at a time. The baked list already carries the name and the position, so on a normal load that is now no requests at all.',
+  ] },
   { v:'0.3.0', date:'2026-08-30', changes:[
       'Tide stations are on the map now. They never were \u2014 not the ones the \u201clook for other stations\u201d button finds, and not even the one the app was reading the tide from \u2014 so the picker was a list of names with no way to find out where any of them is. The one being read is drawn larger and brighter than the rest, so which one you are on is answerable without opening anything.',
       'That button asked NOAA for everything inside the river\u2019s bounding box, which is a rectangle rather than a radius \u2014 on the Sacramento it reaches from San Pablo Bay to Redding. It kept the nearest twelve now instead of all of them, which also means it stops asking NOAA for the details of stations you were never going to be offered. It is renamed to say what it does.',

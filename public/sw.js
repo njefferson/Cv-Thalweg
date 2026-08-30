@@ -13,7 +13,7 @@
  * how an app ends up running old markup against new code, and the reader
  * has no way to see it happen.
  */
-var VERSION = '0.3.0';
+var VERSION = '0.4.0';
 var SHELL = 'thalweg-shell-' + VERSION;
 var TILES = 'thalweg-tiles-' + VERSION;
 var TILE_CAP = 1200;
@@ -22,6 +22,7 @@ var PRECACHE = [
   './',
   'index.html',
   'manifest.webmanifest',
+  'tide-stations.js',
   'vendor/leaflet.js',
   'vendor/leaflet.css',
   'vendor/images/marker-icon.png',

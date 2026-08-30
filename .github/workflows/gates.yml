@@ -59,6 +59,15 @@ jobs:
       - name: The proxy's allow-list
         run: node tools/test-worker.mjs
 
+      # The baked station list is generated, so it can go stale in the tree the
+      # same way any generated file can. This does not ask NOAA anything — it
+      # reads what was committed and asserts the file is there, says when it was
+      # fetched, names the endpoint the app itself declares, covers every river
+      # that has tides, and gives every station a position. Fetching lives in
+      # its own workflow; this only refuses a bad or absent bake.
+      - name: The baked tide stations
+        run: node tools/fetch-stations.mjs --check
+
       # playwright-core, not playwright: this repo depends on the core package
       # and `npx playwright install` therefore had nothing to run, which
       # --no-install correctly refused rather than fetching a package at run

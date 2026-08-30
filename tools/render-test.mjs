@@ -228,20 +228,32 @@ check('high and low table populated', /High ·|Low ·/.test(water), water.slice(
    and a half megabytes a first-time reader paid. */
 check('the two-megabyte station index is not fetched on load',
   mdIndexHits === 0, 'index fetched ' + mdIndexHits + ' time(s)');
-check('the declared station still has its NOAA name and position',
+/* The coordinate this used to assert — 38.1583 — was the fixture's own
+   invention, served back to the app by the fixture and checked against itself.
+   NOAA publishes 38.145 from both its index and its per-station endpoint. The
+   app reads the baked file now, so the position is NOAA's; what this checks is
+   that a declared station still resolves to its name and to somewhere real,
+   and `fetch-stations --check` is what holds every baked station to having a
+   position at all. */
+check('the declared station still has its NOAA name and a real position',
   await page.evaluate(() => {
     const t = state.tides.sacramento || {};
     const st = (t.stations || []).filter(s => s.id === '9415316')[0];
-    return !!st && st.name === 'Rio Vista' && Math.abs(st.lat - 38.1583) < 0.001;
+    return !!st && st.name === 'Rio Vista' &&
+           Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
+           st.lat > 37 && st.lat < 41;
   }));
 /* And asking for the others is a deliberate act that then works. */
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('#panel-water button')]
-    .find(x => /Look for other tide stations/.test(x.textContent));
+    .find(x => /stations added since this build/.test(x.textContent));
   if (b) b.click();
 });
 await page.waitForTimeout(2500);
-check('pressing the button fetches the index once and offers the extra station',
+/* The button no longer downloads stations the app already ships — it asks
+   whether NOAA has ADDED any since the build, so what it must surface is the
+   one the fixture invented and the baked file has never heard of. */
+check('the button asks NOAA once and surfaces only what is new',
   mdIndexHits === 1 &&
   await page.evaluate(() => { const s = document.querySelector('select[id^=tidestation]');
     return !!s && [...s.options].some(o => /Synthetic Mokelumne/.test(o.textContent)); }),
