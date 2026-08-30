@@ -450,7 +450,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.1.0';
+var VERSION = '0.2.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4345,6 +4345,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.2.0', date:'2026-08-30', changes:[
+      'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with most of the screen empty. That view exists to answer which of the four is worth the drive, and the comparison only works if you can see all four at once. Nothing changes on a phone, where they already stacked because that is the right shape there.',
+      'The panel used to move across the window when you picked a river \u2014 it sat on the left with all four rivers showing and jumped to the right once a map appeared. It stays where it belongs now.',
+      'Smaller things on a wide screen: the temperature scale sits with the bars it explains rather than a screen away from them, the tabs stop stretching a hand-span apart, and the four river names line up.',
+  ] },
   { v:'0.1.0', date:'2026-08-27', changes:[
       'First release. It opens on all four rivers, each with a card saying whether it is open, what the water temperature means, how much water is coming down and when the tide next turns — the go-or-not answer before you drive anywhere. Tap one for its own map, tide and depth.',
       'Thalweg does not rank the four. Reading a thermometer against a threshold is one thing; telling you where the fishing will be better is a forecast it has no basis for.',
