@@ -119,6 +119,29 @@ async function noOverflow(page, label) {
   check(label, bad.out.length === 0 && bad.scrollW <= bad.vw + 1, JSON.stringify(bad));
 }
 
+/* WAIT FOR THE ANSWER, NOT FOR A DURATION.
+ *
+ * The depth check asked for a reading and then slept 2.5 seconds before
+ * reading the label. On a runner that was sometimes not enough: the label
+ * still said "Asking the survey…", and the check reported the app failing to
+ * name its survey when what had actually happened was that nothing had come
+ * back yet. The phone geometry ran the identical assertion seconds later and
+ * passed, which is the tell.
+ *
+ * This is the same defect as tools/live-test.mjs had, fixed there the same
+ * day — an assertion racing the thing it asserts about. A fixed wait is a
+ * guess about somebody else's network, and the failure it produces accuses
+ * the app of the tester's impatience. */
+async function until(page, fn, what, ms = 30000) {
+  const stop = Date.now() + ms;
+  while (Date.now() < stop) {
+    if (await page.evaluate(fn)) return true;
+    await page.waitForTimeout(250);
+  }
+  console.log('        (gave up waiting for ' + what + ' after ' + (ms / 1000) + 's)');
+  return false;
+}
+
 async function audit(page, label) {
   await page.addScriptTag({ content: axe });
   const res = await page.evaluate(async () => await window.axe.run(document, { resultTypes: ['violations'] }));
@@ -430,10 +453,25 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
   await page.evaluate(() => { state.catalog = null; });
   await page.evaluate(() => loadCatalog());
-  await page.waitForTimeout(2500);
-  check(`${name}: the catalogue came back`, held);
+  // NOT just `state.catalog`. That object exists as soon as the request
+  // settles, INCLUDING when it settled as an error — it carries rasterError in
+  // that case — and `surveysAt` needs `raster` to have entries. Waiting on the
+  // object rather than on the answer is how this check came to report "the
+  // survey directory has not arrived" as an app defect.
+  const catalogued = await until(page,
+    () => !!(state.catalog && state.catalog.raster && state.catalog.raster.length),
+    'the survey catalogue');
+  // `held` says the catalogue was there BEFORE it was cleared, which proves
+  // nothing about the reload this step just asked for. Both, now.
+  check(`${name}: the catalogue came back`, held && catalogued);
   await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
-  await page.waitForTimeout(2500);
+  // The label is written twice: "Asking the survey…" the moment it is opened,
+  // and the answer when it arrives. Waiting for the absence of the first is
+  // what makes this an assertion about the app rather than about the clock.
+  await until(page, () => {
+    const n = document.querySelector('.leaflet-popup-content');
+    return !!n && !/Asking the survey/.test(n.textContent);
+  }, 'the depth answer');
   const depth = await popText();
   check(`${name}: a depth reading names its survey and its caveat`,
     /ft/.test(depth) && /surveyed \d{4}-\d{2}-\d{2}/.test(depth) &&
