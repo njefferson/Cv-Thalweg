@@ -294,11 +294,28 @@ textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink
 .strip.weir{background:#4A2A12; border-bottom:1px solid var(--warn)}
 .strip.weir b{color:var(--warn)}
 dialog{background:var(--panel); color:var(--ink); border:1px solid var(--teal-line);
-  max-width:min(46rem,94vw); width:100%; padding:0; border-radius:3px}
+  max-width:min(46rem,94vw); width:100%; padding:0; border-radius:3px;
+  /* THE DIALOG HAD NO HEIGHT OF ITS OWN. Only its body was bounded, so the
+     whole thing came out as head plus 70vh plus borders and ran off the
+     bottom of the screen — reported from a real phone, by somebody meeting
+     the app for the first time.
+     And vh is the wrong unit here: on a phone it is measured against the
+     viewport with the address bar HIDDEN, so 70vh is more than 70% of what
+     the reader can actually see (LESSONS 176 — a phone's screen is not its
+     viewport). dvh is the visible one; vh stays first as the fallback. */
+  max-height:90vh; max-height:90dvh}
+/* SCOPED TO [open], and this is not a nicety. A bare `display:flex` on
+   `dialog` overrides the browser's own `display:none` for a CLOSED one, so
+   every dialog in the app stayed on screen after it was dismissed. The suite
+   caught it on the check that dismissing the first-run panel really removes
+   it — one line of layout, every dialog broken. */
+dialog[open]{display:flex; flex-direction:column}
 dialog::backdrop{background:rgba(4,9,10,.8)}
 .dlg-head{display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem;
   border-bottom:1px solid var(--teal); position:sticky; top:0; background:var(--panel)}
-.dlg-body{padding:.8rem; max-height:min(70vh,44rem); overflow-y:auto}
+/* The body takes what is left of the dialog and scrolls inside it, rather
+   than setting its own height and pushing the head off the screen. */
+.dlg-body{padding:.8rem; overflow-y:auto; flex:1 1 auto; min-height:0}
 .dlg-body h3{font-size:.9rem; margin:1.1rem 0 .3rem; color:var(--cyan)}
 .dlg-body h3:first-child{margin-top:0}
 .dlg-body p,.dlg-body li{font-size:.85rem}
@@ -335,6 +352,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .legend button{pointer-events:auto}
 .legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
   text-transform:uppercase; color:var(--mute); font-size:.62rem}
+/* The install offer is a box, not another paragraph, because in a run of
+   paragraphs it was read as more prose and scrolled past. */
+.installbox{border:1px solid var(--teal-line); background:var(--panel-2);
+  border-radius:3px; padding:.6rem .7rem; margin:1rem 0 .2rem}
+.installbox h3{color:var(--cyan); font-size:.9rem; margin:0 0 .3rem}
 .legend .keyrow{display:flex; align-items:center; gap:.4rem; margin:.15rem 0}
 .legend .keyrow span{white-space:nowrap}
 /* The swatch is drawn to the marker's own geometry — same diameter, same ring
@@ -534,7 +556,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.7.0';
+var VERSION = '0.8.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2220,7 +2242,28 @@ function initMap(){
      It reads the depth now and OFFERS to keep the point, which is the same
      one-tap route to a mark with the decision moved to the reader. Add at
      map centre in the Marks panel is still the pointerless way. */
+  /* A CONTROL SITS ON THE MAP, SO A PRESS ON IT IS A PRESS ON THE MAP.
+     disableClickPropagation holds for a mouse and does NOT hold for a finger —
+     on a touch device the map's click is synthesised from the touch sequence
+     and arrives anyway — so tapping the key's Hide button, or the locate
+     button, dropped a depth query underneath it. Every desktop check passed;
+     it took the phone geometry to see it.
+     THE MARK IS TAKEN IN THE CAPTURE PHASE, and that is the whole trick. A
+     control's own handler often rebuilds its contents — the key does, on the
+     press that hides it — which DETACHES the element that was clicked, so by
+     the time the map's handler runs, asking the target for its ancestors
+     returns nothing and the press looks like it landed on open map. Capture
+     runs before any of that, while the DOM is still the one the finger
+     touched.
+     One listener, at the map, so it cannot be forgotten when the next control
+     is added. */
+  m.getContainer().addEventListener('click', function(ev){
+    var t = ev.target;
+    ev.__onControl = !!(t && t.closest && t.closest('.leaflet-control'));
+  }, true);
+
   m.on('click', function(e){
+    if (e.originalEvent && e.originalEvent.__onControl) return;
     showDepthAt(e.latlng.lat, e.latlng.lng);
   });
   m.on('moveend', function(){
@@ -2399,6 +2442,12 @@ function drawHere(recentre){
      leaves them looking at a rectangle with none of this app's river in it,
      with nothing saying why. */
   updateLegend();
+  /* THE TIDE PANEL IS BUILT WHEN THE PANEL RENDERS, so a position found
+     afterwards did not reach it: a reader pressed Where I am and the tide
+     section went on saying nothing about which station was nearest them,
+     until some unrelated thing happened to redraw it. Anything that knows
+     where the reader is has to tell the panels that use it. */
+  if (state.riverId) renderWater();
 
   var msg = 'You are on the map' +
     (acc !== null ? ', to about ' + kmText(acc) : '') +
@@ -2814,8 +2863,17 @@ function tideSection(river){
     return box;
   }
   if (t.stations && t.stations.length > 1){
+    /* THE TIDE IS PREDICTED AT ONE PLACE AND THE PICKER JUST SAID "Station".
+       A reader who has not been told assumes a tide is a property of the
+       river; on this water it is not. High water at Rio Vista and high water
+       at Freeport are hours apart, so a chart read against the wrong station
+       is wrong by more than it looks — and nothing on the screen said which
+       station it was for, or that it was a choice worth making. */
+    box.appendChild(el('p',{class:'note',style:'margin-top:0',
+      text:'These are predictions for one place on the river, not for the river. The tide turns at different times along it \u2014 hours apart between the top of this reach and the bottom \u2014 so pick the station nearest where you will actually be.'}));
+
     var row = el('div',{class:'rowline'});
-    var lab = el('label',{for:'tidestation-'+river.id,text:'Station'});
+    var lab = el('label',{for:'tidestation-'+river.id,text:'Predicted at'});
     var sel = el('select',{id:'tidestation-'+river.id});
     t.stations.forEach(function(s){
       var o = el('option',{value:s.id,text:(s.name||s.id)+' — '+s.id});
@@ -2825,6 +2883,34 @@ function tideSection(river){
     sel.addEventListener('change', function(){ switchTideStation(river, sel.value); });
     row.appendChild(lab); row.appendChild(sel);
     box.appendChild(row);
+
+    /* AND IF THE APP KNOWS WHERE YOU ARE, IT CAN JUST ANSWER. Where I am
+       already put a position on the map; the nearest station to it is the one
+       question the picker leaves a reader to solve by knowing the estuary. */
+    if (state.here){
+      var withPos = t.stations.filter(function(s){ return isNum(s.lat) && isNum(s.lon); });
+      if (withPos.length){
+        var near = withPos.slice().sort(function(a2, b2){
+          return metresBetween(state.here.lat, state.here.lon, a2.lat, a2.lon) -
+                 metresBetween(state.here.lat, state.here.lon, b2.lat, b2.lon);
+        })[0];
+        var away = metresBetween(state.here.lat, state.here.lon, near.lat, near.lon);
+        if (near.id === t.station){
+          box.appendChild(el('p',{class:'note',
+            text:'This is the nearest station to where you are, ' + kmText(away) + ' off.'}));
+        } else {
+          var nrow = el('div',{class:'rowline'});
+          var nbtn = el('button',{type:'button',
+            text:'Use ' + (near.name || near.id) + ', ' + kmText(away) + ' from you'});
+          nbtn.addEventListener('click', function(){
+            switchTideStation(river, near.id);
+            announce('Tide now predicted at ' + (near.name || near.id) + '.');
+          });
+          nrow.appendChild(nbtn);
+          box.appendChild(nrow);
+        }
+      }
+    }
   }
   /* Asking NOAA what else is out there costs two megabytes, so it is a
      button rather than something that happens to you. Once pressed, the
@@ -4899,6 +4985,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.8.0', date:'2026-08-30', changes:[
+      'The first-run page did not fit on the screen it opened on. Reported from a real phone by somebody seeing the app for the first time \u2014 the panel had no height of its own, so it ran off the bottom.',
+      'That page also buried the one thing worth doing before you leave the house. Putting Thalweg on your home screen is now its own box, immediately above the Start button, where somebody scrolling for the button actually passes it \u2014 and the line telling you everything else lives under the (i) is no longer set in small print beside it.',
+      'The tide now says what it is. It is predicted at ONE station, not for the whole river, and on this water high tide at the top of a reach and at the bottom are hours apart. The picker is labelled Predicted at rather than Station, and says in plain words that you should pick the one nearest where you will be. If you have used Where I am, it names the nearest station to you and offers it in one press \u2014 or tells you that you are already on it.',
+      'Tapping a control on the map \u2014 the Key, or Where I am \u2014 used to also drop a depth reading on the map underneath it. That only happened with a finger, never with a mouse, so it had gone unseen on every desktop check.',
+  ] },
   { v:'0.7.0', date:'2026-08-30', changes:[
       'The map has a key now. Gauges, tide stations, your own marks and your own position are four different dots, and the only way to find out which was which was to tap one \u2014 and the two sizes of tide station looked deliberate without ever saying why. The key lists only what is actually on the map at that moment, so it can never name something that is not there. On a phone it starts as a small Key button, because the map is small; on anything wider it is open.',
       'The key never blocks the map. You can tap a pin that is sitting underneath it, which the first version of it stopped you doing.',
@@ -5298,25 +5390,35 @@ function showWelcome(){
   ].forEach(function(t){ u.appendChild(el('li',{text:t})); });
   b.appendChild(u);
 
-  var installed = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-  if (!installed){
-    head('Put it on your home screen');
-    para('It opens full screen, loses the browser chrome, and keeps everything it had already loaded when you are out of signal.');
-    b.appendChild(installList());
-  }
-
   b.appendChild(el('div',{class:'magbox',
     text:'It does not know where fish are being caught and will not guess — no live catch feed exists for these rivers. It is not a navigation aid: the depth surveys come from the state, whose own notes say they are not for navigating by.'}));
 
   para('This is the first release. Every number comes from USGS, NOAA, DWR or CDFW and is labelled with which one — but it is a first release, so treat what you see as new until it has agreed with something you trust.', 'note');
 
+  /* THE INSTALL OFFER SAT IN THE MIDDLE, and a first-time reader scrolling for
+     the button went straight past it — reported by somebody meeting the app on
+     a phone, who saw a wall of text and a Start button and nothing else. It is
+     the last thing before Start now, which is where a scroller actually lands,
+     and it is a box rather than a paragraph in a run of paragraphs. */
+  var installed = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  if (!installed){
+    var inst = el('div',{class:'installbox'});
+    inst.appendChild(el('h3',{style:'margin-top:0',text:'Put it on your home screen'}));
+    inst.appendChild(el('p',{text:'Worth doing before you go. It opens full screen with no browser chrome, and everything it has already loaded keeps working with no signal — which on most of this water is the normal condition rather than the exception.'}));
+    inst.appendChild(installList());
+    b.appendChild(inst);
+  }
+
   var row = el('div',{class:'rowline'});
   var ok = el('button',{type:'button',text:'Start'});
   ok.addEventListener('click', function(){ dlg.close(); });
   row.appendChild(ok);
-  row.appendChild(el('span',{class:'note',
-    text:'All of this, the install steps and what changed since last time live under the (i) button.'}));
   b.appendChild(row);
+  /* Not a tiny note beside the button. The one sentence telling a reader where
+     everything they just scrolled past has GONE was set in the small print,
+     next to the thing they were already reaching for. */
+  b.appendChild(el('p',{style:'margin:.5rem 0 0',
+    text:'All of this — the install steps, where each number comes from, and what changed since last time — stays under the (i) button in the top corner.'}));
 
   dlg.showModal();
   /* Left to itself the dialog hands focus to the first thing it can find,
