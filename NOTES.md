@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.9.0.
+- Version 0.11.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,15 +258,58 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
-- **THE PROFILE IS DRAWN ALONG THE READER'S OWN LINE, and that is a decision
-  rather than a shortcut.** A long profile down the river needs a published
-  centreline this app does not have; NHD large-scale flowlines are reachable
-  (`hydro.nationalmap.gov`, layer 6) but come back as thousands of segments in
-  a small box — 2,848 in one tight box near Rio Vista — needing hydrologic
-  ordering before they are a line. That is a build-time bake like the tide
-  stations, and it is not done. Until it is, the app profiles whatever line you
-  draw: down the channel it is a long profile, bank to bank it is a
-  cross-section, same code, and nothing is invented.
+- **"I DO NOT SEE WHERE THE DEPTH IS AT" WAS A CORRECT READING OF THE MAP.**
+  The surveys are a few reaches of hundreds of kilometres, the app opens on the
+  whole basin, and nothing marked them. They are drawn as dashed outlines in a
+  pane BELOW the readings and non-interactive, they are in the key, and there is
+  one button that fits the map to them. Three defects came out of building it:
+  `drawSurveyBoxes` called `catalogFor`, which reads fields the catalogue does
+  not have while it is still loading, so it threw inside `selectRiver` and took
+  the whole river change down with it — a drawing function must not need more of
+  the data than it draws. The survey box is `{n,s,e,w}` and I wrote
+  `{ymin,xmin,…}`, which Leaflet reported as "Invalid LatLng" seven times before
+  the suite's own page-error check caught it. And the first assertion said the
+  map "zoomed in", which is only true when you happen to be zoomed out — it
+  failed the moment an earlier check left the map close over the river, which is
+  exactly when a reader would press it. The property is that you can see the
+  surveyed water, not that the number got smaller.
+- **A CROSS-SECTION IS PERPENDICULAR TO THE RIVER.** The old control drew a line
+  between the left and right edges of the screen, which at the zoom this app
+  opens on is a line across the state. With the centreline baked in it takes the
+  local bearing at the nearest point on the river and cuts across it. The
+  perpendicular has to be computed in METRES, not degrees — longitude is
+  squeezed by latitude and a degree-space normal comes out skewed.
+- **39 KB PARSED AT BOOT FOR A FEATURE MOST READERS NEVER USE.** `river-lines.js`
+  was a `<script>` in the head, so every open paid for the whole main stem of
+  four rivers before the map appeared. It is loaded on first use now and still
+  precached, so it is a read from the device and works offline. The controls are
+  offered whether or not it has loaded — deciding from whether it happens to be
+  in memory would hide them on a cold open and show them on a warm one.
+- **THE CENTRELINES ARE BAKED IN NOW — `tools/fetch-centrelines.mjs`.**
+  **NHDPlus High Resolution, not `nhd`.** Both publish flowlines; only NHDPlus
+  carries what turns a heap of segments into a line. `nhd` layer 6 returns 2,848
+  features in one tight box near Rio Vista with nothing to order them by.
+  NHDPlus layer 3 carries `levelpathi` (which main stem a segment belongs to)
+  and `pathlength` (how far its downstream end is from the outlet), which answer
+  both questions at once. The Sacramento is 917 segments under its own name, of
+  which 719 share one levelpath and run 598 km; the rest are side channels
+  carrying the same name.
+  **A LINE THAT TELEPORTS IS NOT A RIVER.** The Mokelumne returned all 326 of
+  its segments under one levelpath with a 12.4 km jump in the middle — it forks
+  in the Delta and both channels carry the name. No single attribute shows that;
+  what shows it is the join being impossible. The chain is cut wherever a join
+  exceeds 800 m and the longest continuous run ships, with what was dropped
+  reported rather than silently lost.
+  **AND THE BBOX CLIP WAS THE SAME DEFECT IN MY OWN CODE.** Filtering points to
+  the app's box saved a few kilobytes and joined the survivors straight across
+  every bend where the river left the box and came back — a 2.5 km chord on the
+  Mokelumne. The whole main stem ships instead: 38.5 KB for four rivers.
+  **Profiling the river gives the longest SURVEYED stretch**, because depth only
+  exists where the state measured; ninety samples over 598 km would be six
+  kilometres apart and nearly all of them on water nobody has sounded. The
+  drawing says which stretch it used.
+  The reader's own line still works and is still the answer for a cross-section:
+  down the channel a long profile, bank to bank a cross-section, same code.
   **One request per survey, not one per sample.** `getSamples` takes a POLYLINE
   and returns the samples ordered along it; measured against the live
   ImageServer before a line of this was written, because a geometry ArcGIS does
