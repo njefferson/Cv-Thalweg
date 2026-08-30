@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.4.0.
+- Version 0.5.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,21 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **The locate control taught two things worth keeping.** First, a control that
+  sits on the map is also a press ON the map, and a press on the map asks the
+  survey how deep it is there — without `L.DomEvent.disableClickPropagation` the
+  button would have dropped a depth reading under itself on every use. Second,
+  an accuracy of zero is not perfect precision, it is the same absence as a
+  missing field: the first version stored it as a number and the dot read "good
+  to about 0 m", the most confident lie the app could tell. The guard lives in
+  the drawing function as well as where the fix is stored, because the drawing
+  function is the one making the claim.
+- **"The position never leaves the device" was too strong, and a test caught
+  it.** No request carries the coordinate — that is asserted, by pattern, over
+  every request the press causes. But moving the map to you loads basemap tiles
+  for that area, so something does go out, and at zoom 14 a tile is a couple of
+  kilometres. The About panel says so. The assertion that matters is the narrow
+  one: no coordinate in any path, query or body, and nothing but tiles.
 - **This repo carried two `zizmor: ignore[...]` declarations and never ran
   zizmor.** The suppressions were written into `deploy.yml` and `stations.yml`
   in the belief the audit was wired; it was not, so nothing was suppressing

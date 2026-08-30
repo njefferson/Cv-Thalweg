@@ -220,6 +220,50 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
         return Math.round(m.left) + '..' + Math.round(m.right) + ' of ' + window.innerWidth; }));
     check('phone: exactly one tab is selected, and it is Map',
       mapBox.selected === 'true' && mapBox.others === 1, JSON.stringify(mapBox));
+    /* THE LOCATE CONTROL IS A SURFACE, so it joins this gate in the commit
+       that adds it (hub LESSONS 28). On a phone it is the one control in this
+       app that sits on the map itself rather than in a panel, which is exactly
+       the geometry a11y checks miss: it can be off-screen, under the
+       attribution, or too small for the hand that takes it. */
+    const here = await page.evaluate(() => {
+      const b = document.getElementById('herebtn');
+      if (!b) return { there: false };
+      const r = b.getBoundingClientRect();
+      const m = document.getElementById('map').getBoundingClientRect();
+      const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+      return { there: true, w: Math.round(r.width), h: Math.round(r.height),
+               inside: r.top >= m.top - 1 && r.bottom <= m.bottom + 1 &&
+                       r.left >= m.left - 1 && r.right <= m.right + 1,
+               onTop: !!(hit && (hit === b || b.contains(hit))),
+               name: (b.textContent || '').trim(),
+               disabled: b.disabled };
+    });
+    check('phone: the locate control is on the map and fully in view',
+      here.there && here.inside, JSON.stringify(here));
+    /* 44 by 44, because this app is read one-handed on a riverbank. Leaflet's
+       own controls are 30px and that is the floor this must not inherit. */
+    check('phone: a thumb can hit the locate control',
+      here.w >= 44 && here.h >= 44, JSON.stringify(here));
+    /* Painted is not reachable. The attribution and the zoom control share
+       these corners, and a control underneath another one takes no taps. */
+    check('phone: nothing is sitting on top of the locate control',
+      here.onTop, JSON.stringify(here));
+    /* SC 2.5.3: the accessible name has to contain the visible words, and an
+       aria-label that merely overlaps passes a substring check by accident
+       (hub LESSONS 29) — so this asserts the button has no aria-label at all
+       and is named by the text a reader can actually see. */
+    check('phone: the locate control is named by its own visible words',
+      /where i am/i.test(here.name) &&
+      await page.evaluate(() => !document.getElementById('herebtn').hasAttribute('aria-label')),
+      JSON.stringify(here));
+    /* It is a real button, so the keyboard reaches it without a second route
+       being built for the pointerless hand. */
+    check('phone: the locate control takes the keyboard',
+      await page.evaluate(() => {
+        const b = document.getElementById('herebtn');
+        b.focus();
+        return document.activeElement === b && b.tabIndex >= 0;
+      }));
     await audit(page, 'phone: map tab open');
     await page.click('#tab-water');
     await page.waitForTimeout(500);

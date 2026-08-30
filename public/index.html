@@ -330,6 +330,20 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
   text-transform:uppercase; color:var(--mute); font-size:.62rem}
 
+/* The locate control. A finger on a riverbank is the hand this app is read
+   with, so it is 44px through on both axes rather than the 30px Leaflet's own
+   controls are — Doctrine 4 asks who takes the route and with what hand, and
+   the answer here is a thumb, outdoors, one-handed. Bottom right because that
+   is where a thumb rests; the legend has bottom left and the zoom has the top. */
+.herectl{background:rgba(13,26,25,.92); border:1px solid var(--teal-line);
+  border-radius:3px; box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.herectl button{border:0; min-height:44px; min-width:44px; padding:.3rem .7rem;
+  font-size:.78rem; line-height:1.2; color:var(--ink); background:none;
+  border-radius:3px; text-align:center}
+.herectl button:hover{background:#16302e}
+.herectl button[disabled]{color:var(--mute); cursor:default}
+.herectl button[disabled]:hover{background:none}
+
 @media (max-width:900px){
   main{flex-direction:column}
   #rail{flex:1 1 auto; width:auto; border-left:0; border-top:1px solid var(--teal); min-height:0}
@@ -481,7 +495,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.4.0';
+var VERSION = '0.5.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2149,6 +2163,16 @@ function initMap(){
   m.createPane('tidepane');
   m.getPane('tidepane').style.zIndex = 380;   /* overlayPane is 400 */
   state.tideLayer = L.layerGroup().addTo(m);
+
+  /* Where you are. Its own pane, between the stations and the readings: a
+     station is context and you are more specific than that, but a gauge is a
+     measurement and the rule above says the reading wins the tap. The accuracy
+     ring is drawn non-interactive as well, so a fix good to two kilometres
+     cannot cover half the reach and swallow every pin under it. */
+  m.createPane('herepane');
+  m.getPane('herepane').style.zIndex = 385;
+  state.hereLayer = L.layerGroup().addTo(m);
+
   state.gaugeLayer = L.layerGroup().addTo(m);
   state.markLayer = L.layerGroup().addTo(m);
   state.soundingLayer = L.layerGroup().addTo(m);
@@ -2172,7 +2196,167 @@ function initMap(){
     return d;
   };
   legend.addTo(m);
+  hereControl(m);
   return m;
+}
+
+/* =====================================================================
+   Where I am.
+
+   THE POSITION NEVER LEAVES THE DEVICE. It is not stored between visits, it
+   is not sent to the bathymetry proxy, and it is not sent to anyone else:
+   the browser answers, the app draws a dot, and that is the whole path. The
+   depth query is the one thing in this app that would send a coordinate
+   anywhere, and it stays where it was — behind a tap you make yourself.
+   ===================================================================== */
+function hereControl(m){
+  var ctl = L.control({ position:'bottomright' });
+  ctl.onAdd = function(){
+    var d = L.DomUtil.create('div', 'herectl');
+    var b = el('button', { type:'button', id:'herebtn', text:'Where I am' });
+    b.addEventListener('click', locateMe);
+    d.appendChild(b);
+    /* A control sits ON the map, so a press on it is also a press on the map
+       — and a press on the map asks the survey how deep it is there. Without
+       this, the button would drop a depth reading at whatever is underneath
+       it every time it was used. */
+    L.DomEvent.disableClickPropagation(d);
+    L.DomEvent.disableScrollPropagation(d);
+    return d;
+  };
+  ctl.addTo(m);
+}
+
+function hereButton(label, busy){
+  var b = document.getElementById('herebtn');
+  if (!b) return;
+  b.textContent = label;
+  b.disabled = !!busy;
+}
+
+function locateMe(){
+  /* Every one of these is a different thing to say. A single "could not get
+     your location" would be true in all four cases and useful in none. */
+  if (!navigator.geolocation){
+    hereButton('Where I am');
+    announce('This browser has no location service, so the app cannot ask where you are.');
+    return;
+  }
+  if (!window.isSecureContext){
+    hereButton('Where I am');
+    announce('Locating needs a secure connection. This page was not loaded over https, so the browser will not answer.');
+    return;
+  }
+  hereButton('Finding you…', true);
+  announce('Asking your device where you are.');
+  navigator.geolocation.getCurrentPosition(function(pos){
+    state.here = {
+      lat: pos.coords.latitude,
+      lon: pos.coords.longitude,
+      /* Metres, 95% confidence. The browser is allowed to omit it, and some
+         hand back zero, which is not a claim of perfect precision — it is the
+         same absence spelt differently. Both become null here, because
+         "good to about 0 m" would be the most confident lie in the app. */
+      acc: (isNum(pos.coords.accuracy) && pos.coords.accuracy > 0) ? pos.coords.accuracy : null,
+      at: Date.now()
+    };
+    hereButton('Where I am');
+    drawHere(true);
+  }, function(err){
+    hereButton('Where I am');
+    var code = err && err.code;
+    announce(
+      code === 1 ? 'Your browser refused: location is switched off for this site. It can be turned back on in the browser\u2019s settings for this page.' :
+      code === 2 ? 'Your device could not get a fix. Indoors, or under a canopy, this is common \u2014 it is the device that failed, not the app.' :
+      code === 3 ? 'No fix within twenty seconds. Trying again in the open usually works.' :
+      'The browser would not say where you are: ' + (err && err.message || 'no reason given') + '.');
+    logNet('geolocation', 'device', false, 'code ' + code);
+  }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+}
+
+/* Nearest thing worth naming. A distance to the middle of a reach is a number
+   about a bounding box; a distance to a gauge is a distance to somewhere that
+   exists and has a name on the map. Falls back to the reach only when nothing
+   with a position has loaded yet. */
+function nearestNamed(lat, lon){
+  var best = null;
+  Object.keys(state.gauges || {}).forEach(function(rid){
+    var payload = state.gauges[rid];
+    if (!payload) return;
+    (payload.rows || []).forEach(function(r){
+      if (!isNum(r.lat) || !isNum(r.lon)) return;
+      var d = metresBetween(lat, lon, r.lat, r.lon);
+      if (!best || d < best.d) best = { d:d, name:r.name || r.id, river:rid };
+    });
+  });
+  if (best) return best;
+  RIVERS.forEach(function(r){
+    if (!r.center) return;
+    var d = metresBetween(lat, lon, r.center[0], r.center[1]);
+    if (!best || d < best.d) best = { d:d, name:'the middle of the ' + r.name, river:r.id };
+  });
+  return best;
+}
+
+function kmText(metres){
+  if (!isFinite(metres)) return 'an unknown distance';
+  if (metres < 950) return Math.round(metres / 10) * 10 + ' m';
+  return (metres / 1000).toFixed(metres < 9500 ? 1 : 0) + ' km';
+}
+
+function drawHere(recentre){
+  if (!state.hereLayer) return;
+  state.hereLayer.clearLayers();
+  var h = state.here;
+  if (!h) return;
+
+  /* THE RING IS NOT DECORATION. A browser that is 2 km sure of itself and one
+     that is 8 m sure both hand back a single pair of numbers, and drawing both
+     as the same dot claims a precision the second one has and the first does
+     not. The ring is that number, to scale, which is the same rule this app
+     applies to a depth it did not measure at the point you asked about. */
+  var ring = null;
+  /* Non-positive accuracy is not precision, it is an absence. The guard lives
+     here as well as where the fix is stored, because this function is the one
+     that makes the claim and it must be honest about whatever it is handed. */
+  var acc = (isNum(h.acc) && h.acc > 0) ? h.acc : null;
+  if (acc !== null){
+    ring = L.circle([h.lat, h.lon], {
+      pane:'herepane', radius:acc, interactive:false,
+      color:'#DA4A85', weight:1, opacity:.7,
+      fillColor:'#DA4A85', fillOpacity:.10
+    }).addTo(state.hereLayer);
+  }
+
+  var near = nearestNamed(h.lat, h.lon);
+  var sub = 'Your device\u2019s own position, taken at ' +
+    new Date(h.at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) + '. ' +
+    (acc !== null ? 'Good to about ' + kmText(acc) + '. ' : 'Your browser did not say how accurate it is. ') +
+    'It is not saved, and your coordinate is not sent anywhere.';
+
+  L.circleMarker([h.lat, h.lon], {
+    pane:'herepane', radius:7, weight:3,
+    color:'#E76F9F', fillColor:'#0D1A19', fillOpacity:1
+  }).bindPopup(labelNode('Where you are',
+    near ? [[kmText(near.d).split(' ')[0], kmText(near.d).split(' ')[1] + ' to ' + near.name]] : [],
+    sub), LABEL).addTo(state.hereLayer);
+
+  if (recentre){
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    if (ring) state.map.fitBounds(ring.getBounds(), { maxZoom:15, animate:!reduceMotion });
+    else state.map.setView([h.lat, h.lon], 14, { animate:!reduceMotion });
+  }
+
+  /* SAY WHERE YOU ARE RELATIVE TO THE THING ON SCREEN. Centring the map on a
+     reader two hundred kilometres away is exactly what they asked for and
+     leaves them looking at a rectangle with none of this app's river in it,
+     with nothing saying why. */
+  var msg = 'You are on the map' +
+    (acc !== null ? ', to about ' + kmText(acc) : '') +
+    (near ? '. Nearest is ' + near.name + ', ' + kmText(near.d) + ' away' : '') + '.';
+  if (near && near.d > 200000)
+    msg += ' That is far enough that none of this river is in view at this zoom.';
+  announce(msg);
 }
 
 function setBasemap(id){
@@ -4501,6 +4685,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.5.0', date:'2026-08-30', changes:[
+      'A Where I am button, on the map. It puts you on it, with a ring showing how sure your device actually is \u2014 a phone that is eight metres sure and one that is two kilometres sure hand back the same pair of numbers, and drawing both as the same dot would claim a precision only one of them has. It also says what is nearest and how far, which is the question you actually have standing on a bank.',
+      'Your position is not saved between visits and your coordinate is not sent anywhere \u2014 not to this app, not to the depth service. One caveat, written down because it is true: moving the map to you loads map tiles for that area, so whoever serves the basemap can tell roughly where you are looking. That is the same thing that happens if you scroll there by hand.',
+      'When it cannot find you it says which of the four reasons it was \u2014 permission refused, no fix, timed out, or a browser with no location service at all \u2014 rather than one sentence that would be true every time and useful none of them.',
+  ] },
   { v:'0.4.0', date:'2026-08-30', changes:[
       'Every tide station on the river now ships with the app. NOAA publishes its list as one two-megabyte file it will not filter, so the app used to make each reader download the whole thing to find out that sixty-one stations exist on these rivers — and then keep none of them. They are asked for once now, when the version is built, and they are on the map from the first load, with no signal and no permission.',
       'The button that used to fetch that file is now a much narrower question: has NOAA added a station since this build. It says so when the answer is none, which it usually is. Anything it does find is kept, and is never crowded out of the picker by the stations that already shipped — finding it is the whole reason the button exists.',
@@ -4639,6 +4828,7 @@ function renderAbout(){
   para('It will not tell you where fish are being caught. There is no live catch feed for these rivers, so there is nothing honest to show, and a made-up one would be worse than nothing. No bite forecast, no spot predictor, and none is coming.');
   para('It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.');
   para('It does not want an account, cannot be logged in to, and carries no analytics, no tracking and no third-party code of any kind. Your marks live on your device and are sent nowhere.');
+  para('Where I am, on the map, is the same, with one honest caveat. The button asks your browser, your browser asks you once, and the answer is drawn and then forgotten: it is not saved between visits, and your coordinate is not sent to this app\u2019s servers, to the depth service, or to anyone else. The caveat is that moving the map to you makes it load map tiles for that area, so whoever serves the basemap can tell roughly where you are looking \u2014 to about the size of a tile, a couple of kilometres at that zoom. That is the same thing that happens if you scroll there by hand, and it is a property of every map you have ever used; it is written here because it is true, not because it is unusual. The one thing that sends your exact coordinate anywhere is asking how deep it is at a point, and that only happens when you tap the map yourself.');
 
   h('Put it on your home screen');
   para('Worth doing. Installed, it opens full screen with no browser chrome, and it keeps working with no signal — which on most of this water is the normal condition rather than the exception. Everything it had already loaded stays: the map you looked at, the depth you switched on, the tide for the week ahead, and all your marks.');
@@ -4711,7 +4901,7 @@ function renderAbout(){
   para('Where a reach has no published survey at all, the Layers panel says so in words instead of offering you a switch that turns nothing on.');
 
   h('Getting around it without a pointer');
-  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks.');
+  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks. Where I am sits on the map itself and is a real button, so it takes a thumb and the keyboard equally; it is 44px through on both axes, which the map\u2019s own zoom controls are not.');
   para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
 
   h('Where this came from');

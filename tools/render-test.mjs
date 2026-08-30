@@ -94,7 +94,13 @@ const b = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
    with a response, and a service worker sitting in front of the fixtures
    would be testing the worker instead. Offline behaviour is tools/a11y.mjs
    and the real thing. */
-const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+/* Geolocation is granted here and a fixed position is set, because a locate
+   button nobody has pressed is a button that has never been shown to work.
+   The coordinate is Rio Vista's landing, roughly — it only has to be near
+   this reach for the "how far are you" arithmetic to have something to say. */
+const HERE = { latitude: 38.1554, longitude: -121.6910, accuracy: 65 };
+const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block',
+  permissions: ['geolocation'], geolocation: HERE });
 
 const json = (route, body) => route.fulfill({ status: 200, contentType: 'application/json',
   headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
@@ -113,6 +119,11 @@ const MD_STATIONS = [
   { id: '9415257', name: 'Terminous, South Fork', lat: 38.1103, lng: -121.5006 },
   { id: '9999999', name: 'Synthetic Mokelumne', lat: 38.15, lng: -121.40 }];
 let mdIndexHits = 0;
+/* Every request the page makes, so "the position never leaves the device" can
+   be asserted rather than asserted about. A count is not enough — when it
+   fails, the name of what went out is the whole diagnosis. */
+const netCalls = [];
+ctx.on('request', r => netCalls.push(r.url()));
 await ctx.route('**/mdapi/**', r => {
   const m = /\/stations\/(\d+)\.json/.exec(r.request().url());
   if (m) return json(r, { stations: MD_STATIONS.filter(s => s.id === m[1]) });
@@ -512,6 +523,102 @@ check('the label carries the reading, not just the name',
   /cfs/i.test(await page.evaluate(() => {
     const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : ''; })),
   await page.evaluate(() => { const el = document.querySelector('.leaflet-popup-content'); return el ? el.textContent : '(none)'; }));
+
+/* --- where I am ---------------------------------------------------------
+   The dot, the ring, and the two rules that make it honest: the ring is the
+   browser's own accuracy to scale rather than decoration, and nothing about
+   the position may reach the network. */
+check('the map carries a locate control',
+  await page.evaluate(() => !!document.getElementById('herebtn')));
+check('the locate control is big enough for a thumb',
+  await page.evaluate(() => {
+    const r = document.getElementById('herebtn').getBoundingClientRect();
+    return r.width >= 44 && r.height >= 44;
+  }),
+  await page.evaluate(() => {
+    const r = document.getElementById('herebtn').getBoundingClientRect();
+    return Math.round(r.width) + 'x' + Math.round(r.height);
+  }));
+
+const netBefore = netCalls.length;
+await page.click('#herebtn');
+await page.waitForFunction(() => window.state && window.state.here, null, { timeout: 10000 });
+await page.waitForTimeout(600);
+
+check('pressing it puts you on the map',
+  await page.evaluate(() => state.hereLayer && state.hereLayer.getLayers().length > 0),
+  'layers: ' + await page.evaluate(() => state.hereLayer ? state.hereLayer.getLayers().length : -1));
+check('the position it drew is the position the browser gave',
+  await page.evaluate(h => Math.abs(state.here.lat - h.latitude) < 1e-6 &&
+                           Math.abs(state.here.lon - h.longitude) < 1e-6, HERE),
+  await page.evaluate(() => JSON.stringify(state.here)));
+/* A browser two kilometres sure of itself and one eight metres sure hand back
+   the same shape of answer. Drawing both as a bare dot claims a precision only
+   one of them has. */
+check('an accuracy ring is drawn to scale, and does not take the tap',
+  await page.evaluate(() => {
+    const ring = state.hereLayer.getLayers().filter(l => typeof l.getRadius === 'function' &&
+      l.options.interactive === false)[0];
+    return !!ring && ring.getRadius() > 0;
+  }),
+  await page.evaluate(() => state.hereLayer.getLayers().map(l => l.options.interactive + ':' +
+    (l.getRadius ? Math.round(l.getRadius()) : 'n/a')).join(' ')));
+check('the map moved to where you are',
+  await page.evaluate(h => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - h.latitude) < 0.05 && Math.abs(c.lng - h.longitude) < 0.05;
+  }, HERE),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+/* YOUR COORDINATE NEVER LEAVES THE DEVICE — which is not the same claim as
+   "nothing goes out", and the first version of this check made the stronger
+   one and was wrong. Moving the map to you loads basemap tiles for that area,
+   so something DOES go out; what must never go out is the position itself, in
+   a query string, a path or a body. That is the sentence the About panel makes
+   and this is what holds it. */
+const after = netCalls.slice(netBefore);
+const leaked = after.filter(u =>
+  /38\.15|-?121\.69|38%2E15|121%2E69/.test(u) ||
+  /lat|lon|lng|point|geometry/i.test(u));
+check('locating never puts your coordinate in a request',
+  leaked.length === 0, leaked.join(', '));
+/* And the only thing it may cause is the basemap drawing where you now are. */
+const notTiles = after.filter(u => !/arcgisonline\.com|basemaps|tile/i.test(u));
+check('the only requests locating causes are basemap tiles',
+  notTiles.length === 0, notTiles.join(', '));
+/* A control sits on the map, so a press on it is also a press on the map, and
+   a press on the map asks the survey how deep it is there. */
+check('pressing it does not also ask for a depth',
+  !(await page.evaluate(() => !!document.querySelector('.leaflet-popup') &&
+    /deep|depth|survey/i.test(document.querySelector('.leaflet-popup').textContent))));
+check('the dot says when the fix was taken and that it is not kept',
+  await page.evaluate(() => {
+    const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+    if (!dot) return '';
+    const n = dot.getPopup().getContent();
+    return typeof n === 'string' ? n : n.textContent;
+  }).then(t => /taken at/.test(t) && /not saved/.test(t) && /not sent anywhere/.test(t)),
+  await page.evaluate(() => {
+    const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+    if (!dot) return '(no dot)';
+    const n = dot.getPopup().getContent();
+    return typeof n === 'string' ? n : n.textContent;
+  }));
+
+/* A browser that hands back accuracy 0 is not one that is perfectly sure — it
+   is one that did not answer. The first version stored that as a number and
+   the dot said "good to about 0 m", which is the most confident lie the app
+   could tell. No ring, and it says so in words. */
+const vague = await page.evaluate(() => {
+  state.here = { lat: 38.1554, lon: -121.6910, acc: 0, at: Date.now() };
+  drawHere(false);
+  const rings = state.hereLayer.getLayers().filter(l => l.options.interactive === false);
+  const dot = state.hereLayer.getLayers().filter(l => l.options.interactive !== false)[0];
+  const n = dot && dot.getPopup().getContent();
+  return { rings: rings.length, text: n ? (typeof n === 'string' ? n : n.textContent) : '' };
+});
+check('an accuracy of zero draws no ring and claims no precision',
+  vague.rings === 0 && /did not say how accurate/.test(vague.text) && !/about 0/.test(vague.text),
+  JSON.stringify(vague));
 
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));
