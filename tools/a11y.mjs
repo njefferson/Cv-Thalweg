@@ -31,9 +31,18 @@ function report(label, violations) {
   for (const v of violations)
     console.log(`        [${v.impact}] ${v.id}: ${v.help} x${v.nodes.length} -> ${v.nodes[0].target.join(' ')}`);
 }
+/* KEPT SO THE END OF THE LOG CARRIES THEM. 190 lines of PASS scroll a handful
+ * of FAILs far enough up that reading the tail of a CI log — which is what a
+ * log-fetching tool gives you — shows only the runner cleaning up. Diagnosing
+ * a red run then costs a round trip per guess. The summary repeats them. */
+const failures = [];
 function check(label, cond, detail) {
   if (cond) { pass++; console.log('PASS  ' + label); }
-  else { fail++; console.log('FAIL  ' + label + (detail ? ' — ' + detail : '')); }
+  else {
+    fail++;
+    console.log('FAIL  ' + label + (detail ? ' — ' + detail : ''));
+    failures.push(label + (detail ? ' — ' + detail : ''));
+  }
 }
 
 const browser = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
@@ -712,5 +721,9 @@ for (const [label, width, height] of [
 }
 
 await browser.close();
+if (failures.length) {
+  console.log('\nWhat failed:');
+  for (const f of failures) console.log('  FAIL  ' + f);
+}
 console.log(`\n${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
