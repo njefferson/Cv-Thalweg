@@ -382,6 +382,10 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .foldbox > summary::marker{color:var(--mute)}
 .foldbox > summary:hover{background:#16302e}
 .foldbox .foldbody{padding:0 .6rem .6rem}
+/* A gauge knows where it is; the reader should not have to hunt for it. */
+.gobtn{margin-left:.4rem; font-size:.68rem; padding:.15rem .4rem; min-height:28px;
+  color:var(--mute); border-color:var(--teal)}
+.gobtn:hover{color:var(--ink)}
 .legend .keyrow{display:flex; align-items:center; gap:.4rem; margin:.15rem 0}
 .legend .keyrow span{white-space:nowrap}
 /* The swatch is drawn to the marker's own geometry — same diameter, same ring
@@ -579,10 +583,12 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      NOAA's two-megabyte index on a phone. Its absence is survivable: the app
      falls back to the declared stations and the button still works. -->
 <script src="tide-stations.js"></script>
-<!-- Each river's main stem from USGS, baked by tools/fetch-centrelines.mjs, so
-     the profile can follow the river itself rather than only a line the reader
-     drew — with no signal, and without this app inventing a centreline. -->
-<script src="river-lines.js"></script>
+<!-- river-lines.js is NOT loaded here. It is each river's main stem from USGS,
+     baked by tools/fetch-centrelines.mjs, and at 39 KB it was being fetched and
+     parsed on every open for a reader who might never profile anything. It is
+     still precached, so it is local and works offline; it is just not part of
+     getting the map on screen. loadRiverLines() pulls it in the first time
+     something actually needs a river's own line. -->
 <script>
 /* =====================================================================
    Thalweg — depth and conditions for the Central Valley fall-run fishery.
@@ -600,7 +606,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.10.0';
+var VERSION = '0.11.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1829,6 +1835,8 @@ function loadCatalog(force){
                 single: Array.isArray(r[1]) ? r[1] : [],
                 singleError: Array.isArray(r[1]) ? null : r[1].error };
     state.catalog = cat;
+    /* The moment the app knows where the surveys are, the map should say so. */
+    drawSurveyBoxes();
     sput('_shared', 'catalog', cat);
     return cat;
   });
@@ -2282,6 +2290,12 @@ function initMap(){
      measurement and the rule above says the reading wins the tap. The accuracy
      ring is drawn non-interactive as well, so a fix good to two kilometres
      cannot cover half the reach and swallow every pin under it. */
+  /* Under everything: the survey footprints are context for the readings, not
+     a thing to tap, and they must never take a press meant for a pin. */
+  m.createPane('surveypane');
+  m.getPane('surveypane').style.zIndex = 370;
+  state.surveyLayer = L.layerGroup().addTo(m);
+
   m.createPane('herepane');
   m.getPane('herepane').style.zIndex = 385;
   state.hereLayer = L.layerGroup().addTo(m);
@@ -2876,6 +2890,21 @@ function gaugeRow(r){
   name.appendChild(flagEl(r.status));
   name.appendChild(el('span',{class:'rdg-id',
     text:(r.source ? r.source + ' ' : '#') + r.id}));
+  /* EVERY GAUGE HAS A POSITION AND THERE WAS NO WAY TO GO TO IT. The app knew
+     exactly where each one was and left a reader to find it by panning a map
+     that opens on the whole basin. */
+  if (isNum(r.lat) && isNum(r.lon)){
+    var go = el('button',{class:'gobtn',type:'button',
+      title:'Show ' + (r.name || r.id) + ' on the map',
+      'aria-label':'Show ' + (r.name || r.id) + ' on the map'});
+    go.textContent = 'Map';
+    go.addEventListener('click', function(){
+      if (tabNames().indexOf('map') !== -1) selectTab('map');
+      state.map.setView([r.lat, r.lon], 14, { animate:!reduceMotion });
+      announce('Map centred on ' + (r.name || r.id) + '.');
+    });
+    name.appendChild(go);
+  }
   wrap.appendChild(name);
 
   if (r.error){
@@ -3045,6 +3074,17 @@ function tideSection(river){
      button rather than something that happens to you. Once pressed, the
      result is kept and the question is not asked again. */
   var st = (t.stations||[]).filter(function(s){ return s.id === t.station; })[0];
+  if (st && isNum(st.lat) && isNum(st.lon)){
+    var srow = el('div',{class:'rowline'});
+    var sgo = el('button',{type:'button',text:'Show this station on the map'});
+    sgo.addEventListener('click', function(){
+      if (tabNames().indexOf('map') !== -1) selectTab('map');
+      state.map.setView([st.lat, st.lon], 13, { animate:!reduceMotion });
+      announce('Map centred on ' + (st.name || st.id) + '.');
+    });
+    srow.appendChild(sgo);
+    box.appendChild(srow);
+  }
   var head = el('p',{class:'note'});
   head.appendChild(document.createTextNode(
     (st ? st.name + ' — ' : '') + 'station ' + t.station + ', MLLW. '));
@@ -3186,6 +3226,23 @@ function renderLayers(){
      survey for the number, and this is the same question without a pointer:
      §4 wants the route named for the hand that takes it, and a finger on a
      map and a keyboard on a button are two hands, not one. */
+  /* THE FIRST QUESTION, AND IT HAD NO ANSWER ON SCREEN. The surveys are a few
+     reaches of hundreds of kilometres, the app opens on the whole basin, and
+     nothing marked where they were — so "I cannot see where the depth is" was
+     a correct reading of the map rather than a reader missing something. */
+  p.appendChild(el('h2',{class:'sec',text:'Where the depth is'}));
+  var whereRow = el('div',{class:'rowline'});
+  var whereBtn = el('button',{type:'button',text:'Take me to the surveyed water'});
+  whereBtn.addEventListener('click', function(){ goToDepth(river); });
+  whereRow.appendChild(whereBtn);
+  p.appendChild(whereRow);
+  var nSurveys = surveysForRiver(river).length;
+  p.appendChild(el('p',{class:'note',
+    text: nSurveys
+      ? 'The state has surveyed ' + nSurveys + ' reach(es) of the ' + river.name +
+        ', and nothing else. Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.'
+      : 'No published multibeam survey has arrived for the ' + river.name + ' yet. That is not the same as there being none \u2014 it means nothing has answered.'}));
+
   p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
   p.appendChild(el('p',{class:'note',
     text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
@@ -3206,8 +3263,7 @@ function renderLayers(){
   p.appendChild(el('h2',{class:'sec',text:'Depth along a line'}));
   p.appendChild(el('p',{class:'note',
     text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
-  if (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[river.id])
-    p.appendChild(el('p',{class:'note',
+  p.appendChild(el('p',{class:'note',
       text:'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.'}));
   var profRow = el('div',{class:'rowline'});
   if (state.profArm){
@@ -3220,8 +3276,11 @@ function renderLayers(){
   } else {
     /* THE RIVER'S OWN LINE, which is what "a profile of the river" means and
        what the app could not do until USGS's centreline was baked in. */
-    var haveLine = typeof RIVER_LINES === 'object' && RIVER_LINES &&
-                   RIVER_LINES[river.id] && RIVER_LINES[river.id].length > 1;
+    /* Every river in this build ships a line, so the controls are offered
+       without waiting for the file — pressing one loads it. Deciding from
+       whether it happens to be loaded yet would hide them on a cold open and
+       show them on a warm one, which is a control that comes and goes. */
+    var haveLine = true;
     if (haveLine){
       var down = el('button',{type:'button',text:'Profile down the river itself'});
       down.addEventListener('click', function(){ profileRiverLine(river); });
@@ -3231,22 +3290,21 @@ function renderLayers(){
       text: state.profile ? 'Draw another line' : 'Draw a line to profile'});
     draw.addEventListener('click', armProfile);
     profRow.appendChild(draw);
-    /* The pointerless route, named for the hand that takes it: two taps on a
-       map is a finger's job, and a line across the middle of what is on screen
-       is the same question asked with a keyboard. */
-    var across = el('button',{type:'button',text:'Profile across the map, bank to bank'});
-    across.addEventListener('click', function(){
-      /* THE DRAWING APPEARS UNDER THE MAP, and on a phone the map is a tab of
-         its own — so pressing this from the Layers tab drew a profile into a
-         panel the reader could not see. The same move the depth-at-centre
-         button already makes. */
-      if (tabNames().indexOf('map') !== -1) selectTab('map');
-      var b2 = state.map.getBounds(), c = state.map.getCenter();
-      state.profArm = [];
-      profilePoint(c.lat, b2.getWest() + (c.lng - b2.getWest()) * 0.15);
-      profilePoint(c.lat, b2.getEast() - (b2.getEast() - c.lng) * 0.15);
-    });
-    profRow.appendChild(across);
+    /* A CROSS-SECTION IS PERPENDICULAR TO THE RIVER, not across the screen.
+       This used to draw a line between the left and right edges of whatever
+       the map was showing — which at the zoom this app opens on is a line
+       across the state, and not a cross-section of anything. With the
+       centreline baked in it can cut across the river properly, at the point
+       on the river nearest the middle of the map. It is also the pointerless
+       route: two taps on a map is a finger's job. */
+    if (haveLine){
+      var xs = el('button',{type:'button',text:'Cross-section across the river here'});
+      xs.addEventListener('click', function(){
+        var c = state.map.getCenter();
+        crossSectionAt(river, c.lat, c.lng, 300);
+      });
+      profRow.appendChild(xs);
+    }
     if (state.profile){
       var clr = el('button',{type:'button',text:'Clear the profile'});
       clr.addEventListener('click', clearProfile);
@@ -3570,6 +3628,11 @@ function updateLegend(){
   if (state.hereLayer && state.hereLayer.getLayers().length)
     rows.push(keyRow(swatch(7, 3, '#E76F9F', '#0D1A19'),
       'You — the ring is how sure your device is'));
+  if (state.surveyLayer && state.surveyLayer.getLayers().length){
+    var sq = el('i',{class:'sw',
+      style:'width:14px;height:10px;border-radius:0;border:1px dashed #7BD5D9;background:rgba(123,213,217,.08)'});
+    rows.push(keyRow(sq, 'Surveyed — depth exists only inside these'));
+  }
 
   var showSound = state.soundingActive && state.soundingRange;
   if (!rows.length && !showSound) return;
@@ -4081,6 +4144,7 @@ function selectRiver(id){
      control that does nothing still asks to be understood. */
   var home = $('#homebtn');
   if (home) home.hidden = !state.riverId;
+  drawSurveyBoxes();
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -5281,11 +5345,14 @@ function renderProfile(){
   var names = m.bands.filter(function(b){ return b.measured; })
     .map(function(b){ return readableSurvey(b.survey) + (isNum(b.deepest)
       ? ' (deepest ' + fmt(Math.abs(b.deepest),1) + ' ft)' : ''); });
-  var whole = state.profWhole;
+  var whole = state.profWhole, cross = state.profCross;
   var lead = whole
     ? 'Down the river\u2019s own line, along the ' + kmText(m.length) +
       ' of it the state has surveyed, '
-    : 'Along ' + kmText(m.length) + ' of line, ';
+    : cross
+      ? 'Straight across the river — ' + kmText(cross.width) + ' bank to bank, ' +
+        'cut at right angles to the river’s own line — '
+      : 'Along ' + kmText(m.length) + ' of line, ';
   var sentence = lead + 'the deepest published sounding is ' +
     fmt(Math.abs(m.deepest), 1) + ' feet, from ' +
     (names.length === 1 ? names[0] : names.length + ' surveys: ' + names.join('; ')) + '.' +
@@ -5316,7 +5383,7 @@ function cancelProfile(){
   announce('Line cancelled.');
 }
 function clearProfile(){
-  state.profile = null; state.profArm = null; state.profWhole = null;
+  state.profile = null; state.profArm = null; state.profWhole = null; state.profCross = null;
   if (state.profLayer) state.profLayer.clearLayers();
   renderProfile(); renderLayers();
   announce('Profile cleared.');
@@ -5334,7 +5401,7 @@ function profilePoint(lat, lon){
   }
   var pts = state.profArm.slice();
   state.profArm = null;
-  state.profWhole = null;      /* a line you drew, not the river's */
+  state.profWhole = null; state.profCross = null;   /* a line you drew */
   runProfile(pts);
 }
 
@@ -5362,8 +5429,139 @@ function surveyedRun(line){
   return { pts: line.slice(a, b), of: line.length, from: a, to: b };
 }
 
+/* WHERE THE DEPTH ACTUALLY IS.
+   The surveys are a handful of reaches on hundreds of kilometres of river, and
+   the app opened on the whole basin with nothing marking them — so "I cannot
+   see where the depth is" was the correct reading of the screen. They are drawn
+   now, and there is one press that takes you to them. */
+function drawSurveyBoxes(){
+  if (!state.surveyLayer) return;
+  state.surveyLayer.clearLayers();
+  if (!state.riverId || !state.catalog || !state.catalog.raster) return;
+  var river = byId(state.riverId);
+  /* The raster list DIRECTLY, not catalogFor — that helper ranks every kind of
+     survey and reads fields the catalogue may not have yet while it is still
+     loading, so calling it here threw inside selectRiver and took the whole
+     river change down with it. A drawing function must not need more of the
+     data than it draws. */
+  surveysForRiver(river).forEach(function(row){
+    L.rectangle([[row.box.s, row.box.w], [row.box.n, row.box.e]], {
+      pane:'surveypane', interactive:false,
+      color:'#7BD5D9', weight:1, opacity:.55, dashArray:'4 4',
+      fillColor:'#7BD5D9', fillOpacity:.05
+    }).addTo(state.surveyLayer);
+  });
+}
+
+function surveysForRiver(river){
+  if (!state.catalog || !state.catalog.raster) return [];
+  return state.catalog.raster.filter(function(row){
+    return row.box && !row.box.unknownWkid && boxesIntersect(row.box, river.bbox);
+  });
+}
+
+function surveyBounds(river){
+  var b = null;
+  surveysForRiver(river).forEach(function(row){
+    var r = L.latLngBounds([[row.box.s, row.box.w], [row.box.n, row.box.e]]);
+    b = b ? b.extend(r) : r;
+  });
+  return b;
+}
+
+function goToDepth(river){
+  var b = surveyBounds(river);
+  if (!b){
+    announce('No published survey for the ' + river.name + ' has arrived yet, so there is nowhere to go.');
+    return;
+  }
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  state.map.fitBounds(b.pad(0.08), { animate:!reduceMotion });
+  drawSurveyBoxes();
+  announce('Showing the reaches of the ' + river.name + ' the state has surveyed.');
+}
+
+/* A CROSS-SECTION IS PERPENDICULAR TO THE RIVER, and until the centreline was
+   baked in the app had no idea which way that was — so it offered a line across
+   whatever the screen happened to show, which at the zoom this app opens on is
+   a line across the state. That was not a cross-section, it was a chord.
+   Now: find the nearest point on the river's own line, take its local bearing,
+   and cut across it. */
+/* THE CENTRELINES ARE FETCHED WHEN THEY ARE FIRST WANTED, not at boot. They
+   are 39 KB of coordinates that only the profile uses, and a reader opening
+   the app to look at the water temperature was paying to parse all of it
+   before the map appeared. Precached, so this is a read from the device rather
+   than the network, and it works with no signal. */
+var riverLinesReady = null;
+function loadRiverLines(){
+  if (typeof RIVER_LINES === 'object' && RIVER_LINES) return Promise.resolve(RIVER_LINES);
+  if (riverLinesReady) return riverLinesReady;
+  riverLinesReady = new Promise(function(res, rej){
+    var sc = document.createElement('script');
+    sc.src = 'river-lines.js';
+    sc.onload = function(){
+      logNet('river centrelines', 'river-lines.js', true, 'loaded on demand');
+      res(typeof RIVER_LINES === 'object' ? RIVER_LINES : null);
+    };
+    sc.onerror = function(){
+      riverLinesReady = null;
+      logNet('river centrelines', 'river-lines.js', false, 'did not load');
+      rej(new Error('the river centrelines did not load'));
+    };
+    document.head.appendChild(sc);
+  });
+  return riverLinesReady;
+}
+function riverLineFor(id){
+  return (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[id]) || null;
+}
+
+function nearestOnLine(line, lat, lon){
+  var best = -1, bd = Infinity;
+  for (var i = 0; i < line.length; i++){
+    var d = metresBetween(lat, lon, line[i][0], line[i][1]);
+    if (d < bd){ bd = d; best = i; }
+  }
+  return best < 0 ? null : { i:best, off:bd };
+}
+
+function crossSectionAt(river, lat, lon, halfWidthM){
+  announce('Reading across the river…');
+  loadRiverLines().then(function(){ crossSectionNow(river, lat, lon, halfWidthM); },
+    function(){ announce('The river centrelines did not load, so the app cannot tell which way across is.'); });
+}
+function crossSectionNow(river, lat, lon, halfWidthM){
+  var line = riverLineFor(river.id);
+  if (!line || line.length < 3){
+    announce('This build carries no centreline for the ' + river.name + ', so it cannot tell which way across is.');
+    return;
+  }
+  var n = nearestOnLine(line, lat, lon);
+  var a = line[Math.max(0, n.i - 1)], b = line[Math.min(line.length - 1, n.i + 1)];
+  var mid = line[n.i];
+  /* Local bearing of the river, then a quarter turn. Longitude is squeezed by
+     latitude, so the perpendicular has to be computed in metres rather than in
+     degrees or it comes out skewed. */
+  var kx = 111320 * Math.cos(mid[0] * Math.PI / 180), ky = 110540;
+  var dx = (b[1] - a[1]) * kx, dy = (b[0] - a[0]) * ky;
+  var len = Math.sqrt(dx * dx + dy * dy) || 1;
+  var px = -dy / len, py = dx / len;              /* unit perpendicular, metres */
+  var w = halfWidthM || 300;
+  var p1 = [mid[0] + (py * -w) / ky, mid[1] + (px * -w) / kx];
+  var p2 = [mid[0] + (py *  w) / ky, mid[1] + (px *  w) / kx];
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  state.profWhole = null;
+  state.profCross = { at:mid, off:n.off, width:w * 2 };
+  runProfile([p1, mid, p2]);
+}
+
 function profileRiverLine(river){
-  var line = (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[river.id]) || null;
+  announce('Reading down the river…');
+  loadRiverLines().then(function(){ profileRiverNow(river); },
+    function(){ announce('The river centrelines did not load, so the app cannot follow the river.'); });
+}
+function profileRiverNow(river){
+  var line = riverLineFor(river.id);
   if (!line || line.length < 2){
     announce('This build carries no centreline for the ' + river.name + '.');
     return;
@@ -5381,7 +5579,7 @@ function profileRiverLine(river){
     return;
   }
   if (tabNames().indexOf('map') !== -1) selectTab('map');
-  state.profWhole = run;
+  state.profWhole = run; state.profCross = null;
   runProfile(run.pts);
 }
 
@@ -5511,6 +5709,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.11.0', date:'2026-08-30', changes:[
+      'You can see where the depth is now. The state has surveyed a handful of reaches out of hundreds of kilometres of river, and the app opened on the whole basin with nothing marking them \u2014 so there was no way to tell surveyed water from water nobody has ever measured. The surveyed reaches are outlined on the map, they are in the map key, and one button in Layers takes you straight to them.',
+      'Cross-sections cut across the river, not across the screen. The old one drew a line between the left and right edges of whatever the map was showing, which at the size this app opens on is a line across the state and a cross-section of nothing. It now cuts at right angles to the river\u2019s own course, a few hundred metres bank to bank, at the point on the river nearest the middle of your map.',
+      'Every gauge now has a Map button that takes you to it, and the tide station you are reading does too. The app always knew exactly where they were and still left you to find them by panning.',
+      'The app opens quicker. The river courses are 39 KB of coordinates that only the depth profile uses, and every reader was waiting for them to load before the map appeared \u2014 including anyone who only wanted the water temperature. They load the first time you profile something instead, and still work with no signal.',
+  ] },
   { v:'0.10.0', date:'2026-08-30', changes:[
       'Profile down the river itself. Until now the depth profile could only follow a line you drew, because the app had no line of its own for these rivers and would not invent one. Each river\u2019s course now ships with the app, taken from the USGS national hydrography \u2014 598 km of the Sacramento, and the Feather, American and Mokelumne too \u2014 so one press draws the bottom down the river without you having to guess where the middle is.',
       'It gives you the longest stretch the state has actually surveyed, and says so. Depth only exists where somebody went out and measured it; spreading a profile over six hundred kilometres of unmeasured water would be a picture of almost nothing.',

@@ -1071,12 +1071,15 @@ for (const [label, width, height] of [
      for anyone reading by ear. */
   await page.click('#tab-layers');
   await page.waitForTimeout(1200);
+  /* The cross-section is the pointerless route now: it cuts across the river's
+     own line at the middle of the map, so it needs no tapping and it is a
+     river's width rather than a screen's. */
   const hasProf = await page.evaluate(() =>
     !![...document.querySelectorAll('#panel-layers button')]
-      .find(b => /Profile across the map/.test(b.textContent)));
+      .find(b => /Cross-section across the river/.test(b.textContent)));
   check('touch: the profile can be started without drawing on the map', hasProf);
   if (hasProf) {
-    await page.click('#panel-layers button:text-is("Profile across the map, bank to bank")');
+    await page.click('#panel-layers button:text-is("Cross-section across the river here")');
     await page.waitForTimeout(3000);
     const p = await page.evaluate(() => {
       const sec = document.getElementById('profile');

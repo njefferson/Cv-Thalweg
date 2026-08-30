@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.10.0.
+- Version 0.11.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,33 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **"I DO NOT SEE WHERE THE DEPTH IS AT" WAS A CORRECT READING OF THE MAP.**
+  The surveys are a few reaches of hundreds of kilometres, the app opens on the
+  whole basin, and nothing marked them. They are drawn as dashed outlines in a
+  pane BELOW the readings and non-interactive, they are in the key, and there is
+  one button that fits the map to them. Three defects came out of building it:
+  `drawSurveyBoxes` called `catalogFor`, which reads fields the catalogue does
+  not have while it is still loading, so it threw inside `selectRiver` and took
+  the whole river change down with it — a drawing function must not need more of
+  the data than it draws. The survey box is `{n,s,e,w}` and I wrote
+  `{ymin,xmin,…}`, which Leaflet reported as "Invalid LatLng" seven times before
+  the suite's own page-error check caught it. And the first assertion said the
+  map "zoomed in", which is only true when you happen to be zoomed out — it
+  failed the moment an earlier check left the map close over the river, which is
+  exactly when a reader would press it. The property is that you can see the
+  surveyed water, not that the number got smaller.
+- **A CROSS-SECTION IS PERPENDICULAR TO THE RIVER.** The old control drew a line
+  between the left and right edges of the screen, which at the zoom this app
+  opens on is a line across the state. With the centreline baked in it takes the
+  local bearing at the nearest point on the river and cuts across it. The
+  perpendicular has to be computed in METRES, not degrees — longitude is
+  squeezed by latitude and a degree-space normal comes out skewed.
+- **39 KB PARSED AT BOOT FOR A FEATURE MOST READERS NEVER USE.** `river-lines.js`
+  was a `<script>` in the head, so every open paid for the whole main stem of
+  four rivers before the map appeared. It is loaded on first use now and still
+  precached, so it is a read from the device and works offline. The controls are
+  offered whether or not it has loaded — deciding from whether it happens to be
+  in memory would hide them on a cold open and show them on a warm one.
 - **THE CENTRELINES ARE BAKED IN NOW — `tools/fetch-centrelines.mjs`.**
   **NHDPlus High Resolution, not `nhd`.** Both publish flowlines; only NHDPlus
   carries what turns a heap of segments into a line. `nhd` layer 6 returns 2,848

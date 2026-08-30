@@ -236,6 +236,15 @@ await page.waitForTimeout(1500);
 
 /* The app opens on All rivers. These checks are about one river's data, so
    pick one; the All view has its own checks at the end. */
+/* 39 KB OF COORDINATES THAT ONLY THE PROFILE USES. Loading them at boot made
+   every reader parse the whole main stem of four rivers before the map
+   appeared, including readers who only wanted the water temperature. They are
+   precached, so it is a read from the device and works offline — it is just
+   not part of getting the map on screen. */
+check('the river centrelines are not loaded at boot',
+  await page.evaluate(() => typeof RIVER_LINES === 'undefined'),
+  await page.evaluate(() => typeof RIVER_LINES));
+
 check('a first run opens on All rivers',
   await page.evaluate(() => document.getElementById('riverpick').value) === '',
   await page.evaluate(() => document.getElementById('riverpick').value));
@@ -902,7 +911,7 @@ check('the Layers panel offers a profile, and says whose line it is',
 await page.evaluate(() => state.map.setView([38.45, -121.60], 13));
 await page.waitForTimeout(600);
 const before = profileCalls;
-await page.click('#panel-layers button:text-is("Profile across the map, bank to bank")');
+await page.click('#panel-layers button:text-is("Cross-section across the river here")');
 await page.waitForTimeout(3000);
 
 const prof = await page.evaluate(() => {
@@ -959,6 +968,80 @@ await page.waitForTimeout(400);
 const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
 check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
   Math.round(w0) + ' -> ' + Math.round(w1));
+/* --- where the depth actually is ---------------------------------------
+   The surveys are a few reaches of hundreds of kilometres, the app opens on the
+   whole basin, and nothing marked them — so "I cannot see where the depth is"
+   was a correct reading of the map. */
+await page.click('#tab-layers');
+await page.waitForTimeout(1000);
+check('the panel says where the depth is before it says anything else about depth',
+  /Where the depth is/.test(await page.textContent('#panel-layers')));
+check('the surveyed reaches are drawn on the map',
+  await page.evaluate(() => state.surveyLayer && state.surveyLayer.getLayers().length > 0),
+  'boxes: ' + await page.evaluate(() => state.surveyLayer ? state.surveyLayer.getLayers().length : -1));
+/* Context, never a target: a footprint must not swallow a tap meant for a pin. */
+check('a survey outline never takes a tap',
+  await page.evaluate(() => state.surveyLayer.getLayers()
+    .every(l => l.options.interactive === false)));
+/* THE PROPERTY IS "you can see the surveyed water", not "the map zoomed in".
+   The first version asserted the span got smaller, which is only true when you
+   happen to be zoomed out at the time — it failed the moment a previous check
+   left the map close in over the river, which is exactly when a reader would
+   press this. */
+await page.click('#panel-layers button:text-is("Take me to the surveyed water")');
+await page.waitForTimeout(1200);
+const shown = await page.evaluate(() => {
+  const river = byId(state.riverId);
+  const s = surveyBounds(river);
+  const b = state.map.getBounds();
+  return { has: b.contains(s),
+           /* and not so far out that the surveys are a speck */
+           tight: (b.getNorth() - b.getSouth()) < (s.getNorth() - s.getSouth()) * 6 };
+});
+check('one press shows you the whole of the surveyed water',
+  shown.has, JSON.stringify(shown));
+check('and does not leave it as a speck in the middle of the state',
+  shown.tight, JSON.stringify(shown));
+
+/* --- a cross-section is perpendicular to the river ----------------------
+   This used to draw a line between the left and right edges of the screen,
+   which at the zoom the app opens on is a line across the state. */
+const beforeX = profileCalls;
+await page.click('#tab-layers');
+await page.waitForTimeout(800);
+await page.click('#panel-layers button:text-is("Cross-section across the river here")');
+await page.waitForTimeout(3000);
+const xs = await page.evaluate(() => {
+  const p = state.profile || {};
+  return { none: p.none || null, len: p.length,
+           note: document.getElementById('profnote').textContent,
+           cross: !!state.profCross,
+           width: state.profCross ? state.profCross.width : 0 };
+});
+check('the cross-section is a river\u2019s width, not a screen\u2019s',
+  xs.cross && xs.width <= 700 && xs.len < 700,
+  JSON.stringify({ width: xs.width, metres: Math.round(xs.len || 0) }));
+check('and it says it cut at right angles to the river',
+  /cut at right angles to the river/.test(xs.note), xs.note.slice(0, 160));
+await page.click('#profclear');
+await page.waitForTimeout(400);
+
+/* --- getting to a place the app already knows --------------------------- */
+await page.click('#tab-water');
+await page.waitForTimeout(1200);
+check('every gauge with a position offers to show itself on the map',
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#panel-water .rdg')];
+    const withGo = rows.filter(r => r.querySelector('.gobtn')).length;
+    return withGo > 0;
+  }),
+  await page.evaluate(() => document.querySelectorAll('#panel-water .gobtn').length + ' go buttons'));
+const wasCentre = await page.evaluate(() => JSON.stringify(state.map.getCenter()));
+await page.click('#panel-water .gobtn');
+await page.waitForTimeout(1000);
+check('pressing it moves the map there',
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())) !== wasCentre);
+
 /* --- the river's own line -----------------------------------------------
    A profile "of the river" means the river's line, not one somebody drew down
    the middle by eye. USGS publishes it; tools/fetch-centrelines.mjs bakes it
@@ -968,16 +1051,20 @@ check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1
    nobody measured. */
 await page.click('#tab-layers');
 await page.waitForTimeout(1000);
-check('the river has a centreline baked in, from USGS',
-  await page.evaluate(() => Array.isArray(RIVER_LINES.sacramento) &&
-    RIVER_LINES.sacramento.length > 100 &&
-    /nationalmap/.test(RIVER_LINES_META.source)),
-  await page.evaluate(() => (RIVER_LINES.sacramento || []).length + ' points'));
+check('the controls are offered whether or not the centreline has loaded',
+  await page.evaluate(() => !![...document.querySelectorAll('#panel-layers button')]
+    .find(b => /Profile down the river itself/.test(b.textContent))));
 check('the panel says the line is USGS\u2019s and not this app\u2019s',
   /USGS national hydrography/.test(await page.textContent('#panel-layers')));
 const beforeRiver = profileCalls;
 await page.click('#panel-layers button:text-is("Profile down the river itself")');
-await page.waitForTimeout(3500);
+await page.waitForTimeout(4000);
+check('pressing it fetches the centreline and it is USGS\u2019s',
+  await page.evaluate(() => Array.isArray(RIVER_LINES.sacramento) &&
+    RIVER_LINES.sacramento.length > 100 &&
+    /nationalmap/.test(RIVER_LINES_META.source)),
+  await page.evaluate(() => typeof RIVER_LINES === 'object'
+    ? (RIVER_LINES.sacramento || []).length + ' points' : 'not loaded'));
 const riv = await page.evaluate(() => {
   const p = state.profile || {};
   return { none: p.none || null, len: p.length, bands: p.bands ? p.bands.length : 0,
