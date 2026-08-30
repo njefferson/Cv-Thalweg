@@ -288,6 +288,54 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     check('phone: Home\u2019s accessible name contains the word on its face',
       home.label.toLowerCase().includes(home.name.toLowerCase()) && /home/i.test(home.name),
       JSON.stringify(home));
+    /* THE KEY IS A SURFACE and joins this gate in the commit that adds it. On a
+       phone it defaults to a chip rather than the full list, because the map is
+       small — so what must hold here is that the chip is findable and reaches
+       the list, not that the list is showing. */
+    const key = await page.evaluate(() => {
+      const chip = document.getElementById('keyopen');
+      const d = document.getElementById('maplegend');
+      const r = (chip || d).getBoundingClientRect();
+      const map = document.getElementById('map').getBoundingClientRect();
+      return { chip: !!chip, name: chip ? chip.textContent.trim() : '',
+               w: Math.round(r.width), h: Math.round(r.height),
+               inView: r.right <= map.right + 1 && r.top >= map.top - 1 };
+    });
+    check('phone: the key is offered as a labelled chip, on the map',
+      key.chip && /key/i.test(key.name) && key.inView, JSON.stringify(key));
+    /* WHAT IS ASSERTED IS THE INVARIANT, NOT A PARTICULAR ROW. This suite runs
+       offline against a local server, so the gauges have not answered and there
+       are no gauge dots to explain — demanding a gauge row here would put a
+       state agency's uptime inside this suite's verdict, which is the defect
+       LESSONS 185 is about. What must hold is that the key names everything
+       drawn and nothing that is not. The tide stations are the offline case:
+       they come from the baked file and are always there. */
+    const opened = await page.evaluate(() => {
+      document.getElementById('keyopen').click();
+      const rows = [...document.querySelectorAll('#maplegend .keyrow')].map(r => r.textContent.trim());
+      const drawn = {
+        gauge: state.gaugeLayer.getLayers().length > 0,
+        tide:  state.tideLayer.getLayers().length > 0,
+        here:  state.hereLayer.getLayers().length > 0
+      };
+      return { rows, drawn,
+        claims: {
+          gauge: rows.some(r => /gauge/i.test(r)),
+          tide:  rows.some(r => /tide station/i.test(r)),
+          here:  rows.some(r => /^You\b/.test(r))
+        } };
+    });
+    check('phone: opening it says what the dots on the map are',
+      opened.rows.length > 0 && opened.claims.tide && opened.drawn.tide,
+      JSON.stringify(opened));
+    check('phone: the key names everything drawn and nothing that is not',
+      ['gauge', 'tide', 'here'].every(k => opened.claims[k] === opened.drawn[k]),
+      JSON.stringify(opened));
+    await audit(page, 'phone: map key open');
+    await page.evaluate(() => {
+      const b = document.querySelector('#maplegend .keyhead button');
+      if (b) b.click();
+    });
     await audit(page, 'phone: map tab open');
     await page.click('#tab-water');
     await page.waitForTimeout(500);

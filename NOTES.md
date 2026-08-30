@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.6.0.
+- Version 0.7.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,25 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **EVERY INTERACTIVE CONTROL ADDED TO THE MAP NEEDS
+  `L.DomEvent.disableClickPropagation`, and this has now been learned twice.** A
+  control sits ON the map, so a press on it is also a press on the map, and a
+  press on this map asks the survey how deep it is there. The locate button hit
+  it first; the legend hit it the moment it stopped being a passive swatch and
+  grew a Hide button. Both times the render suite caught it by finding a depth
+  popup open over the control.
+- **And a key is information, not a target.** The first version covered pins and
+  made them untappable — caught by the marker-at-the-edge check, which simply
+  stopped opening. `.legend` is `pointer-events:none` with its buttons set back
+  to `auto`, so swatches and words let every tap through and only the two
+  buttons take one. There is a check that pans a gauge underneath the key and
+  taps it there.
+- **A suite that runs offline must not assert a row that needs an upstream.**
+  The first a11y check for the key demanded a gauge row; `tools/a11y.mjs` runs
+  against a local server with no gauge data, so it went red on an absence that
+  was correct. It asserts the invariant instead — the key names everything drawn
+  and nothing that is not — with the tide stations as the offline case, since
+  those come from the baked file. Same defect as LESSONS 185, in a new place.
 - **Patch notes are gated now, and the gate exists because prose lost.** Four
   releases in a row explained the mechanism instead of the change: a bounding
   box, a two-megabyte endpoint, a request per station. All true, none of it what
