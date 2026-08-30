@@ -5,19 +5,49 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.1.0, on `main`.
-- Not deployed yet. Not linked from the hub, and it must not be until the owner
-  says so — that is the owner's call and nobody else's.
+- Version 0.1.0.
+- **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
+  the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
   it too. There is no separate Worker to stand up and no origin to paste.
+
+## Branches — `staging` first, `main` on a promote
+
+**This changed on 2026-08-29 and the old shape is worth knowing.** The repo ran
+on `main` alone for its whole life, because when that was decided it was three
+days old, not deployed and not linked anywhere: there was nothing for a staging
+gate to protect. Both halves of that stopped being true the day it went on the
+hub, and a push then landed straight on the address the owner opens.
+
+- Work lands on **`staging`**, which deploys to
+  https://staging.cv-thalweg.pages.dev.
+- It waits there for the **on-device pass** — this app is read one-handed on a
+  riverbank, and every defect found in its first week was one that appears only
+  on the real device: a first-run panel opening at its own last line, readings
+  squeezed to 22px with a keyboard up, a dialog that focuses differently under
+  WebKit than under Chromium. None of those is visible from a desktop browser,
+  and none of them was caught by a test.
+- **`main` is production** and is reached by an explicit promote:
+  `THALWEG_PROMOTE=1` past the branch guard, which otherwise refuses the commit.
+- The harness may name a `claude/*` branch for this repo. It does not apply;
+  `.branch-guard` is what decides, and it says `staging`.
+
+The deploy workflow verifies the site it actually deployed to rather than always
+asking production — a staging push checked against `cv-thalweg.pages.dev` would
+read the previous production commit and either fail for the wrong reason or, on
+a promote, pass for the wrong reason.
 
 ## What only the owner can do
 
 - Connect the repository to Cloudflare Pages: build command none, output
   directory `public`. That is the entire deploy.
 - Add two repository secrets: `CLOUDFLARE_API_TOKEN` and
-  `CLOUDFLARE_ACCOUNT_ID`. That is the whole setup. Pushing to `main` then
-  creates the Pages project and deploys it; there is no dashboard step.
+  `CLOUDFLARE_ACCOUNT_ID`. That is the whole setup. Pushing then creates the
+  Pages project and deploys it; there is no dashboard step. **Both are set** —
+  the site is live. A `staging` push produces its preview URL with no extra
+  Cloudflare step, because Pages gives every non-production branch one; hub
+  LESSONS §7c is the caveat, and it is already satisfied here since `main` has
+  deployed many times.
 - Decide whether Thalweg goes on the hub at all, and when.
 - Repo metadata — description, website, topics, social preview — is a GitHub UI
   step a session token cannot perform.

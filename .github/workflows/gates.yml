@@ -15,9 +15,12 @@ name: Gates
 #
 # Actions are pinned by SHA. A tag is a mutable pointer somebody else controls.
 
+# `staging` and `main` only. Gates run where work lands and where it is promoted
+# to. The harness's own `claude/*` branch is not listed: it buys no coverage and
+# costs a second full run of identical bytes.
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
   workflow_dispatch:
 

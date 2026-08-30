@@ -31,9 +31,18 @@ function report(label, violations) {
   for (const v of violations)
     console.log(`        [${v.impact}] ${v.id}: ${v.help} x${v.nodes.length} -> ${v.nodes[0].target.join(' ')}`);
 }
+/* KEPT SO THE END OF THE LOG CARRIES THEM. 190 lines of PASS scroll a handful
+ * of FAILs far enough up that reading the tail of a CI log — which is what a
+ * log-fetching tool gives you — shows only the runner cleaning up. Diagnosing
+ * a red run then costs a round trip per guess. The summary repeats them. */
+const failures = [];
 function check(label, cond, detail) {
   if (cond) { pass++; console.log('PASS  ' + label); }
-  else { fail++; console.log('FAIL  ' + label + (detail ? ' — ' + detail : '')); }
+  else {
+    fail++;
+    console.log('FAIL  ' + label + (detail ? ' — ' + detail : ''));
+    failures.push(label + (detail ? ' — ' + detail : ''));
+  }
 }
 
 const browser = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
@@ -407,6 +416,26 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
              /Bathy_NCRO_\d{8}_/.test(t);
     }),
     await page.evaluate(() => document.getElementById('panel-layers').innerText.slice(0, 160)));
+  /* SEEDED, NOT WAITED FOR, AND THIS IS THE WHOLE POINT OF THE SUITE.
+     renderLayers() returns early until the survey catalogue promise settles,
+     so every assertion about this panel's contents inherits however long DWR
+     takes — which from a GitHub runner is sometimes over twenty seconds and
+     sometimes never. That is how a geometry suite came to have a verdict that
+     depended on a state agency's uptime: it went red on the phone geometry,
+     then on the desktop one, on a different run, with nothing about the commit
+     changing in between.
+     This suite runs six screen sizes and two engines against a LOCAL server.
+     It should control its own inputs, so it does. Whether the real directory
+     renders is `tools/live-test.mjs`'s question and it already asks it. */
+  await page.evaluate(() => {
+    if (state.catalog && state.catalog.raster && state.catalog.raster.length) return;
+    state.catalog = { at: Date.now(), rasterError: null, singleError: null, single: [],
+      raster: [{ name: 'Bathy_NCRO_20230208_SacramentoRiver',
+                 path: '/arcgisimg/rest/services/Bathymetry/Bathy_NCRO_20230208_SacramentoRiver/ImageServer',
+                 fields: ['Depth'],
+                 box: { w: -122.5, s: 37.5, e: -121.0, n: 39.5, approx: false, wkid: 4326 } }] };
+    renderLayers();
+  });
   check(`${name}: the depth-at-a-point control is offered without a pointer`,
     await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
       .some(b => /Read the depth at the map centre/.test(b.textContent))));
@@ -420,24 +449,38 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     const n = document.querySelector('.leaflet-popup-content');
     return n ? n.textContent.replace(/\s+/g, ' ') : '';
   });
-  const held = await page.evaluate(() => { const c = state.catalog; state.catalog = null; return !!c; });
+  // Clears the catalogue to force the no-catalogue state. The return value used
+  // to feed a "the catalogue came back" check, which went to the live suite
+  // with the rest of the round trip.
+  await page.evaluate(() => { state.catalog = null; });
   await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
   await page.waitForTimeout(700);
   const blind = await popText();
   check(`${name}: a depth reading with no catalogue says it has not asked`,
     /has not arrived|cannot be answered yet/.test(blind) &&
     !/No published survey covers/.test(blind), blind.slice(0, 160));
-  await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
-  await page.evaluate(() => { state.catalog = null; });
-  await page.evaluate(() => loadCatalog());
-  await page.waitForTimeout(2500);
-  check(`${name}: the catalogue came back`, held);
+  /* THE LIVE ROUND TRIP BELONGS IN THE LIVE SUITE, and this is where it used
+     to be. Three assertions here asked DWR for a real survey and then read the
+     label: that the catalogue came back, that the reading names its survey and
+     its date, and the caveat with it. They are duplicates —
+     `tools/live-test.mjs` makes exactly those checks, against the real service,
+     in the suite whose job that is and which is allowed to go amber when an
+     upstream is down.
+     Here they were a category error. This suite is the OFFLINE and geometry
+     one: it runs six screen sizes and two engines against a local server, and
+     making its verdict depend on a state agency's ImageServer answering within
+     a timeout means a red run that says nothing about the commit. It failed on
+     the desktop geometry while the phone geometry passed the identical
+     assertion seconds later, which is what a race looks like from outside; two
+     attempts to wait more precisely made it worse, because the thing being
+     waited for was somebody else's uptime.
+     What stays is the part that is this suite's: the label is a surface, so it
+     is opened and audited. The no-catalogue path above opens it without the
+     network and is the honest state to audit — it is real, it is what a cold
+     start shows, and it is the one where a wrong answer would be a claim about
+     California from an app that has not asked. */
   await page.evaluate(() => showDepthAt(38.4006076, -121.5141745));
-  await page.waitForTimeout(2500);
-  const depth = await popText();
-  check(`${name}: a depth reading names its survey and its caveat`,
-    /ft/.test(depth) && /surveyed \d{4}-\d{2}-\d{2}/.test(depth) &&
-    /Not for navigation/.test(depth), depth.slice(0, 200));
+  await page.waitForTimeout(700);
   await audit(page, `${name}: depth label open`);
   await page.evaluate(() => { const b = document.querySelector('.leaflet-popup-close-button'); if (b) b.click(); });
   await page.click('#tab-water');
@@ -674,5 +717,9 @@ for (const [label, width, height] of [
 }
 
 await browser.close();
+if (failures.length) {
+  console.log('\nWhat failed:');
+  for (const f of failures) console.log('  FAIL  ' + f);
+}
 console.log(`\n${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);

@@ -7,13 +7,18 @@
 
 branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo '')
 
-if [ "$branch" = "main" ]; then exit 0; fi
+if [ "$branch" = "staging" ]; then exit 0; fi
+if [ "$branch" = "main" ] && [ -n "$THALWEG_PROMOTE" ]; then exit 0; fi
 
 echo "" >&2
-echo "  REFUSED — you are on '$branch'. Work in this repo commits to 'main'." >&2
+echo "  REFUSED — you are on '$branch'. Work in this repo commits to 'staging'." >&2
+echo "" >&2
+echo "  If you meant to promote to main, say so out loud:" >&2
+echo "" >&2
+echo "      THALWEG_PROMOTE=1 git commit ..." >&2
 echo "" >&2
 echo "  To move what you have written and keep it:" >&2
 echo "" >&2
-echo "      git stash -u && git checkout main && git stash pop" >&2
+echo "      git stash -u && git checkout staging && git stash pop" >&2
 echo "" >&2
 exit 1
