@@ -93,6 +93,13 @@ header{
 }
 .pickwrap{display:inline-flex; align-items:center; gap:.35rem}
 .stale{color:var(--warn); font-size:.72rem; max-width:100%}
+/* Below this the header cannot fit the brand, the warning and the controls on
+   one line, and what wrapped was the (i) BUTTON — alone on a second row, away
+   from the controls it belongs with. The sentence is the thing that should take
+   its own row; it is prose, and it is the widest item. */
+@media (max-width:1100px){
+  .stale{ flex:1 1 100%; order:9 }
+}
 .stale:empty{display:none}
 button{font-family:inherit; font-size:inherit; color:inherit; background:none;
   border:1px solid var(--teal-line); padding:.3rem .55rem; cursor:pointer; border-radius:2px}
@@ -144,16 +151,18 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 @media (min-width:901px){
   body.all-rivers #rail{ flex:1 1 auto; width:auto; border-left:0 }
   body.all-rivers [role=tablist]{ max-width:var(--wide); margin-inline:auto; width:100% }
-  /* A tab is 1/4 of the rail on a phone, which is right there and wrong here:
-     stretched to a 1180px column the four words sit a hand-span apart and stop
-     reading as one control. Natural width, left where the content starts. */
-  body.all-rivers [role=tab]{ flex:0 0 auto; padding-inline:1rem }
+
   body.all-rivers [role=tabpanel]{ padding:1rem 1.1rem }
   body.all-rivers [role=tabpanel] > *{ max-width:var(--wide); margin-inline:auto }
-  /* Four across on a wide screen, two on a narrow one, one on a phone — and
-     the comparison the app is for actually happens in the eye. */
-  .rivergrid{ display:grid; gap:.7rem;
-    grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)) }
+  /* EXPLICIT COLUMN COUNTS, not auto-fit. There are exactly four rivers, so a
+     track count that "fits as many as it can" will sooner or later fit THREE —
+     and it did, on an iPad Pro 12.9 in portrait, leaving the fourth river alone
+     on a row of its own. Four cards want a factor of four: two, or four.
+     1200 up: all four side by side, which is what the compare view is for.
+     901–1199: two by two, so nothing is orphaned and nothing is 190px wide.
+     Below 901 they stack, which is right on a phone and on a tablet held
+     upright. */
+  .rivergrid{ display:grid; gap:.7rem; grid-template-columns:repeat(2,1fr) }
   /* A stretched <button> CENTRES its content, so the two cards with a line
      less of text floated eight pixels lower than the other two and the row of
      names stopped being a row. The grid makes them equal height; this makes
@@ -169,6 +178,9 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
      explains, and the bars became a near-empty rule. Both are capped to the
      same column as everything else. */
   #ribbonwrap > *{ max-width:var(--wide); margin-inline:auto }
+}
+@media (min-width:1200px){
+  .rivergrid{ grid-template-columns:repeat(4,1fr) }
 }
 #map{flex:1 1 auto; min-height:260px; background:#08100f}
 #rail{
@@ -190,6 +202,14 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 [role=tab][aria-selected=true]{color:var(--ink); border-bottom-color:var(--cyan); background:#16302e}
 [role=tabpanel]{padding:.7rem; overflow-y:auto; flex:1 1 auto; min-height:0}
 [role=tabpanel][hidden]{display:none}
+/* A tab is a quarter of the row on a phone, which is right: four equal targets
+   filling the width. It is wrong on anything wider — on a tablet in portrait,
+   or a 1180px column, the four words sit a hand-span apart and stop reading as
+   one control, and the first one's focus ring is drawn off the left edge.
+   Natural width from tablet size up. */
+@media (min-width:560px){
+  [role=tab]{ flex:0 0 auto; padding-inline:1.1rem }
+}
 h2.sec{font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
   color:var(--mute); margin:1.1rem 0 .35rem; border-bottom:1px solid var(--teal); padding-bottom:.2rem}
 h2.sec:first-child{margin-top:0}
@@ -357,7 +377,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 <header>
   <div class="brand">
     <h1>Thalweg</h1>
-    <span class="ver" id="verchip">v0.1.0</span>
+    <!-- EMPTY ON PURPOSE. This carried a hard-coded "v0.1.0" and the script
+         only overwrote it when /version answered with a build SHA — so on any
+         host where that endpoint is absent, the reader was shown a version
+         number that had been left behind by the last release. A stamp exists so
+         a screenshot says which build you are on; one that can be wrong is
+         worse than one that is blank. Filled from VERSION on boot. -->
+    <span class="ver" id="verchip"></span>
     <span>Central Valley depth &amp; conditions</span>
   </div>
   <span class="notnav">Not for navigation</span>
@@ -450,7 +476,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.2.0';
+var VERSION = '0.2.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4345,6 +4371,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.2.1', date:'2026-08-30', changes:[
+      'The four rivers now lay out sensibly at every size they get read at, not just on a phone and a big desktop. On an iPad held upright they sit two by two \u2014 they used to wrap three across with the fourth river alone on a row of its own.',
+      'The tabs stopped stretching. On anything wider than a phone the four words were spread a hand-span apart and had stopped reading as one control.',
+      'The version stamp in the corner could be wrong. It was written into the page as a fixed number and only corrected when the server answered with a build id \u2014 so anywhere that did not answer, it showed whatever version was current when that line was last edited. It now reads the running version directly. A stamp exists so a screenshot tells you which build you are on; one that can lie is worse than one that is blank.',
+      'On a narrower screen the header used to push the (i) button onto a line by itself, away from the controls it belongs with. The warning sentence takes that line instead.',
+  ] },
   { v:'0.2.0', date:'2026-08-30', changes:[
       'On a desktop or a large tablet the four rivers now sit side by side instead of stacked in a narrow column with most of the screen empty. That view exists to answer which of the four is worth the drive, and the comparison only works if you can see all four at once. Nothing changes on a phone, where they already stacked because that is the right shape there.',
       'The panel used to move across the window when you picked a river \u2014 it sat on the left with all four rivers showing and jumped to the right once a map appeared. It stays where it belongs now.',
@@ -4840,6 +4872,8 @@ function boot(){
   setInterval(function(){ if (navigator.onLine) refreshData(); }, 10 * 60 * 1000);
   setInterval(updateStaleness, 60 * 1000);
 
+  var chip0 = document.getElementById('verchip');
+  if (chip0) chip0.textContent = 'v' + VERSION;
   buildLine().then(function(txt){
     var chip = document.getElementById('verchip');
     if (!chip) return;
