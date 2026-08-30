@@ -45,21 +45,6 @@ function check(label, cond, detail) {
   }
 }
 
-/* Waits for a condition the APP controls, never for one an upstream service
- * controls. The difference is the whole lesson of this file's depth checks: a
- * wait on somebody else's uptime turns their outage into your red run, while a
- * wait on the app finishing its own render is just not reading the page too
- * early. */
-async function settles(page, fn, what, ms = 20000) {
-  const stop = Date.now() + ms;
-  while (Date.now() < stop) {
-    if (await page.evaluate(fn)) return true;
-    await page.waitForTimeout(250);
-  }
-  console.log('        (gave up waiting for ' + what + ' after ' + (ms / 1000) + 's)');
-  return false;
-}
-
 const browser = await chromium.launch({ ...chromiumLaunch({ args: OFFLINE_ARGS }) });
 
 /* The first-run panel is an interrupting surface, and every one of those has
@@ -431,18 +416,29 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
              /Bathy_NCRO_\d{8}_/.test(t);
     }),
     await page.evaluate(() => document.getElementById('panel-layers').innerText.slice(0, 160)));
-  /* WAITS, because renderLayers() returns early until the survey catalogue
-     PROMISE has settled, and the panel has no controls at all until then.
-     Settled is not the same as successful — a catalogue that came back an
-     error still renders the panel — so this needs no network and passes in a
-     sandbox that cannot reach DWR at all. What it must not do is read the
-     panel while the app is still drawing it, which is how this went red on the
-     phone geometry while every other geometry passed. */
-  const depthRoute = await settles(page, () =>
-    [...document.querySelectorAll('#panel-layers button')]
-      .some(b => /Read the depth at the map centre/.test(b.textContent)),
-    'the depth-at-a-point control');
-  check(`${name}: the depth-at-a-point control is offered without a pointer`, depthRoute);
+  /* SEEDED, NOT WAITED FOR, AND THIS IS THE WHOLE POINT OF THE SUITE.
+     renderLayers() returns early until the survey catalogue promise settles,
+     so every assertion about this panel's contents inherits however long DWR
+     takes — which from a GitHub runner is sometimes over twenty seconds and
+     sometimes never. That is how a geometry suite came to have a verdict that
+     depended on a state agency's uptime: it went red on the phone geometry,
+     then on the desktop one, on a different run, with nothing about the commit
+     changing in between.
+     This suite runs six screen sizes and two engines against a LOCAL server.
+     It should control its own inputs, so it does. Whether the real directory
+     renders is `tools/live-test.mjs`'s question and it already asks it. */
+  await page.evaluate(() => {
+    if (state.catalog && state.catalog.raster && state.catalog.raster.length) return;
+    state.catalog = { at: Date.now(), rasterError: null, singleError: null, single: [],
+      raster: [{ name: 'Bathy_NCRO_20230208_SacramentoRiver',
+                 path: '/arcgisimg/rest/services/Bathymetry/Bathy_NCRO_20230208_SacramentoRiver/ImageServer',
+                 fields: ['Depth'],
+                 box: { w: -122.5, s: 37.5, e: -121.0, n: 39.5, approx: false, wkid: 4326 } }] };
+    renderLayers();
+  });
+  check(`${name}: the depth-at-a-point control is offered without a pointer`,
+    await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
+      .some(b => /Read the depth at the map centre/.test(b.textContent))));
   /* The local dev server proxies /bathy upstream, so DWR is reachable here
      even with the browser's own egress cut — which is the production shape
      too. The no-catalogue state is therefore forced rather than waited for:
