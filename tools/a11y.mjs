@@ -1064,6 +1064,40 @@ for (const [label, width, height] of [
   await page.waitForTimeout(2500);
   check('touch: a tap on the open map still reads the depth there',
     await page.evaluate(() => !!document.querySelector('.leaflet-popup-content')));
+  /* THE PROFILE IS A SURFACE and joins this gate in the commit that adds it.
+     This suite is offline, so the survey cannot answer — which is the state
+     worth auditing here: an empty axis reads as a river with no bottom, so it
+     has to say WHY there is nothing, and the drawing must still carry a name
+     for anyone reading by ear. */
+  await page.click('#tab-layers');
+  await page.waitForTimeout(1200);
+  const hasProf = await page.evaluate(() =>
+    !![...document.querySelectorAll('#panel-layers button')]
+      .find(b => /Profile across the map/.test(b.textContent)));
+  check('touch: the profile can be started without drawing on the map', hasProf);
+  if (hasProf) {
+    await page.click('#panel-layers button:text-is("Profile across the map, bank to bank")');
+    await page.waitForTimeout(3000);
+    const p = await page.evaluate(() => {
+      const sec = document.getElementById('profile');
+      const svg = document.getElementById('profsvg');
+      const t = svg && svg.querySelector('title');
+      return { shown: sec && !sec.hidden,
+               note: document.getElementById('profnote').textContent.trim(),
+               named: !!(t && t.textContent.trim()),
+               role: svg && svg.getAttribute('role') };
+    });
+    check('touch: with no survey it says why rather than drawing an empty axis',
+      p.shown && p.note.length > 20, JSON.stringify(p).slice(0, 200));
+    check('touch: the drawing is named even when it has nothing to draw',
+      p.role === 'img' && p.named, JSON.stringify(p).slice(0, 200));
+    await audit(page, 'touch: the profile');
+    await page.click('#profclear');
+    await page.waitForTimeout(400);
+    check('touch: clearing the profile puts it away',
+      await page.evaluate(() => document.getElementById('profile').hidden));
+  }
+
   check('touch: no page errors', errs.length === 0, errs.join(' | '));
   await ctx.close();
 }

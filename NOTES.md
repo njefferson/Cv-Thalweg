@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.8.0.
+- Version 0.9.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,34 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE PROFILE IS DRAWN ALONG THE READER'S OWN LINE, and that is a decision
+  rather than a shortcut.** A long profile down the river needs a published
+  centreline this app does not have; NHD large-scale flowlines are reachable
+  (`hydro.nationalmap.gov`, layer 6) but come back as thousands of segments in
+  a small box — 2,848 in one tight box near Rio Vista — needing hydrologic
+  ordering before they are a line. That is a build-time bake like the tide
+  stations, and it is not done. Until it is, the app profiles whatever line you
+  draw: down the channel it is a long profile, bank to bank it is a
+  cross-section, same code, and nothing is invented.
+  **One request per survey, not one per sample.** `getSamples` takes a POLYLINE
+  and returns the samples ordered along it; measured against the live
+  ImageServer before a line of this was written, because a geometry ArcGIS does
+  not understand comes back HTTP 200 with an empty answer rather than an error.
+  Eighty samples down three miles of the Sacramento is one call.
+  Two things the build turned up. `svg.innerHTML = ''` DELETES the `<title>`
+  that names a `role="img"`, so the drawing lost its accessible name on every
+  render after the first — it is rebuilt with the picture now. And a control in
+  the Layers panel that draws into the map panel is invisible on a phone, where
+  the map is its own tab; it switches tabs, the same move the depth-at-centre
+  button already made.
+- **A STORED ANSWER BELONGS TO THE BUILD THAT ASKED IT.** Before the stations
+  were baked in, the discovery button stored every station in the river's box.
+  After the bake shipped, that list was read back under the new question and
+  reported "NOAA had added 44 station(s) since this version was built" —
+  forty-four being the number that ship with it. Not stale, wrong: the meaning
+  of the stored value changed underneath it. It carries `against`, the bake's
+  own `fetchedAt`, and an answer from another build is ignored rather than
+  reinterpreted.
 - **THE STRANGER'S WALK — `tools/walk.mjs`, and it must never become a gate.**
   It opens the app on a phone, walks every surface in the order a newcomer meets
   them, and writes out a picture and the visible words of each. A gate asks a
