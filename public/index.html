@@ -579,6 +579,10 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      NOAA's two-megabyte index on a phone. Its absence is survivable: the app
      falls back to the declared stations and the button still works. -->
 <script src="tide-stations.js"></script>
+<!-- Each river's main stem from USGS, baked by tools/fetch-centrelines.mjs, so
+     the profile can follow the river itself rather than only a line the reader
+     drew — with no signal, and without this app inventing a centreline. -->
+<script src="river-lines.js"></script>
 <script>
 /* =====================================================================
    Thalweg — depth and conditions for the Central Valley fall-run fishery.
@@ -596,7 +600,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.9.0';
+var VERSION = '0.10.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -3201,7 +3205,10 @@ function renderLayers(){
      which is the question somebody standing on a bank actually has. */
   p.appendChild(el('h2',{class:'sec',text:'Depth along a line'}));
   p.appendChild(el('p',{class:'note',
-    text:'Draw a line on the map and this reads the published survey the whole way along it, then draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section that shows you which side the channel is on. It is the same line either way \u2014 the app does not decide for you, because it has no published centreline for these rivers and will not invent one.'}));
+    text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
+  if (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[river.id])
+    p.appendChild(el('p',{class:'note',
+      text:'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.'}));
   var profRow = el('div',{class:'rowline'});
   if (state.profArm){
     profRow.appendChild(el('b',{text: state.profArm.length
@@ -3211,6 +3218,15 @@ function renderLayers(){
     cancel.addEventListener('click', cancelProfile);
     profRow.appendChild(cancel);
   } else {
+    /* THE RIVER'S OWN LINE, which is what "a profile of the river" means and
+       what the app could not do until USGS's centreline was baked in. */
+    var haveLine = typeof RIVER_LINES === 'object' && RIVER_LINES &&
+                   RIVER_LINES[river.id] && RIVER_LINES[river.id].length > 1;
+    if (haveLine){
+      var down = el('button',{type:'button',text:'Profile down the river itself'});
+      down.addEventListener('click', function(){ profileRiverLine(river); });
+      profRow.appendChild(down);
+    }
     var draw = el('button',{type:'button',
       text: state.profile ? 'Draw another line' : 'Draw a line to profile'});
     draw.addEventListener('click', armProfile);
@@ -5265,7 +5281,12 @@ function renderProfile(){
   var names = m.bands.filter(function(b){ return b.measured; })
     .map(function(b){ return readableSurvey(b.survey) + (isNum(b.deepest)
       ? ' (deepest ' + fmt(Math.abs(b.deepest),1) + ' ft)' : ''); });
-  var sentence = 'Along ' + kmText(m.length) + ' of line, the deepest published sounding is ' +
+  var whole = state.profWhole;
+  var lead = whole
+    ? 'Down the river\u2019s own line, along the ' + kmText(m.length) +
+      ' of it the state has surveyed, '
+    : 'Along ' + kmText(m.length) + ' of line, ';
+  var sentence = lead + 'the deepest published sounding is ' +
     fmt(Math.abs(m.deepest), 1) + ' feet, from ' +
     (names.length === 1 ? names[0] : names.length + ' surveys: ' + names.join('; ')) + '.' +
     youText +
@@ -5295,7 +5316,7 @@ function cancelProfile(){
   announce('Line cancelled.');
 }
 function clearProfile(){
-  state.profile = null; state.profArm = null;
+  state.profile = null; state.profArm = null; state.profWhole = null;
   if (state.profLayer) state.profLayer.clearLayers();
   renderProfile(); renderLayers();
   announce('Profile cleared.');
@@ -5313,13 +5334,71 @@ function profilePoint(lat, lon){
   }
   var pts = state.profArm.slice();
   state.profArm = null;
+  state.profWhole = null;      /* a line you drew, not the river's */
+  runProfile(pts);
+}
+
+/* THE RIVER'S OWN LINE, and the part of it worth drawing.
+   The baked centreline runs the whole main stem — 598 km of Sacramento — and
+   the state has surveyed a few reaches of it. Ninety samples spread over the
+   whole thing would be six kilometres apart and almost all of them would land
+   where nothing was ever measured. So it profiles the longest stretch the
+   surveys actually cover, and says which stretch that is rather than quietly
+   drawing a different river from the one asked for. */
+function surveyedRun(line){
+  var covered = line.map(function(p){ return surveysAt(p[0], p[1]).length > 0; });
+  var best = null, start = -1;
+  for (var i = 0; i <= covered.length; i++){
+    if (i < covered.length && covered[i]){ if (start < 0) start = i; }
+    else if (start >= 0){
+      if (!best || i - start > best[1] - best[0]) best = [start, i];
+      start = -1;
+    }
+  }
+  if (!best) return null;
+  /* A point either side, so the drawing does not begin and end exactly on the
+     edge of what was measured. */
+  var a = Math.max(0, best[0] - 1), b = Math.min(line.length, best[1] + 1);
+  return { pts: line.slice(a, b), of: line.length, from: a, to: b };
+}
+
+function profileRiverLine(river){
+  var line = (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[river.id]) || null;
+  if (!line || line.length < 2){
+    announce('This build carries no centreline for the ' + river.name + '.');
+    return;
+  }
+  var run = surveyedRun(line);
+  if (!run){
+    state.profile = { none:'nowhere', pts:line };
+    $('#profile').hidden = false;
+    renderProfile();
+    $('#profnote').textContent = 'No published survey covers any part of the ' +
+      river.name + '\u2019s course, so there is nothing to draw along it. The line ' +
+      'itself is USGS\u2019s; the depth would have to be DWR\u2019s, and they have not ' +
+      'measured here.';
+    renderLayers();
+    return;
+  }
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  state.profWhole = run;
+  runProfile(run.pts);
+}
+
+function runProfile(pts){
+  if (state.profLayer) state.profLayer.clearLayers();
   L.polyline(pts, { pane:'herepane', color:'#C9A96A', weight:2, dashArray:'5 4' })
     .addTo(state.profLayer);
+  L.circleMarker(pts[0], { pane:'herepane', radius:5, weight:2,
+    color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
+  L.circleMarker(pts[pts.length-1], { pane:'herepane', radius:5, weight:2,
+    color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
   state.profile = { loading:true };
   $('#profile').hidden = false;
   $('#profnote').textContent = 'Asking the survey along this line…';
   announce('Reading the bottom along your line.');
   renderLayers();
+  state.map.fitBounds(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion });
   buildProfile(pts).then(function(model){
     state.profile = model;
     state.profZoom = 1;
@@ -5432,6 +5511,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.10.0', date:'2026-08-30', changes:[
+      'Profile down the river itself. Until now the depth profile could only follow a line you drew, because the app had no line of its own for these rivers and would not invent one. Each river\u2019s course now ships with the app, taken from the USGS national hydrography \u2014 598 km of the Sacramento, and the Feather, American and Mokelumne too \u2014 so one press draws the bottom down the river without you having to guess where the middle is.',
+      'It gives you the longest stretch the state has actually surveyed, and says so. Depth only exists where somebody went out and measured it; spreading a profile over six hundred kilometres of unmeasured water would be a picture of almost nothing.',
+      'Where a river forks, the app follows the longer channel and leaves the other alone. On the Mokelumne the published data puts both Delta channels under one name, and joining them would have drawn a river running twelve kilometres across dry land.',
+  ] },
   { v:'0.9.0', date:'2026-08-30', changes:[
       'Depth along a line. Draw a line on the map and the app reads the published survey the whole way along it, then draws the bottom underneath the map so the shape and the place are on screen together. Drawn down the middle of the river it is a long profile; drawn from one bank to the other it is a cross-section that shows you which side the channel is on. It is the same line either way \u2014 the app does not choose for you, because there is no published centreline for these rivers and it will not invent one.',
       'Where two surveys cover the same water you get both, drawn as separate lines, because they were measured on different days and neither is more the bottom than the other. Where the survey measured nothing the line breaks rather than running straight across \u2014 dense weed defeats the sounder and those cells are dropped, and a line drawn through a gap would be inventing a bed.',

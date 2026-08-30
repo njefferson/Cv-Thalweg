@@ -79,6 +79,14 @@ jobs:
       - name: The patch notes
         run: node tools/notes-check.mjs
 
+      # The river centrelines are generated too, and a line that teleports would
+      # draw a profile straight across country. This asks USGS nothing — it
+      # reads what was committed and refuses a line with an impossible step in
+      # it, a river with no line at all, or a file that does not say where it
+      # came from.
+      - name: The baked river centrelines
+        run: node tools/fetch-centrelines.mjs --check
+
       # playwright-core, not playwright: this repo depends on the core package
       # and `npx playwright install` therefore had nothing to run, which
       # --no-install correctly refused rather than fetching a package at run

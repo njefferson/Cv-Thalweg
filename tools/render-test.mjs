@@ -890,7 +890,8 @@ await page.waitForTimeout(1200);
 check('the Layers panel offers a profile, and says whose line it is',
   await page.evaluate(() => {
     const t = document.getElementById('panel-layers').textContent;
-    return /Depth along a line/.test(t) && /will not invent one/.test(t);
+    return /Depth along a line/.test(t) && /USGS national hydrography/.test(t) &&
+           /no coordinate down the middle of these rivers was invented here/.test(t);
   }),
   (await page.textContent('#panel-layers')).slice(0, 200));
 /* The pointerless route: two taps on a map is a finger's job, and the same
@@ -958,6 +959,43 @@ await page.waitForTimeout(400);
 const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
 check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
   Math.round(w0) + ' -> ' + Math.round(w1));
+/* --- the river's own line -----------------------------------------------
+   A profile "of the river" means the river's line, not one somebody drew down
+   the middle by eye. USGS publishes it; tools/fetch-centrelines.mjs bakes it
+   in. The whole main stem is 598 km and the state has surveyed a few reaches
+   of it, so profiling the river must give the surveyed stretch and SAY that,
+   rather than spreading ninety samples over six hundred kilometres of water
+   nobody measured. */
+await page.click('#tab-layers');
+await page.waitForTimeout(1000);
+check('the river has a centreline baked in, from USGS',
+  await page.evaluate(() => Array.isArray(RIVER_LINES.sacramento) &&
+    RIVER_LINES.sacramento.length > 100 &&
+    /nationalmap/.test(RIVER_LINES_META.source)),
+  await page.evaluate(() => (RIVER_LINES.sacramento || []).length + ' points'));
+check('the panel says the line is USGS\u2019s and not this app\u2019s',
+  /USGS national hydrography/.test(await page.textContent('#panel-layers')));
+const beforeRiver = profileCalls;
+await page.click('#panel-layers button:text-is("Profile down the river itself")');
+await page.waitForTimeout(3500);
+const riv = await page.evaluate(() => {
+  const p = state.profile || {};
+  return { none: p.none || null, len: p.length, bands: p.bands ? p.bands.length : 0,
+           note: document.getElementById('profnote').textContent,
+           whole: !!state.profWhole,
+           of: state.profWhole ? state.profWhole.of : 0,
+           used: state.profWhole ? state.profWhole.to - state.profWhole.from : 0 };
+});
+check('profiling the river draws something', !riv.none, JSON.stringify(riv).slice(0, 200));
+check('it profiles the surveyed stretch rather than the whole 600 km',
+  riv.whole && riv.used < riv.of && riv.len < 120000,
+  JSON.stringify({ of: riv.of, used: riv.used, metres: Math.round(riv.len) }));
+check('and the sentence says that is what it did',
+  /Down the river\u2019s own line, along the .* the state has surveyed/.test(riv.note),
+  riv.note.slice(0, 160));
+check('it still costs one request per survey',
+  profileCalls - beforeRiver === 1, 'calls: ' + (profileCalls - beforeRiver));
+
 await page.click('#profclear');
 await page.waitForTimeout(400);
 check('clearing it takes the line off the map as well as the drawing',
