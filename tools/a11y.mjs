@@ -1153,6 +1153,40 @@ for (const [label, width, height] of [
     await audit(page, 'touch: the profile');
     await page.click('#profclear');
     await page.waitForTimeout(400);
+    /* TRACING IS A FINGER GESTURE ON A DRAWING, so it is tested with a finger.
+       touch-action:none on the hit area is what stops the browser stealing the
+       drag to scroll the profile sideways instead. */
+    /* Only where there is a profile to trace. Offline, this suite reaches the
+       "no survey answered" state, which correctly draws no trace surface —
+       asserting one there would be demanding a gesture over an empty axis. */
+    const traceable = await page.evaluate(() => {
+      const drew = !!(state.profile && state.profile.bands && state.profile.deepest !== null);
+      const r = document.querySelector('#profsvg rect[style*="touch-action"]');
+      return { drew, there: !!r, style: r ? r.getAttribute('style') : '' };
+    });
+    if (traceable.drew)
+      check('touch: the profile can be traced without the page stealing the drag',
+        traceable.there && /touch-action:\s*none/.test(traceable.style),
+        JSON.stringify(traceable));
+    else
+      check('touch: with nothing measured, there is no gesture over an empty axis',
+        !traceable.there, JSON.stringify(traceable));
+    /* GETTING BACK is a control on the map and answers to the same rules as
+       the rest of them. */
+    const back = await page.evaluate(() => {
+      const b = document.getElementById('backbtn');
+      if (!b || b.hidden) return { shown: false };
+      const r = b.getBoundingClientRect();
+      const map = document.getElementById('map').getBoundingClientRect();
+      return { shown: true, w: Math.round(r.width), h: Math.round(r.height),
+               inView: r.right <= map.right + 1 && r.bottom <= map.bottom + 1,
+               name: b.textContent.trim() };
+    });
+    if (back.shown) {
+      check('touch: the way back is big enough for a thumb and on the map',
+        back.w >= 44 && back.h >= 44 && back.inView, JSON.stringify(back));
+      check('touch: it says where it goes', /back to/i.test(back.name), JSON.stringify(back));
+    }
     check('touch: clearing the profile puts it away',
       await page.evaluate(() => document.getElementById('profile').hidden));
   }

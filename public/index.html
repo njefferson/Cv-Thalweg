@@ -413,7 +413,8 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   border-radius:3px; box-shadow:0 1px 5px rgba(0,0,0,.4)}
 .herectl button{border:0; min-height:44px; min-width:44px; padding:.3rem .7rem;
   font-size:.78rem; line-height:1.2; color:var(--ink); background:none;
-  border-radius:3px; text-align:center}
+  border-radius:3px; text-align:center; display:block; width:100%}
+.herectl button + button{border-top:1px solid var(--teal)}
 .herectl button:hover{background:#16302e}
 .herectl button[disabled]{color:var(--mute); cursor:default}
 .herectl button[disabled]:hover{background:none}
@@ -622,7 +623,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.0.0';
+var VERSION = '1.1.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2394,6 +2395,7 @@ function initMap(){
   /* The profile line shares that pane: it is the reader's own drawing, like
      their position, and it must not take a tap from a gauge either. */
   state.profLayer = L.layerGroup().addTo(m);
+  state.traceLayer = L.layerGroup().addTo(m);
 
   state.gaugeLayer = L.layerGroup().addTo(m);
   state.markLayer = L.layerGroup().addTo(m);
@@ -2471,6 +2473,17 @@ function hereControl(m){
     var b = el('button', { type:'button', id:'herebtn', text:'Where I am' });
     b.addEventListener('click', locateMe);
     d.appendChild(b);
+
+    /* GETTING BACK. Reading a profile, checking a gauge upstream, looking at
+       the mouth — every one of those moves the map away from where you were
+       standing, and there was no way back except doing it again. This returns
+       to your own position if the app has one, and otherwise to the nearest
+       mark you kept, and it says which of the two it did rather than just
+       moving the map. It is only offered when there is somewhere to go. */
+    var back = el('button', { type:'button', id:'backbtn', hidden:'hidden',
+      text:'Back to me' });
+    back.addEventListener('click', goBackToMine);
+    d.appendChild(back);
     /* A control sits ON the map, so a press on it is also a press on the map
        — and a press on the map asks the survey how deep it is there. Without
        this, the button would drop a depth reading at whatever is underneath
@@ -2527,6 +2540,44 @@ function locateMe(){
       'The browser would not say where you are: ' + (err && err.message || 'no reason given') + '.');
     logNet('geolocation', 'device', false, 'code ' + code);
   }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+}
+
+/* WHERE YOU WERE, WHICHEVER OF THE TWO IT IS. Your own position if the app has
+   one — that is what "back to me" means to somebody standing on a bank — and
+   otherwise the mark you kept nearest to what is on screen, because a reader
+   who has never pressed Where I am still has somewhere they meant to be. */
+function backTarget(){
+  if (state.here) return { at:[state.here.lat, state.here.lon], what:'where you are', zoom:15 };
+  var marks = state.marks || [];
+  if (!marks.length) return null;
+  var c = state.map.getCenter();
+  var best = null;
+  marks.forEach(function(m){
+    if (!isNum(m.lat) || !isNum(m.lon)) return;
+    var d = metresBetween(c.lat, c.lng, m.lat, m.lon);
+    if (!best || d < best.d) best = { d:d, m:m };
+  });
+  if (!best) return null;
+  var def = MARK_TYPES.filter(function(t){ return t.id === best.m.type; })[0];
+  return { at:[best.m.lat, best.m.lon], zoom:15,
+           what:'your ' + ((def && def.label.toLowerCase()) || 'mark') +
+                (best.m.note ? ' — ' + best.m.note : '') };
+}
+
+function updateBackButton(){
+  var b = document.getElementById('backbtn');
+  if (!b) return;
+  var t = backTarget();
+  b.hidden = !t;
+  if (t) b.textContent = state.here ? 'Back to me' : 'Back to my mark';
+}
+
+function goBackToMine(){
+  var t = backTarget();
+  if (!t){ announce('Nothing to go back to yet — press Where I am, or keep a mark.'); return; }
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  mapView([t.at, t.zoom], { animate:!reduceMotion });
+  announce('Back to ' + t.what + '.');
 }
 
 /* Nearest thing worth naming. A distance to the middle of a reach is a number
@@ -2607,6 +2658,7 @@ function drawHere(recentre){
      leaves them looking at a rectangle with none of this app's river in it,
      with nothing saying why. */
   updateLegend();
+  updateBackButton();
   /* THE TIDE PANEL IS BUILT WHEN THE PANEL RENDERS, so a position found
      afterwards did not reach it: a reader pressed Where I am and the tide
      section went on saying nothing about which station was nearest them,
@@ -3921,6 +3973,7 @@ function drawMarks(){
       .addTo(state.markLayer);
   });
   updateLegend();
+  updateBackButton();
 }
 function renderMarks(){
   var p = $('#panel-marks'); p.innerHTML = '';
@@ -5532,6 +5585,56 @@ function renderProfile(){
     ' Depths are as the survey published them; the vertical scale is stretched, so read the shape and the numbers, not the slope.';
   note.textContent = sentence;
   name(sentence);
+
+  /* TRACING. The picture says how deep it is somewhere along the line and the
+     map says where things are, and until now a reader had to hold the join
+     between them in their head. Dragging a finger along the profile now moves
+     a mark along the line on the map, so "that deep bit" has a place.
+     Pointer events rather than touch or mouse: one code path for a finger, a
+     stylus and a mouse, which is three fewer ways to be wrong. */
+  var hit = node('rect', { x:padL, y:padT, width:W - padL - padR,
+    height:H - padT - padB, fill:'transparent', style:'touch-action:none' });
+  svg.appendChild(hit);
+  var head = node('line', { x1:padL, x2:padL, y1:padT, y2:H - padB,
+    stroke:'#E6F0EF', 'stroke-width':1.5, opacity:0 });
+  svg.appendChild(head);
+  var read = node('text', { x:padL + 4, y:padT + 10, fill:'#E6F0EF',
+    'font-size':10, opacity:0 });
+  svg.appendChild(read);
+
+  function trace(ev){
+    var box = svg.getBoundingClientRect();
+    var px = ev.clientX - box.left;
+    var frac = (px - padL) / Math.max(1, (W - padL - padR));
+    frac = Math.max(0, Math.min(1, frac));
+    var along = frac * m.length;
+    head.setAttribute('x1', x(along)); head.setAttribute('x2', x(along));
+    head.setAttribute('opacity', 1);
+
+    /* The nearest measured sample of the first band, so the number shown is
+       one the survey actually returned rather than a reading off the line. */
+    var band = m.bands[0], best = null;
+    (band ? band.pts : []).forEach(function(pt){
+      if (!isNum(pt.v)) return;
+      if (!best || Math.abs(pt.d - along) < Math.abs(best.d - along)) best = pt;
+    });
+    read.setAttribute('x', Math.min(W - padR - 60, x(along) + 4));
+    read.setAttribute('opacity', 1);
+    read.textContent = best && Math.abs(best.d - along) < (m.length / 20)
+      ? fmt(Math.abs(best.v), 1) + ' ft'
+      : 'not measured here';
+    markTrace(best && Math.abs(best.d - along) < (m.length / 20) ? best : null, along);
+  }
+  function untrace(){
+    head.setAttribute('opacity', 0);
+    read.setAttribute('opacity', 0);
+    markTrace(null, null);
+  }
+  hit.addEventListener('pointerdown', function(e){ hit.setPointerCapture(e.pointerId); trace(e); });
+  hit.addEventListener('pointermove', function(e){ if (e.buttons || e.pointerType === 'touch') trace(e); });
+  hit.addEventListener('pointerup', untrace);
+  hit.addEventListener('pointercancel', untrace);
+  hit.addEventListener('pointerleave', function(e){ if (!e.buttons) untrace(); });
 }
 
 /* A survey's name as a reader can use it. */
@@ -5541,10 +5644,43 @@ function readableSurvey(sv){
   return surveyLabel(sv.name) + (d ? ', surveyed ' + d : '');
 }
 
+/* The place on the map that the finger on the picture is pointing at. */
+function markTrace(sample, along){
+  if (!state.traceLayer) return;
+  state.traceLayer.clearLayers();
+  if (!sample && along === null) return;
+  var m = state.profile;
+  if (!m || !m.pts) return;
+  var at = sample && isNum(sample.lat) ? [sample.lat, sample.lon] : pointAlong(m.pts, along);
+  if (!at) return;
+  L.circleMarker(at, { pane:'herepane', radius:8, weight:3,
+    color:'#E6F0EF', fillColor:'#0A1214', fillOpacity:.9,
+    interactive:false }).addTo(state.traceLayer);
+}
+
+/* Where a given distance along a polyline lands, for the stretches the survey
+   did not measure — the finger is still somewhere real even when the bottom
+   is not known there. */
+function pointAlong(pts, metres){
+  if (!pts || pts.length < 2 || !isNum(metres)) return null;
+  var run = 0;
+  for (var i = 1; i < pts.length; i++){
+    var seg = metresBetween(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]);
+    if (run + seg >= metres){
+      var t = seg ? (metres - run) / seg : 0;
+      return [pts[i-1][0] + (pts[i][0] - pts[i-1][0]) * t,
+              pts[i-1][1] + (pts[i][1] - pts[i-1][1]) * t];
+    }
+    run += seg;
+  }
+  return pts[pts.length - 1];
+}
+
 /* ---- drawing the line ------------------------------------------------- */
 function armProfile(){
   state.profArm = [];
   if (state.profLayer) state.profLayer.clearLayers();
+  if (state.traceLayer) state.traceLayer.clearLayers();
   if (tabNames().indexOf('map') !== -1) selectTab('map');
   announce('Tap the start of your line on the map, then tap the end.');
   renderLayers();
@@ -5557,6 +5693,7 @@ function cancelProfile(){
 function clearProfile(){
   state.profile = null; state.profArm = null; state.profWhole = null; state.profCross = null;
   if (state.profLayer) state.profLayer.clearLayers();
+  if (state.traceLayer) state.traceLayer.clearLayers();
   renderProfile(); renderLayers(); updateLegend();
   announce('Profile cleared.');
 }
@@ -5796,6 +5933,7 @@ function profileRiverNow(river){
 
 function runProfile(pts){
   if (state.profLayer) state.profLayer.clearLayers();
+  if (state.traceLayer) state.traceLayer.clearLayers();
   /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
      phone: "it does not show the river line, just a bunch of dots". Over
      satellite imagery, with sixty pins on top of it, a two-pixel dashed stroke
@@ -5842,13 +5980,17 @@ function showDepthAt(lat, lon){
   });
 }
 
+/* What is said aloud. It carries the same four things the panel does — what
+   happened, whose doing it was, and what to do — because somebody reading by
+   ear gets this sentence and nothing else. */
 function depthSentence(res){
-  if (res.loading) return 'Reading the depth…';
-  if (res.failed)  return 'The depth service did not answer.';
-  if (res.none === 'nocatalog') return 'The survey directory has not arrived, so this cannot be answered yet.';
-  if (res.none === 'nowhere') return 'No published survey covers this point.';
+  if (res.loading) return 'Asking the survey how deep it is here.';
+  if (res.failed)  return 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
+  if (res.none === 'nocatalog') return 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
+  if (res.none === 'nowhere') return 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
   if (res.none === 'notmeasured')
-    return 'No measured depth within ' + DEPTH_SPAN_M + ' metres of this point.';
+    return 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
+      ' metres of it. Nothing you did wrong. A spot nearer the middle of the channel usually has a reading.';
   return fmt(Math.abs(res.value), 1) + ' feet ' +
     (res.value <= 0 ? 'deep' : 'ABOVE the survey datum — bank, not bottom') +
     (res.exact ? ' here' : ', ' + fmt(res.away, 0) + ' metres away') + '.';
@@ -5858,30 +6000,60 @@ function depthNode(res, lat, lon){
   var box = el('div',{});
   box.appendChild(el('span',{class:'pop-name',text:'Depth here'}));
 
+  /* EVERY ANSWER THAT IS NOT A DEPTH SAYS FOUR THINGS: what happened, whether
+     the reader did anything wrong, what would have happened, and what to do
+     now. The old ones said the first and stopped, so a reader who tapped
+     water the state has never surveyed got a sentence about weed and no idea
+     whether they had made a mistake, whether it would ever work, or where to
+     tap instead. */
+  function outcome(what, yours, next, kind){
+    box.appendChild(el('p',{class:kind || 'note', text:what}));
+    if (yours) box.appendChild(el('p',{class:'note', text:yours}));
+    if (next) box.appendChild(el('p',{class:'note', text:next}));
+  }
+  function actionRow(label, fn){
+    var r = el('div',{class:'rowline'});
+    var b2 = el('button',{type:'button',text:label});
+    b2.addEventListener('click', fn);
+    r.appendChild(b2);
+    box.appendChild(r);
+  }
+
   if (res.loading){
-    box.appendChild(el('p',{class:'note',text:'Asking the survey…'}));
+    box.appendChild(el('p',{class:'note',
+      text:'Asking the published survey how deep it is at this point. It usually takes a second or two.'}));
     return box;
   }
   if (res.failed){
-    box.appendChild(el('p',{class:'err',
-      text:'The survey did not answer: ' + res.failed + '. Nothing is shown, because nothing is known.'}));
+    outcome('The depth service did not answer: ' + res.failed + '.',
+      'Nothing you did — that is the state\u2019s server, not this app, and nothing is shown because nothing is known.',
+      'It needs a signal. Tap the same spot again when you have one; depth is the only part of this app that cannot work offline.',
+      'err');
     return box;
   }
   if (res.none === 'nocatalog'){
-    box.appendChild(el('p',{class:'note',
-      text:'The survey directory has not arrived, so this cannot be answered yet. That is not the same as there being no survey here — it means nothing has been asked.'}));
+    outcome('The list of published surveys has not arrived yet, so there was nothing to ask.',
+      'Nothing you did. This is not the same as there being no survey here \u2014 it means the question has not been put.',
+      'The list comes down on its own as soon as there is a signal. Try the same spot again in a moment.');
     return box;
   }
   if (res.none === 'nowhere'){
-    box.appendChild(el('p',{class:'note',
-      text:'No published survey covers this point. Where the state has not measured, this app has nothing to tell you and will not guess.'}));
+    outcome('You tapped water the state has never surveyed, so there is no depth to give you.',
+      'Nothing you did wrong. Only a handful of reaches out of hundreds of kilometres have been measured, and outside them this app has nothing and will not guess.',
+      'The surveyed reaches are the dashed outlines on the map. Tap anywhere inside one and you get a number.');
+    actionRow('Take me to the surveyed water', function(){
+      state.map.closePopup();
+      goToDepth(byId(state.riverId));
+    });
     return box;
   }
   if (res.none === 'notmeasured'){
-    box.appendChild(el('p',{class:'note',
-      text:'Nothing measured within ' + DEPTH_SPAN_M + ' metres. ' +
-        (res.covering.length === 1 ? 'One survey covers' : res.covering.length + ' surveys cover') +
-        ' this point and none of them has a reading here — weed stops a sounder returning, and those patches are dropped rather than filled in.'}));
+    var n = res.covering.length;
+    outcome('This spot IS inside a published survey, but the survey has no reading within ' +
+        DEPTH_SPAN_M + ' metres of it.',
+      'Nothing you did wrong. ' + (n === 1 ? 'The one survey covering it' : 'None of the ' + n + ' surveys covering it') +
+        ' measured here: weed stops a sounder returning, and the boat only measures where it went, so those patches are left out rather than filled in.',
+      'A spot nearer the middle of the channel usually has one. Depth along a line, in the Depth tab, shows you where the gaps are before you go tapping.');
     return box;
   }
 
@@ -5898,7 +6070,7 @@ function depthNode(res, lat, lon){
   v.appendChild(s);
   box.appendChild(v);
   if (!below) box.appendChild(el('div',{class:'err',
-    text:'That reading is ABOVE the survey’s datum, not below it. This is bank or a bar that was dry when the survey boat went past, not depth of water.'}));
+    text:'That reading is ABOVE the survey’s datum, not below it — this is bank, or a bar that was dry when the survey boat went past, and not a depth of water. Nothing you did wrong: it is what the survey recorded there. Tap further out and you will get water.'}));
 
   box.appendChild(el('span',{class:'pop-sub',
     text: res.exact
@@ -5929,6 +6101,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.1.0', date:'2026-08-30', changes:[
+      'When tapping the map does not give you a depth, it now tells you what happened, whether you did anything wrong, and what to do about it. Before, it named the outcome and stopped \u2014 so tapping water the state has never surveyed produced a sentence about weed and no way to tell whether you had made a mistake, whether it would ever work, or where to tap instead. Tapping outside the surveyed reaches now says so plainly and offers to take you to water where it does work.',
+      'You can trace the depth profile. Drag a finger along it and a mark moves along the line on the map, showing you where that deep bit actually is, with the depth the survey measured there. Where the survey measured nothing it says so rather than reading a number off the line.',
+      'There is a way back. Once the app knows where you are, a Back to me button on the map returns you there from wherever you have wandered to \u2014 and if you have not used Where I am but you have kept marks, it goes to the nearest one and says so. It only appears when there is somewhere to go.',
+  ] },
   { v:'1.0.0', date:'2026-08-30', changes:[
       'The map no longer opens on the whole planet. On a phone it lives in a tab, so for most of the app\u2019s life it is hidden and measures nothing \u2014 and asking it to fit a river into nothing gives you the view from orbit. No view is worked out now until the map is actually on screen.',
       'The line the depth is measured along is drawn so you can see it. It was a thin dashed stroke over satellite imagery with sixty pins on top; it is now a bright line with a dark casing, the way a route is drawn on a photograph, and the key says what it is.',
@@ -6517,11 +6694,21 @@ function showWhatsNew(){
     var u = el('ul',{class:'tight'});
     r.changes.forEach(function(c){ u.appendChild(el('li',{text:c})); });
     body.appendChild(u);
-    if (r.broken && r.broken.length){
+    /* THE LIMITS BELONG TO THE APP, NOT TO A RELEASE. Requiring every version
+       to restate them makes the notes repetitive and the honest ones get
+       skimmed; letting a version without its own list show nothing means a
+       reader updating to a small release is told the app has no limits. So
+       the standing list is the most recent one declared, shown whether or not
+       this version added to it. */
+    var standing = r.broken && r.broken.length ? r.broken : null;
+    if (!standing)
+      for (var q = 0; q < RELEASES.length && !standing; q++)
+        if (RELEASES[q].broken && RELEASES[q].broken.length) standing = RELEASES[q].broken;
+    if (standing){
       body.appendChild(el('p',{class:'note',style:'margin-bottom:.2rem',
         text:'Still not right, and worth knowing before you rely on it:'}));
       var u2 = el('ul',{class:'tight'});
-      r.broken.forEach(function(c){ u2.appendChild(el('li',{text:c})); });
+      standing.forEach(function(c){ u2.appendChild(el('li',{text:c})); });
       body.appendChild(u2);
     }
   }
