@@ -118,6 +118,17 @@ async function welcomeChecks(page, name) {
     JSON.stringify(order));
   check(`${name}: it says where everything it just showed you has gone`,
     order.pointsAtI, JSON.stringify(order));
+  /* A CLAIM WITH A DATE ON IT. The welcome said "this is the first release"
+     from 0.1.0 to 1.0.0, which stopped being true fifteen releases before
+     anybody noticed. A sentence about which release this is has to come from
+     the release, or not be said. */
+  check(`${name}: the first-run page does not claim to be the first release`,
+    await page.evaluate(() => !/first release/i.test(document.getElementById('welcomebody').textContent)),
+    await page.evaluate(() => {
+      const t = document.getElementById('welcomebody').textContent;
+      const i = t.search(/first release/i);
+      return i === -1 ? 'clean' : t.slice(Math.max(0, i - 60), i + 80);
+    }));
   check(`${name}: first run offers a way out at the end as well`,
     open.bottomOut, JSON.stringify(open));
   check(`${name}: first run is bounded by the screen`,
@@ -241,6 +252,12 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await page.waitForTimeout(1500);
     check('phone: picking a river adds a Map tab',
       await page.evaluate(() => document.getElementById('tab-map').getBoundingClientRect().height > 0));
+    /* THE DOOR WAS LABELLED WRONG. Four separate askings of "where is the
+       depth" all ended at a tab called Layers — a mapping term for a panel
+       that is entirely about the bottom. */
+    check('phone: the depth tab is called what is behind it',
+      await page.evaluate(() => document.getElementById('tab-layers').textContent.trim()) === 'Depth',
+      await page.evaluate(() => document.getElementById('tab-layers').textContent.trim()));
     await page.click('#tab-map');
     await page.waitForTimeout(900);
     const mapBox = await page.evaluate(() => ({
@@ -458,6 +475,43 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     }),
     await page.evaluate(() => [...document.querySelectorAll('#aboutbody a')]
       .map(a => a.getAttribute('href')).filter(h => /noahjefferson/.test(h)).join(' | ')));
+  /* THE TIP LINK LIVES IN THE (i) AND NOWHERE ELSE. A prompt for money has no
+     business competing with reading the water, so it must be here and must not
+     be on the working surface — and it must be a real target for a thumb. */
+  const tip = await page.evaluate(() => {
+    const as = [...document.querySelectorAll('#aboutbody a.tiplink')];
+    return { n: as.length,
+             links: as.map(a => ({ href: a.getAttribute('href'),
+               rel: a.getAttribute('rel') || '', target: a.getAttribute('target') || '',
+               h: Math.round(a.getBoundingClientRect().height) })),
+             onSurface: !!document.querySelector('header a.tiplink, #rail a.tiplink, #panel-map a.tiplink') };
+  });
+  check(`${name}: the tip links are in the (i) panel`,
+    tip.n > 0 && !tip.onSurface, JSON.stringify(tip));
+  check(`${name}: every one is big enough for a thumb`,
+    tip.links.every(l => l.h >= 44), JSON.stringify(tip));
+  /* An outbound link that opens a new tab hands the opener to the other site
+     unless it is told not to. */
+  check(`${name}: none of them hands this page to the site it opens`,
+    tip.links.every(l => l.target !== '_blank' || /noopener/.test(l.rel)),
+    JSON.stringify(tip));
+  /* NOTHING THAT NAGS. No counter, no total, no tier, no praise, and nothing
+     that implies a reader who does not pay is missing something. */
+  check(`${name}: the tip section asks for nothing and counts nothing`,
+    await page.evaluate(() => {
+      const t = document.getElementById('aboutbody').textContent;
+      const i = t.indexOf('If it was useful');
+      const seg = i === -1 ? '' : t.slice(i, i + 700);
+      return i !== -1 &&
+        !/supporters?|backers?|donors?|thank you|goal|so far|raised|tier|please|help us|support the/i.test(seg) &&
+        /nothing about the app is different/.test(seg);
+    }),
+    await page.evaluate(() => {
+      const t = document.getElementById('aboutbody').textContent;
+      const i = t.indexOf('If it was useful');
+      return i === -1 ? '(section missing)' : t.slice(i, i + 220);
+    }));
+
   check(`${name}: the About panel opens at the top of itself`,
     await page.evaluate(() => document.getElementById('aboutbody').scrollTop === 0 &&
       document.activeElement.id === 'abouttitle'),
@@ -494,7 +548,9 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      lead with the changes and offer the rest rather than serve it. */
   check(`${name}: it shows this version's changes and offers the rest`,
     await page.evaluate(() => {
-      const n = document.getElementById('newbody').querySelectorAll('li').length;
+      /* The first list is the changes; the second is what is still not right. */
+      const first = document.getElementById('newbody').querySelector('ul');
+      const n = first ? first.querySelectorAll('li').length : 0;
       return n === RELEASES.filter(r => r.v === VERSION)[0].changes.length &&
              !!document.getElementById('newolder');
     }),

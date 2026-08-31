@@ -373,6 +373,12 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .installbox{border:1px solid var(--teal-line); background:var(--panel-2);
   border-radius:3px; padding:.6rem .7rem; margin:1rem 0 .2rem}
 .installbox h3{color:var(--cyan); font-size:.9rem; margin:0 0 .3rem}
+/* A link, sized for a thumb, and deliberately not styled as a bright call to
+   action — it is an offer, not a demand. */
+.tiplink{display:inline-block; min-height:44px; line-height:1.9; padding:.2rem .8rem;
+  border:1px solid var(--teal-line); border-radius:3px; color:var(--ink);
+  text-decoration:none}
+.tiplink:hover{background:#16302e; text-decoration:underline}
 /* Shut by default, and it has to LOOK shut-and-openable rather than like a
    heading somebody forgot to fill in. */
 .foldbox{border:1px solid var(--teal-line); border-radius:3px; margin:.8rem 0 .2rem;
@@ -537,7 +543,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <div role="tablist" aria-label="Panels">
       <button role="tab" id="tab-water"  aria-controls="panel-water"  aria-selected="true"  tabindex="0">Water</button>
       <button role="tab" id="tab-map"    aria-controls="panel-map"    aria-selected="false" tabindex="-1">Map</button>
-      <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Layers</button>
+      <!-- "Depth", not "Layers". Asked four times where the depth profiles are,
+           and each time the answer was three sections down inside a tab whose
+           name is a mapping term. Everything in this panel is the bottom —
+           where it has been surveyed, the depth at a point, the profile along a
+           line — with a basemap chooser at the foot. The panel was never the
+           problem; the word on the door was. -->
+      <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Depth</button>
       <button role="tab" id="tab-marks"  aria-controls="panel-marks"  aria-selected="false" tabindex="-1">Marks</button>
       <button role="tab" id="tab-brief"  aria-controls="panel-brief"  aria-selected="false" tabindex="-1">Brief</button>
     </div>
@@ -610,7 +622,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.13.0';
+var VERSION = '1.0.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2114,6 +2126,23 @@ function tempScale(g, x, y, w){
     t.textContent = p[0] + 'F';
     g.appendChild(t);
   });
+
+  /* THE OTHER THING THIS DRAWING ENCODES, WHICH HAD NO KEY AT ALL. Part of
+     each tidal river's bar is washed in cyan, fading out where the tide's
+     influence is said to stop — and a reader looking at four bars, three of
+     them tinted differently, had nothing anywhere telling them why. A colour
+     that means something needs saying as much as the temperature ramp does. */
+  var ty = y + 26, tw = Math.min(w, 54);
+  var tid = 'tidekey';
+  var tg = svg('linearGradient', { id:tid, x1:'0', x2:'1', y1:'0', y2:'0' });
+  tg.appendChild(svg('stop', { offset:'0',  'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
+  tg.appendChild(svg('stop', { offset:'1',  'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+  defs.appendChild(tg);
+  g.appendChild(svg('rect', { x:x, y:ty, width:tw, height:8,
+    fill:'url(#'+tid+')', stroke:'#1F5B57' }));
+  var tl = svg('text', { x:x + tw + 6, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
+  tl.textContent = 'tidal — the tide reaches this far up';
+  g.appendChild(tl);
 }
 
 function drawRibbon(again){
@@ -2274,6 +2303,37 @@ function labelNode(name, values, sub){
   return box;
 }
 
+/* A VIEW COMPUTED AGAINST A ZERO-SIZE MAP IS THE WHOLE WORLD.
+ *
+ * On a phone the map lives in a tab, so for most of the app's life its
+ * container is display:none and measures 0 by 0. Ask Leaflet to fit bounds in
+ * that state and it does exactly what it is told — it finds the zoom at which
+ * those bounds fit into nothing, which is zoom 0, and the reader who opens the
+ * Map tab is looking at the Pacific from orbit. Reported from a real phone,
+ * and reproducible: on All rivers the map genuinely sits at zoom 0.
+ *
+ * So no view is ever computed while the container has no size. It is held, and
+ * applied the moment the map is real. Everything that moves the map goes
+ * through here.
+ */
+function mapView(to, opts){
+  if (!state.map) return;
+  var sz = state.map.getSize();
+  if (!sz.x || !sz.y){ state.pendingView = { to:to, opts:opts }; return; }
+  state.pendingView = null;
+  if (to && typeof to.getNorth === 'function') state.map.fitBounds(to, opts);
+  else state.map.setView(to[0], to[1], opts);
+}
+
+/* Called whenever the map becomes visible or changes size. */
+function mapBecameVisible(){
+  if (!state.map) return;
+  state.map.invalidateSize();
+  var p = state.pendingView;
+  if (p){ state.pendingView = null; mapView(p.to, p.opts); }
+  drawMarks();
+}
+
 function initMap(){
   var m = L.map('map', {
     zoomControl: true,
@@ -2284,6 +2344,20 @@ function initMap(){
     attributionControl: true
   });
   state.map = m;
+
+  /* A MAP MUST HAVE A VIEW BEFORE ANYTHING ELSE TOUCHES IT. Leaflet throws
+     "Set map center and zoom first" the moment something asks for a centre or
+     bounds, and holding the real view until the container has a size left
+     exactly that gap. This opening view is derived rather than invented: the
+     middle of the four declared rivers, at the most zoomed-out of their own
+     declared zooms. It is replaced the instant the map is on screen. */
+  var u = RIVERS.reduce(function(acc, r){
+    return [Math.min(acc[0],r.bbox[0]), Math.min(acc[1],r.bbox[1]),
+            Math.max(acc[2],r.bbox[2]), Math.max(acc[3],r.bbox[3])];
+  }, [180,90,-180,-90]);
+  m.setView([(u[1]+u[3])/2, (u[0]+u[2])/2],
+            Math.min.apply(null, RIVERS.map(function(r){ return r.zoom; })));
+
   setBasemap(sget('_shared','basemap') || 'imagery');
 
   /* A PANE, NOT AN ADD ORDER. A tide station sits on top of the gauge at the
@@ -3268,24 +3342,7 @@ function renderLayers(){
         ', and nothing else. Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.'
       : 'No published multibeam survey has arrived for the ' + river.name + ' yet. That is not the same as there being none \u2014 it means nothing has answered.'}));
 
-  p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
-  var centreRow = el('div',{class:'rowline'});
-  var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
-  centreBtn.addEventListener('click', function(){
-    var c = state.map.getCenter();
-    if (tabNames().indexOf('map') !== -1) selectTab('map');
-    showDepthAt(c.lat, c.lng);
-  });
-  centreRow.appendChild(centreBtn);
-  p.appendChild(centreRow);
-
-  /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
-     ONE. A point answers "how deep is it here"; a line answers where the
-     channel runs, which side of it you are on, and how fast it drops away —
-     which is the question somebody standing on a bank actually has. */
-  p.appendChild(el('h2',{class:'sec',text:'Depth along a line'}));
+  p.appendChild(el('h2',{class:'sec',text:'Depth along a line — the profile'}));
   p.appendChild(el('p',{class:'note',
     text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
   p.appendChild(el('p',{class:'note',
@@ -3337,6 +3394,24 @@ function renderLayers(){
     }
   }
   p.appendChild(profRow);
+
+  p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
+  var centreRow = el('div',{class:'rowline'});
+  var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
+  centreBtn.addEventListener('click', function(){
+    var c = state.map.getCenter();
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    showDepthAt(c.lat, c.lng);
+  });
+  centreRow.appendChild(centreBtn);
+  p.appendChild(centreRow);
+
+  /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
+     ONE. A point answers "how deep is it here"; a line answers where the
+     channel runs, which side of it you are on, and how fast it drops away —
+     which is the question somebody standing on a bank actually has. */
 
   if (state.catalog.rasterError)
     p.appendChild(el('div',{class:'warnbox',
@@ -3706,6 +3781,11 @@ function updateLegend(){
   if (state.hereLayer && state.hereLayer.getLayers().length)
     rows.push(keyRow(swatch(7, 3, '#E76F9F', '#0D1A19'),
       'You — the ring is how sure your device is'));
+  if (state.profLayer && state.profLayer.getLayers().length){
+    var pl = el('i',{class:'sw',
+      style:'width:16px;height:0;border-radius:0;border:0;border-top:3px solid #F2A65A'});
+    rows.push(keyRow(pl, 'The line the depth below is measured along'));
+  }
   if (state.accessLayer && state.accessLayer.getLayers().length)
     rows.push(keyRow(swatch(5, 2, '#9BD98C', '#0D1A19'),
       'Public land — CDFW says you may go'));
@@ -4184,7 +4264,7 @@ function selectTab(name){
   document.body.classList.toggle('show-map', name === 'map');
   if (name === 'map' && state.map){
     /* It has been display:none, so it believes the size it last had. */
-    setTimeout(function(){ state.map.invalidateSize(); drawMarks(); }, 60);
+    setTimeout(mapBecameVisible, 60);
   }
   if (name === 'water')  drawTrendLines();
   if (name === 'layers') renderLayers();
@@ -4230,9 +4310,7 @@ function selectRiver(id){
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
-    state.map.setView(river.center, river.zoom);
-    /* The map has been display:none while All was showing. */
-    setTimeout(function(){ if (state.map) state.map.invalidateSize(); }, 60);
+    mapView([river.center, river.zoom]);
     loadMarks(river.id);
   } else {
     state.markLayer.clearLayers(); state.marks = [];
@@ -4240,7 +4318,7 @@ function selectRiver(id){
       return [Math.min(acc[0],r.bbox[0]), Math.min(acc[1],r.bbox[1]),
               Math.max(acc[2],r.bbox[2]), Math.max(acc[3],r.bbox[3])];
     }, [180,90,-180,-90]);
-    state.map.fitBounds([[b[1],b[0]],[b[3],b[2]]]);
+    mapView(L.latLngBounds([[b[1],b[0]],[b[3],b[2]]]));
   }
   /* The map tab exists only when a river does, so the strip is rebuilt
      rather than left showing a tab that leads nowhere. */
@@ -5344,7 +5422,7 @@ function renderProfile(){
     var why = m.none === 'nocatalog'
       ? 'The survey directory has not arrived, so this cannot be answered yet \u2014 which is not the same as there being no survey here.'
       : m.none === 'nowhere'
-        ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Layers panel lists which reaches those are.'
+        ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Depth panel lists which reaches those are.'
         : 'The survey covers this line but measured nothing along it. That is missing data, not flat bottom \u2014 dense weed defeats the sounder and those cells are dropped.';
     note.textContent = why;
     name('No depth along this line. ' + why);
@@ -5479,15 +5557,15 @@ function cancelProfile(){
 function clearProfile(){
   state.profile = null; state.profArm = null; state.profWhole = null; state.profCross = null;
   if (state.profLayer) state.profLayer.clearLayers();
-  renderProfile(); renderLayers();
+  renderProfile(); renderLayers(); updateLegend();
   announce('Profile cleared.');
 }
 function profilePoint(lat, lon){
   state.profArm.push([lat, lon]);
   state.profLayer.clearLayers();
   state.profArm.forEach(function(p){
-    L.circleMarker(p, { pane:'herepane', radius:5, weight:2,
-      color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
+    L.circleMarker(p, { pane:'herepane', radius:6, weight:3,
+      color:'#F2A65A', fillColor:'#0A1214', fillOpacity:1 }).addTo(state.profLayer);
   });
   if (state.profArm.length < 2){
     announce('Start set. Now tap the other end.');
@@ -5608,7 +5686,7 @@ function goToDepth(river){
     return;
   }
   if (tabNames().indexOf('map') !== -1) selectTab('map');
-  state.map.fitBounds(b.pad(0.08), { animate:!reduceMotion });
+  mapView(b.pad(0.08), { animate:!reduceMotion });
   drawSurveyBoxes();
   drawAccessSites();
   announce('Showing the reaches of the ' + river.name + ' the state has surveyed.');
@@ -5718,18 +5796,27 @@ function profileRiverNow(river){
 
 function runProfile(pts){
   if (state.profLayer) state.profLayer.clearLayers();
-  L.polyline(pts, { pane:'herepane', color:'#C9A96A', weight:2, dashArray:'5 4' })
-    .addTo(state.profLayer);
-  L.circleMarker(pts[0], { pane:'herepane', radius:5, weight:2,
-    color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
-  L.circleMarker(pts[pts.length-1], { pane:'herepane', radius:5, weight:2,
-    color:'#C9A96A', fillColor:'#0D1A19', fillOpacity:1 }).addTo(state.profLayer);
+  /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
+     phone: "it does not show the river line, just a bunch of dots". Over
+     satellite imagery, with sixty pins on top of it, a two-pixel dashed stroke
+     is not a line anybody can see. A dark casing under a bright solid stroke
+     is how a route is drawn on a map that has a photograph underneath it. */
+  L.polyline(pts, { pane:'herepane', color:'#0A1214', weight:7, opacity:.75,
+    lineJoin:'round', interactive:false }).addTo(state.profLayer);
+  L.polyline(pts, { pane:'herepane', color:'#F2A65A', weight:3.5,
+    lineJoin:'round', interactive:false }).addTo(state.profLayer);
+  [pts[0], pts[pts.length-1]].forEach(function(pt){
+    L.circleMarker(pt, { pane:'herepane', radius:6, weight:3,
+      color:'#F2A65A', fillColor:'#0A1214', fillOpacity:1,
+      interactive:false }).addTo(state.profLayer);
+  });
   state.profile = { loading:true };
   $('#profile').hidden = false;
   $('#profnote').textContent = 'Asking the survey along this line…';
   announce('Reading the bottom along your line.');
   renderLayers();
-  state.map.fitBounds(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion });
+  updateLegend();   /* the line is on the map now, so the key must say what it is */
+  mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion });
   buildProfile(pts).then(function(model){
     state.profile = model;
     state.profZoom = 1;
@@ -5842,6 +5929,27 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.0.0', date:'2026-08-30', changes:[
+      'The map no longer opens on the whole planet. On a phone it lives in a tab, so for most of the app\u2019s life it is hidden and measures nothing \u2014 and asking it to fit a river into nothing gives you the view from orbit. No view is worked out now until the map is actually on screen.',
+      'The line the depth is measured along is drawn so you can see it. It was a thin dashed stroke over satellite imagery with sixty pins on top; it is now a bright line with a dark casing, the way a route is drawn on a photograph, and the key says what it is.',
+      'Part of each tidal river\u2019s bar is washed in cyan to show how far up the tide reaches, and nothing anywhere said so. The scale under the bars now has a swatch for it.',
+      'Version one. Not because it is finished — what is still not right is listed below, as it has been in every release — but because it now does the thing it is named for. It tells you where the deep water is, where the state has actually measured and where it has not, when the tide turns and at which station, what the water is doing at every gauge that reports, and where you are allowed to stand. It works with no signal once it has loaded, and it holds nothing about you.',
+      'The tab called Layers is called Depth. That is what is behind it \u2014 where the state has surveyed, the depth at a point, and the profile along a line \u2014 and \u201cLayers\u201d is a mapping word that told you nothing about what you would find. If you have been looking for the depth profiles and not finding them, that is why, and it was the app\u2019s fault rather than yours.',
+      'Inside that tab, the profile now comes before the single-point reading, and its heading says the word: Depth along a line \u2014 the profile.',
+      'You can now buy a coffee by Venmo as well as PayPal, under the (i). Same coffee, whichever is less trouble.',
+  ], broken:[
+      'Depth exists only where the state has surveyed — a handful of reaches out of hundreds of kilometres of river. The surveyed water is outlined on the map so you can see what is covered before you go looking for a number that was never measured.',
+      'There are no boat ramps in this app. No published list of them for these rivers could be found, and rather than invent one it shows CDFW’s own public land instead, which is a different thing and is labelled as one.',
+      'It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.',
+      'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the printed regulations are the authority — not this.',
+      'A weir going over its crest has not happened while this app has existed, so what you will see if one does has been tested against a made-up file and never against the day.',
+      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying, and no gauge on it publishes a week of history.',
+      'It will not tell you where fish are being caught, and it is not going to. There is no honest source for that, and a made-up one would be worse than nothing.',
+  ] },
+  { v:'0.14.0', date:'2026-08-30', changes:[
+      'There is a way to buy me a coffee, under the (i) button. It is a link and nothing else \u2014 no counter, no total, no thank-you tier, and nothing about the app changes whether you use it or not. There is no version you are missing.',
+      'It is only in the (i) panel and it is never going to appear anywhere you are actually reading the water.',
+  ] },
   { v:'0.13.0', date:'2026-08-30', changes:[
       'Public land is on the map. These are CDFW\u2019s own lands within twelve kilometres of each river \u2014 places the department says you may go, in its own words, with a link to its page where it has one. Forty-six of them across the four rivers, on the map from the first load with no signal and nothing to download, and listed in Layers under Getting to the water with the closest to the river first.',
       'They are NOT boat ramps, and the app does not call them that. There is no published list of ramps for these rivers that this build could find \u2014 the state\u2019s one public access dataset is coastal beaches, with none on this water \u2014 and rather than invent one, this answers the question the data can actually answer: where you are allowed to be.',
@@ -6097,10 +6205,10 @@ function renderAbout(){
   h('Reading depth honestly');
   para('Weed beats a depth sounder. Where the growth is thick the survey boat gets no return from the bottom, and those patches are dropped — so a blank space beside a tule edge is water nobody measured, not flat ground. In weedy water a reading may be the top of the weed rather than the bed.');
   para('The single beam surveys are lines, not sheets: dots along the track the boat drove. Between two tracks nothing was measured, and nothing is drawn. And every survey is a photograph of one day — sand moves.');
-  para('Where a reach has no published survey at all, the Layers panel says so in words instead of offering you a switch that turns nothing on.');
+  para('Where a reach has no published survey at all, the Depth panel says so in words instead of offering you a switch that turns nothing on.');
 
   h('Getting around it without a pointer');
-  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks. Where I am sits on the map itself and is a real button, so it takes a thumb and the keyboard equally; it is 44px through on both axes, which the map\u2019s own zoom controls are not.');
+  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Depth panel asks the survey the same question a tap on the map asks. Where I am sits on the map itself and is a real button, so it takes a thumb and the keyboard equally; it is 44px through on both axes, which the map\u2019s own zoom controls are not.');
   para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
 
   h('Where this came from');
@@ -6111,6 +6219,25 @@ function renderAbout(){
   hubRow.appendChild(el('a',{href:'https://noahjefferson.pages.dev/accessibility',
     rel:'noopener noreferrer', target:'_blank', text:'Accessibility statement'}));
   b.appendChild(hubRow);
+
+  /* A TIP JAR, AND NOTHING THAT NAGS. It lives here, in the panel somebody
+     opens when they want to know about the app, and nowhere on the working
+     surface — a prompt for money has no business competing with reading the
+     water on a riverbank. No counter, no total, no thank-you tier, nothing
+     that changes if you give and nothing that changes if you do not. */
+  h('If it was useful');
+  para('Thalweg is free, has no account, shows no advertising and collects nothing about you, and that is not going to change. It also costs nothing to run beyond the time it takes to build, so there is no bill to help with. If you have got some use out of it and feel like buying a coffee, there is a link below. If you do not, nothing about the app is different \u2014 there is no version you are missing.');
+  var tipRow = el('div',{class:'rowline'});
+  /* Two, because one of them is probably already on your phone. Not a menu of
+     tiers — the same coffee, by whichever route is less trouble. */
+  tipRow.appendChild(el('a',{ href:'https://paypal.me/WishUponGames',
+    rel:'noopener noreferrer', target:'_blank', class:'tiplink',
+    text:'Buy a coffee, via PayPal' }));
+  tipRow.appendChild(el('a',{ href:'https://venmo.com/u/NoahJefferson',
+    rel:'noopener noreferrer', target:'_blank', class:'tiplink',
+    text:'or via Venmo' }));
+  b.appendChild(tipRow);
+  para('Those links go to PayPal and Venmo, and this app is not involved in either: nothing about a payment comes back here, and Thalweg does not know and cannot know whether anybody used them.', 'note');
 
   h('Licence');
   para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');
@@ -6279,7 +6406,7 @@ function showWelcome(){
   b.appendChild(el('div',{class:'magbox',
     text:'It does not know where fish are being caught and will not guess — no live catch feed exists for these rivers. It is not a navigation aid: the depth surveys come from the state, whose own notes say they are not for navigating by.'}));
 
-  para('This is the first release. Every number comes from USGS, NOAA, DWR or CDFW and is labelled with which one — but it is a first release, so treat what you see as new until it has agreed with something you trust.', 'note');
+  para('Every number here comes from USGS, NOAA, DWR or CDFW and is labelled with which one, and where a figure is missing this app says why rather than showing you a zero. It is still young: check what you see against something you trust before you rely on it, and what is still not right is listed under the (i).', 'note');
 
   /* THE INSTALL OFFER SAT IN THE MIDDLE, and a first-time reader scrolling for
      the button went straight past it — reported by somebody meeting the app on
@@ -6466,7 +6593,7 @@ function boot(){
     resizeTimer = setTimeout(function(){
       drawRibbon();
       drawTrendLines();
-      if (state.map) state.map.invalidateSize();
+      if (state.map) mapBecameVisible();
     }, 180);
   });
 

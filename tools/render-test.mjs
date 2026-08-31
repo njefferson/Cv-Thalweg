@@ -770,7 +770,10 @@ const news = await page.evaluate(() => {
   return {
     open: d.open,
     title: document.getElementById('newtitle').textContent,
-    items: [...body.querySelectorAll('li')].map(li => li.textContent),
+    /* The FIRST list is the changes; a second list follows it for what is
+       still not right, and counting every li conflates the two. */
+    items: [...(body.querySelector('ul') ? body.querySelector('ul').querySelectorAll('li') : [])]
+      .map(li => li.textContent),
     focused: document.activeElement && document.activeElement.id,
     older: !!document.getElementById('newolder'),
     aboutOpen: document.getElementById('about').open
@@ -787,6 +790,19 @@ check('it lists this version\u2019s changes, and only this version\u2019s',
 check('the first thing in it is a change, not the front of the About panel',
   news.items.length > 0 && !/What Thalweg is/.test(news.items[0] || ''), news.items[0]);
 check('the whole history is one press away rather than in your way', news.older);
+/* A 1.0 STATES ITS LIMITS WHERE A READER MEETS THEM, not eight releases down.
+   The dialog a reader sees after an update has to carry them. */
+check('the update dialog carries what is still not right',
+  await page.evaluate(() => {
+    const r = RELEASES.filter(x => x.v === VERSION)[0];
+    if (!r || !r.broken || !r.broken.length) return false;
+    const t = document.getElementById('newbody').textContent;
+    return /Still not right/i.test(t) && t.includes(r.broken[0].slice(0, 40));
+  }),
+  await page.evaluate(() => {
+    const r = RELEASES.filter(x => x.v === VERSION)[0];
+    return r ? (r.broken || []).length + ' known issue(s) declared' : 'no note for this version';
+  }));
 check('the dialog takes focus when it opens', news.focused === 'newtitle', news.focused);
 /* Patch notes are for the reader. This is the app's own copy asserted against
    the same closed vocabulary tools/notes-check.mjs holds the source to, so a
@@ -934,6 +950,22 @@ check('a profile is drawn', prof.shown && prof.paths > 0, JSON.stringify(prof));
 check('one request per survey, not one per sample',
   profileCalls - before === 1, 'calls: ' + (profileCalls - before));
 check('the line it profiled is on the map too', prof.onMap >= 2, JSON.stringify(prof));
+/* "IT DOES NOT SHOW THE RIVER LINE, JUST A BUNCH OF DOTS" — over imagery, with
+   sixty pins on it, a two-pixel dashed stroke is not a line anybody can see. */
+check('the profiled line is drawn heavily enough to see over a photograph',
+  await page.evaluate(() => {
+    const strokes = state.profLayer.getLayers()
+      .filter(l => typeof l.getLatLngs === 'function')
+      .map(l => l.options.weight);
+    return strokes.length >= 2 && Math.max(...strokes) >= 6 &&
+           strokes.some(w => w >= 3 && w < 6);
+  }),
+  await page.evaluate(() => state.profLayer.getLayers()
+    .filter(l => typeof l.getLatLngs === 'function')
+    .map(l => l.options.color + '@' + l.options.weight).join(' ')));
+check('and the key explains what that line is',
+  await page.evaluate(() => [...document.querySelectorAll('#maplegend .keyrow')]
+    .some(r => /line the depth below is measured along/i.test(r.textContent))));
 check('it reports the deepest sounding it actually found',
   Math.abs(Math.abs(prof.deepest) - 30) < 1.5, String(prof.deepest));
 check('the sentence names the survey and the depth',
@@ -983,6 +1015,15 @@ const order = await page.evaluate(() => {
            hasWhere: /Bathymetry — where the depth is/.test(t) };
 });
 check('the panel leads with where the depth is', order.hasWhere, JSON.stringify(order));
+/* THE PROFILE IS WHAT GETS HUNTED FOR, so it comes before depth-at-a-point. */
+check('the profile is above the single-point reading',
+  await page.evaluate(() => {
+    const t = document.getElementById('panel-layers').textContent;
+    return t.indexOf('Depth along a line') > -1 &&
+           t.indexOf('Depth along a line') < t.indexOf('Depth at a point');
+  }));
+check('and its heading says the word people are looking for',
+  /Depth along a line — the profile/.test(await page.textContent('#panel-layers')));
 check('and the basemap chooser is below it, not above',
   order.where > -1 && order.base > order.where, JSON.stringify(order));
 check('the surveyed reaches are drawn on the map',

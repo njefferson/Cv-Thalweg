@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.13.0.
+- Version 1.0.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,58 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **A VIEW COMPUTED AGAINST A ZERO-SIZE MAP IS THE WHOLE WORLD.** On a phone
+  the map lives in a tab, so most of the time its container is `display:none`
+  and measures 0 by 0 — and `fitBounds` in that state does exactly what it is
+  told: it finds the zoom at which those bounds fit into nothing, which is zoom
+  0. Reported from a real phone and reproduced immediately: on All rivers the
+  map genuinely sat at zoom 0. Everything that moves the map now goes through
+  `mapView()`, which HOLDS a view while the container has no size and applies it
+  from `mapBecameVisible()`. Holding it exposed the other half: a Leaflet map
+  with no view at all throws "Set map center and zoom first" the moment anything
+  asks for a centre, so the map opens on a derived view — the middle of the four
+  declared rivers at the most zoomed-out of their own declared zooms — which is
+  replaced the instant the map is real.
+- **A THIN DASHED LINE OVER SATELLITE IMAGERY IS NOT A LINE.** "It does not show
+  the river line, just a bunch of dots." The profiled line was 2px dashed among
+  sixty pins on a photograph. It is a bright stroke over a dark casing now, the
+  way a route is drawn on imagery, and the key names it.
+- **A COLOUR THAT MEANS SOMETHING NEEDS A KEY AS MUCH AS THE TEMPERATURE RAMP
+  DOES.** Part of each tidal river's ribbon bar is washed in cyan to show how far
+  the tide reaches, and there was no legend for it anywhere — three bars tinted
+  differently with nothing saying why. The scale now carries a swatch.
+- **A CLAIM WITH A DATE ON IT LIVED FOR FIFTEEN RELEASES.** The first-run page
+  said "This is the first release" from 0.1.0 to 1.0.0. Nothing checked it,
+  because nothing could: it is a true sentence that quietly expires. A sentence
+  about which release this is has to come FROM the release or not be said, and
+  the accessibility suite now refuses that phrase outright. Same family as the
+  version stamp that could lie (0.2.1) and the doctrine sentence that said all
+  four palettes cleared every floor (hub LESSONS 186).
+- **THE DOOR WAS LABELLED WRONG, AND FOUR ROUNDS WERE SPENT REARRANGING THE
+  ROOM.** "Where is the depth", "I do not see where the depth is at", "not of
+  the whole river", "where do I find depth profiles" — each time the fix was
+  inside `panel-layers`: outlines drawn, a go-to button, depth moved above the
+  basemap, the profile given a heading. All of them were improvements and none
+  of them was the cause. The tab was called **Layers**, which is a mapping term
+  for a panel that is entirely about the bottom. It is called **Depth** now.
+  The general form, and it is worth carrying to the other apps: when somebody
+  cannot find a feature, check the WORD ON THE CONTROL THAT LEADS TO IT before
+  touching what is behind it. A panel can be reorganised indefinitely without
+  ever fixing a label. Four rounds is the measurement.
+  The ids stay `tab-layers`/`panel-layers` — they are internal, and renaming
+  them would have churned the suites for nothing a reader can see.
+- **THE TIP LINK IS IN THE (i) AND NOWHERE ELSE, ON PURPOSE.** A prompt for
+  money has no business competing with reading the water on a riverbank, so it
+  lives in the panel somebody opens when they want to know about the app. It is
+  a link and nothing else: no counter, no total, no tier, no thank-you, and the
+  copy says outright that nothing about the app differs whether you use it or
+  not. `tools/a11y.mjs` asserts all of that — that it is in the (i), that it is
+  not on the working surface, that it is 44px through, that a `target=_blank`
+  carries `noopener`, and that the section contains no supporter count, goal,
+  total or plea.
+  The address is a paypal.me handle rather than an email: an email in a public
+  repo under the owner's name gets scraped, and a handle takes payments without
+  publishing one. Venmo sits beside it — same coffee, whichever route is less trouble.
 - **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
   not invent one. The state's open-data portal returns nothing for boating
   facilities, boat launch ramps or DBW; the one "Public Access Points" service
