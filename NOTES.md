@@ -857,6 +857,33 @@ repo; assume it every time, rather than rediscovering it.
 **And the figure has a key**, because a picture that says two things in colour
 and neither in words is a defect this app has now shipped twice.
 
+## The Delta broke three baked artefacts, each in its own way
+
+Adding an entry that is not a river found every place the tooling assumed one.
+
+**`fetch-centrelines.mjs --check` demanded a course from it.** The Delta has 97
+channels and no main stem — the thing that entry exists to say. It skips
+`network:true` now.
+
+**`fetch-access.mjs` gave it no public land**, because it measures distance to
+`river-lines.js` and the Delta is not in there. The consequence was not a blank
+section: the app would have said CDFW publishes no land of its own within twelve
+kilometres of the Delta, **which is false — there are sixteen sites**. A missing
+input turned into a confident wrong sentence, which is the worst shape a gap can
+take. The tool reads the Delta's channels as one line for that measurement now.
+
+**`fetch-stations.mjs --check` caught the tides** — see below.
+
+**And a fourth tool needed the §173 three lines**, printing "CDFW answered HTTP
+403" for what was the proxy's own allowlist reply. `check-deploy`,
+`fetch-delta`, `fetch-stations` and `fetch-access` all re-exec now. **Any new
+tool in this repo that fetches needs them; assume it rather than rediscovering
+it.**
+
+**The lesson for next time: run every `--check` before pushing, not the suites
+alone.** All three suites were green while three baked artefacts were wrong,
+because the suites test the app and the checks test the files it ships.
+
 ## Two gates that only run in CI, and what they caught
 
 Both of 2.2.0's first-push failures were checks this container does not run,

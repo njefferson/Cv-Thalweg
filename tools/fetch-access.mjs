@@ -24,6 +24,18 @@
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+/* Node's own fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, and it
+   reads it at STARTUP. Without it this prints "CDFW answered HTTP 403" — the
+   proxy's allowlist reply wearing the department's name. (Hub LESSONS §173;
+   the fourth tool in this repo to need the same three lines.) */
+if (!process.env.NODE_USE_ENV_PROXY &&
+    (process.env.HTTPS_PROXY || process.env.https_proxy)) {
+  const r = spawnSync(process.execPath, [import.meta.filename, ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+  process.exit(r.status === null ? 1 : r.status);
+}
 
 const repo = (() => { const i = process.argv.indexOf('--repo');
   return i === -1 ? process.cwd() : process.argv[i + 1]; })();
@@ -78,11 +90,25 @@ function metres(a, b) {
    The centreline is already baked in, so the question can be asked properly:
    how far is this place from THIS river's own course. */
 const NEAR_RIVER_M = 12000;
+/* The four rivers each have one course; the Delta has ninety-seven channels
+   and no course, so its "distance to this river's own water" is the distance
+   to the nearest of them. Without this the Delta would have no access lands
+   and the panel would say CDFW publishes none there — which is not a gap in
+   the data, it is the app asserting something untrue. */
 function riverLines(repoDir) {
   const f = join(repoDir, 'public', 'river-lines.js');
   if (!existsSync(f)) return null;
   const src = readFileSync(f, 'utf8');
-  return new Function(src + '; return typeof RIVER_LINES !== "undefined" ? RIVER_LINES : null;')();
+  const lines = new Function(src + '; return typeof RIVER_LINES !== "undefined" ? RIVER_LINES : null;')();
+  if (!lines) return null;
+  const d = join(repoDir, 'public', 'delta.js');
+  if (existsSync(d)) {
+    const dsrc = readFileSync(d, 'utf8');
+    const delta = new Function(dsrc + '; return typeof DELTA !== "undefined" ? DELTA : null;')();
+    if (delta && delta.channels && delta.channels.length)
+      lines.delta = delta.channels.reduce(function(all, c){ return all.concat(c.pts); }, []);
+  }
+  return lines;
 }
 function metresToLine(line, lat, lon) {
   let best = Infinity;

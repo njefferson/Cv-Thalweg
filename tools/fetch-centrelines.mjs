@@ -187,6 +187,11 @@ if (CHECK) {
   console.log(`=== river centrelines · ${Object.keys(lines || {}).length} river(s) ===\n`);
   if (meta) console.log(`  fetched ${meta.fetchedAt}\n  from ${meta.source}\n`);
   rs.forEach(r => {
+    /* A NETWORK HAS NO MAIN STEM AND OWES NO CENTRELINE. The Delta is
+       ninety-seven named channels baked by tools/fetch-delta.mjs, which has its
+       own --check; demanding a single course from it here would be this file
+       asking for the one thing that entry exists to say it has not got. */
+    if (r.network) return;
     const L = lines && lines[r.id];
     if (!L || !L.length) return fails.push(`${r.name}: no centreline.`);
     const bad = L.filter(p => !Array.isArray(p) || p.length !== 2 ||

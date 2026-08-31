@@ -15,7 +15,7 @@
  * These are CDFW's coordinates and CDFW's words. Nothing here was typed by hand.
  */
 var ACCESS_META = {
-  fetchedAt: '2026-08-31T02:57:35.778Z',
+  fetchedAt: '2026-08-31T21:19:55.235Z',
   source: 'https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/biosds3077_fpu/FeatureServer/0'
 };
 var ACCESS_LANDS = {
@@ -67,6 +67,24 @@ var ACCESS_LANDS = {
     {"name":"American River Access","type":"Public Access","access":"Open","link":"","lat":38.63249,"lon":-121.24051,"km":0.2},
     {"name":"Nimbus Dam Fish Hatchery","type":"Fish Hatchery","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Fishing/Hatcheries/Nimbus","lat":38.63296,"lon":-121.22781,"km":0.3},
     {"name":"Sacramento Bypass Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Sacramento-Bypass-WA","lat":38.60053,"lon":-121.57394,"km":5.7}
+  ],
+  delta: [
+    {"name":"Clarksburg Fishing Access","type":"Public Access","access":"Open","link":"","lat":38.38309,"lon":-121.52144,"km":0.1},
+    {"name":"Georgiana Slough Fishing Access","type":"Public Access","access":"Open","link":"","lat":38.12928,"lon":-121.58463,"km":0.2},
+    {"name":"Miner Slough Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Miner-Slough-WA","lat":38.23502,"lon":-121.66944,"km":0.2},
+    {"name":"Calhoun Cut Ecological Reserve","type":"Ecological Reserve","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Calhoun-Cut-ER","lat":38.25744,"lon":-121.79266,"km":0.3},
+    {"name":"Cliff House Fishing Access","type":"Public Access","access":"Open","link":"","lat":38.17073,"lon":-121.66838,"km":0.4},
+    {"name":"Rhode Island Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Rhode-Island-WA","lat":38.00126,"lon":-121.57481,"km":0.4},
+    {"name":"Brannan Island Fishing Access","type":"Public Access","access":"Open","link":"","lat":38.13075,"lon":-121.6871,"km":0.5},
+    {"name":"Decker Island Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Decker-Island-WA","lat":38.10138,"lon":-121.71121,"km":0.8},
+    {"name":"Liberty Island Ecological Reserve","type":"Ecological Reserve","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Liberty-Island-ER","lat":38.28073,"lon":-121.68046,"km":1.1},
+    {"name":"Montezuma Slough","type":"Public Access","access":"Open","link":"","lat":38.09105,"lon":-121.88576,"km":1.1},
+    {"name":"Woodbridge Ecological Reserve","type":"Ecological Reserve","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Woodbridge-ER","lat":38.16277,"lon":-121.43552,"km":1.5},
+    {"name":"Lower Sherman Island Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Lower-Sherman-Island-WA","lat":38.04348,"lon":-121.80961,"km":1.5},
+    {"name":"Yolo Bypass Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Yolo-Bypass-WA","lat":38.49866,"lon":-121.62062,"km":1.6},
+    {"name":"Big Break Fishing Pier","type":"Public Access","access":"Open","link":"","lat":38.00917,"lon":-121.72989,"km":2},
+    {"name":"Cosumnes River Ecological Reserve","type":"Ecological Reserve","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Cosumnes-River-ER","lat":38.31109,"lon":-121.35817,"km":7.4},
+    {"name":"Grizzly Island Wildlife Area","type":"Wildlife Area","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Lands/Places-to-Visit/Grizzly-Island-WA","lat":38.13001,"lon":-121.96872,"km":9}
   ],
   mokelumne: [
     {"name":"Mokelumne River Fish Hatchery","type":"Fish Hatchery","access":"Open; Refer to regulations or contact CDFW regional or area office prior to visit.","link":"http://www.wildlife.ca.gov/Fishing/Hatcheries/Mokelumne-River","lat":38.22529,"lon":-121.02778,"km":0.1},
