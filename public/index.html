@@ -112,7 +112,21 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
 
 /* ---------- ribbon ---------- */
 #ribbonwrap{flex:0 0 auto; background:var(--panel-2); border-bottom:1px solid var(--teal);
-  padding:.35rem .5rem .1rem; overflow-x:auto}
+  padding:.35rem .5rem .1rem; overflow-x:auto; position:relative}
+/* The rows of the ribbon are pressable, and they are REAL BUTTONS laid over
+   the drawing rather than shapes inside it. The drawing is role="img" with a
+   written description, which is right for a picture — and a role="img" prunes
+   everything inside it from the accessibility tree, so a control drawn in
+   there is one no screen reader can reach however correct its markup. axe
+   called it as nested-interactive; it would have been unusable, not untidy. */
+#riverhits{position:absolute; pointer-events:none}
+#riverhits button{position:absolute; left:0; width:100%; padding:0; margin:0;
+  background:none; border:0; pointer-events:auto; cursor:pointer}
+#riverhits button:hover{background:rgba(123,213,217,.07)}
+/* Visible to a screen reader, not to the eye — the river's name is drawn in
+   the picture, which a reader can see and a screen reader cannot. */
+.vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);
+  clip-path:inset(50%); white-space:nowrap}
 #ribbon{display:block; width:100%; min-width:520px}
 @media (max-width:900px){ #ribbon{min-width:0} }
 .ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
@@ -627,7 +641,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.5.0';
+var VERSION = '1.6.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2063,8 +2077,9 @@ function ribbonSpan(river, rows){
    With the real gauge networks on these four rivers it does not bind. */
 var RIB_MIN_BAR = 28;
 
-function ribbonRow(g, river, rows, x0, x1, y, showName, span){
+function ribbonRow(g, river, rows, x0, x1, y, showName, span, W){
   var edge = span.edge;
+
   rows = rows.filter(function(r){ return !r.context; });
   var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
   var lo = span.lo, hi = span.hi;
@@ -2072,7 +2087,7 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span){
 
   /* the channel */
   g.appendChild(svg('rect', { x:x0, y:y-5, width:(x1-x0), height:10,
-    fill:'#16302e', stroke:'#1F5B57' }));
+    fill:'#16302e', stroke:'#1F5B57', 'pointer-events':'none' }));
 
   /* THE TIDAL REACH IS A REGION WITH AN END, AND IT HAS TO LOOK LIKE ONE.
 
@@ -2100,14 +2115,14 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span){
     var tx = sx(edge.v);
     var left = Math.min(x0, tx), right = Math.max(x0, tx);
     g.appendChild(svg('rect', { x:left, y:y-5, width:Math.max(0, right-left),
-      height:10, fill:'url(#' + gid + ')' }));
+      height:10, fill:'url(#' + gid + ')', 'pointer-events':'none' }));
 
     /* The mark itself: a dashed rule through the channel and a little past
        it, so it is visible against both the wash and the bare bar. */
     var tickTop = y - 9, tickBot = y + 9;
     g.appendChild(svg('line', { x1:tx, x2:tx, y1:tickTop, y2:tickBot,
       stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
-      'stroke-linecap':'round' }));
+      'stroke-linecap':'round', 'pointer-events':'none' }));
 
     /* THE LABEL HANGS OFF THE MARK, and the leader is what makes that true
        even when the words have to shuffle sideways to stay on the drawing.
@@ -2124,17 +2139,20 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span){
     g.appendChild(svg('path', {
       d:'M' + tx + ' ' + tickBot + ' V' + (ly - RIB.note - 3) +
         (Math.abs(lx - tx) > 1 ? ' H' + lx : ''),
-      fill:'none', stroke:'#4E7C7A', 'stroke-width':'1' }));
-    var lab = svg('text', { x:lx, y:ly,
+      fill:'none', stroke:'#4E7C7A', 'stroke-width':'1', 'pointer-events':'none' }));
+    var lab = svg('text', { x:lx, y:ly, 'pointer-events':'none',
       fill:'#9FB3B1', 'font-size':String(RIB.note), 'text-anchor':anchor });
     lab.textContent = text;
     g.appendChild(lab);
   }
 
   if (showName){
-    var rn = svg('text', { x:6, y:y+4, fill:'#E6F0EF', 'font-size':String(RIB.name),
-      'font-weight':'600' });
-    rn.textContent = river.short;
+    /* CYAN, LIKE EVERY OTHER THING IN THIS APP YOU CAN PRESS, and with a
+       chevron after it. A row that opens a river and looks exactly like a
+       label is a row nobody presses. */
+    var rn = svg('text', { x:6, y:y+4, fill:'#7BD5D9', 'font-size':String(RIB.name),
+      'font-weight':'600', 'pointer-events':'none' });
+    rn.textContent = river.short + ' \u203a';
     g.appendChild(rn);
   }
 
@@ -2158,11 +2176,13 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span){
     ttl.textContent = (r.name || r.id) + (f === null ? ' — no temperature'
       : ' — ' + fmt(f,1) + 'F');
     c.appendChild(ttl);
+    /* The dot keeps its pointer events so the tooltip still works, so it has
+       to carry the same action or it would be a hole in the row. */
     g.appendChild(c);
     if (band){
       lastAt[band] = x;
       var t = svg('text', { x:x, y: high ? y - (RIB.dot + 5) : y + (RIB.dot + 13),
-        fill:'#E6F0EF', 'font-size':String(RIB.fig),
+        fill:'#E6F0EF', 'font-size':String(RIB.fig), 'pointer-events':'none',
         'text-anchor':'middle', 'font-family':'Georgia,serif', 'font-style':'italic' });
       t.textContent = f === null ? '—' : fmt(f,0);
       g.appendChild(t);
@@ -2222,6 +2242,80 @@ function tempScale(g, x, y, w, tidal){
   var tl = svg('text', { x:x + tw + 8, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
   tl.textContent = 'tidal reach';
   g.appendChild(tl);
+}
+
+/* PRESSING A RIVER OPENS IT.
+
+   Four rivers across the top of the landing page, the most prominent thing on
+   the screen, and pressing one did nothing — the ways in were a select menu in
+   the header and a card further down. A row plainly ABOUT a river that does
+   nothing when pressed is the pin-too-small defect wearing a different coat:
+   the reader tries it, nothing happens, and they file the whole strip under
+   decoration.
+
+   These are HTML buttons positioned over the drawing, not shapes inside it.
+   The first version put a focusable rect in the SVG and it was wrong for a
+   reason worth writing down: the drawing is `role="img"` with a written
+   description, and a role="img" PRUNES ITS SUBTREE from the accessibility
+   tree. A control inside it is unreachable to a screen reader no matter how
+   correctly it is marked up — present, correct, and invisible, which is this
+   project's most familiar shape of defect.
+
+   The row is 52px on a desktop and 44 on a phone. On a very short screen the
+   ribbon shrinks its rows and these shrink with them, which is deliberate
+   rather than overlooked: the cards under "Which river" are the full-sized
+   route and are always there. */
+function riverHits(list, host, x0, top, rowH){
+  var wrap = document.getElementById('ribbonwrap');
+  var old = document.getElementById('riverhits');
+  if (old) old.parentNode.removeChild(old);
+  /* Nothing to choose between when the ribbon is showing one river. */
+  if (!wrap || list.length < 2) return;
+
+  /* AN SVG ELEMENT HAS NO offsetTop. `offsetTop` and `offsetLeft` are
+     HTMLElement properties; on an SVG they are undefined, so the first version
+     set the overlay's position to the string "undefinedpx", the browser
+     discarded it, and four full-width buttons came to rest three hundred
+     pixels down the page on top of the map. Three of the four still opened a
+     river when driven by their own bounding box, which is why this had to be
+     measured rather than looked at. Rectangles, then. */
+  var hr = host.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  /* An absolutely positioned child is placed against the padding box of its
+     containing block, and it scrolls with the content, so the offset wanted is
+     a content-space one. */
+  var offTop  = hr.top  - wr.top  - wrap.clientTop  + wrap.scrollTop;
+  var offLeft = hr.left - wr.left - wrap.clientLeft + wrap.scrollLeft;
+  /* The drawing is authored at 1:1, but CSS gives it width:100% and a
+     min-width, so a container narrower than that renders it at another size.
+     Take the scale off the rendered box rather than assuming it. */
+  var drawnH = parseFloat(host.getAttribute('height')) || hr.height;
+  var scale = hr.height / drawnH;
+
+  var box = document.createElement('div');
+  box.id = 'riverhits';
+  box.style.top = offTop + 'px';
+  box.style.left = offLeft + 'px';
+  box.style.width = hr.width + 'px';
+  box.style.height = hr.height + 'px';
+
+  list.forEach(function(river, i){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'riverhit';
+    b.style.top = Math.round((top + i * rowH - rowH / 2) * scale) + 'px';
+    b.style.height = Math.round(rowH * scale) + 'px';
+    /* The name is drawn in the picture, which the reader can see and a screen
+       reader cannot, so the button carries its own. */
+    b.appendChild(el('span', { class:'vh', text:'Open the ' + river.name }));
+    b.addEventListener('click', function(){
+      var sel = document.getElementById('riverpick');
+      if (sel) sel.value = river.id;
+      selectRiver(river.id);
+      announce('Opened the ' + river.name + '.');
+    });
+    box.appendChild(b);
+  });
+  wrap.appendChild(box);
 }
 
 function drawRibbon(again){
@@ -2298,7 +2392,7 @@ function drawRibbon(again){
     var sp = spans[i];
     var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
     var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
-    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp);
+    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W);
     plotted += n;
     missing += onRiver.length - n;
   });
@@ -2308,16 +2402,21 @@ function drawRibbon(again){
   tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
             RIB.narrow ? 104 : 170, anyTidal);
   host.appendChild(g);
+  riverHits(list, host, x0, top, rowH);
 
   /* THE SHORT NOTE HAS TO CARRY THE SCALE TOO. Bars of visibly different
      lengths with nothing saying why is the same defect as the wash with no
      key: the phone reader is the one who most needs telling, and was the one
      told least. */
+  /* AND IT SAYS THE ROWS CAN BE PRESSED. A control nobody knows about is the
+     same as no control, and a row that opens a river looks like a chart. */
+  var tapHint = state.riverId ? '' : (RIB.narrow ? 'Tap a river to open it. '
+                                                 : 'Press a river to open it. ');
   var note = RIB.narrow
-    ? 'Downstream left' +
+    ? tapHint + 'Downstream left' +
       (state.riverId ? '' : '; one distance scale, longest ' + Math.round(maxM / 1000) + ' km') +
       '. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
-    : 'Downstream on the left; ' +
+    : tapHint + 'Downstream on the left; ' +
       (state.riverId ? byId(state.riverId).axisLabel
                      : 'all rivers to one distance scale — the longest bar is ' +
                        Math.round(maxM / 1000) + ' km — and one temperature scale') + '. ' +
@@ -6455,6 +6554,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.6.0', date:'2026-08-31', changes:[
+      'Press a river\u2019s bar at the top of the page and it opens that river. The four bars are the most prominent thing on the landing screen and pressing one did nothing \u2014 the ways in were the menu in the header and a card further down. The whole row is the target, not just the bar, so it is a comfortable press with a thumb, and the names are cyan with a \u203a after them so it is clear they do something. The line underneath says so as well.',
+      'The gauge dots and the river names still say what they are; the row underneath them is what opens the river.',
+  ] },
   { v:'1.5.0', date:'2026-08-31', changes:[
       'The Depth tab does things before it explains them. Every section used to open with two or three paragraphs about what the thing is and where its data comes from, and put the button that does it underneath \u2014 so "Read the depth at the map centre" sat below the bottom of the screen, and if you did not scroll past the wall of text you never found out it was there. The controls are at the top of each section now.',
       'None of that writing has gone. Where the numbers come from, what the state has not measured, why a patch of a survey is blank, and the fact that the public-land pins are not boat ramps \u2014 all still there, one press away behind a heading that says what it holds, instead of four paragraphs in the way. Measured: 1,277 characters of text stood between the top of the panel and the last depth control; now it is 265.',

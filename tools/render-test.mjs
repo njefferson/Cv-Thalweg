@@ -264,6 +264,131 @@ const note = await page.textContent('#ribbonnote');
 check('ribbon plots the gauges that had positions', /3 gauges plotted/.test(note), note);
 check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('#ribbon circle').length) === 3);
 
+/* --- THE ROWS OPEN THEIR RIVER -----------------------------------------
+   Four rivers across the top of the landing page, the most prominent thing on
+   the screen, and pressing one did nothing: the routes in were a select menu
+   in the header and a card further down. A row plainly ABOUT a river that does
+   nothing when pressed is the pin-too-small defect again — the reader tries
+   it, nothing happens, and concludes it is a picture. */
+const rows = await page.evaluate(() => {
+  const hits = [...document.querySelectorAll('#riverhits button')];
+  return hits.map(h => ({
+    label: h.textContent,
+    tabbable: !h.disabled,
+    h: Math.round(h.getBoundingClientRect().height),
+    named: h.textContent.trim().length > 8
+  }));
+});
+check('a single-river ribbon offers no row control — there is nothing to choose',
+  rows.length === 0, JSON.stringify(rows));
+
+/* And on the landing view, where there IS a choice. */
+await page.evaluate(() => {
+  const s = document.getElementById('riverpick');
+  s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(900);
+const all = await page.evaluate(() => {
+  const hits = [...document.querySelectorAll('#riverhits button')];
+  return { n: hits.length,
+    labelled: hits.every(h => /^Open the /.test(h.textContent || '')),
+    tabbable: hits.every(h => !h.disabled),
+    titled: hits.every(h => h.textContent.trim().length > 8),
+    tall: Math.min.apply(null, hits.map(h => Math.round(h.getBoundingClientRect().height))),
+    hint: document.getElementById('ribbonnote').textContent };
+});
+check('every river row is a control', all.n === 4, JSON.stringify(all));
+check('each one says which river it opens', all.labelled && all.titled, JSON.stringify(all));
+/* A REAL BUTTON, so Enter and Space come free and correct rather than being
+   re-implemented on a keydown listener. */
+check('each one is a real button and takes focus',
+  await page.evaluate(() => {
+    const hits = [...document.querySelectorAll('#riverhits button')];
+    if (!hits.every(h => h.tagName === 'BUTTON' && h.type === 'button')) return false;
+    hits[2].focus();
+    return document.activeElement === hits[2];
+  }));
+/* AND THEY ARE NOT INSIDE THE PICTURE. The first version drew focusable rects
+   into the SVG, which is role="img" — and a role="img" prunes its subtree from
+   the accessibility tree, so those controls were unreachable to a screen
+   reader however correct their markup. Present, correct and invisible. */
+check('no control is buried inside the figure, where nothing could reach it',
+  await page.evaluate(() => !document.querySelector(
+    '#ribbon button, #ribbon [role="button"], #ribbon [tabindex]')));
+check('and is tall enough to press with a finger', all.tall >= 44, all.tall + 'px');
+/* A control nobody knows about is the same as no control. */
+check('the note says the rows can be pressed', /ress a river|ap a river/.test(all.hint), all.hint);
+
+/* THE BUTTON SITS OVER THE BAR IT OPENS. An overlay is positioned by
+   arithmetic, and arithmetic against the wrong property is silent: the first
+   version used host.offsetTop, which does not exist on an SVG element, so the
+   four buttons came to rest three hundred pixels down the page over the map.
+   Three of the four still opened a river when driven by their own bounding
+   box, so only geometry against the DRAWING catches it. */
+check('each button lies over the bar it opens',
+  await page.evaluate(() => {
+    const bars = [...document.querySelectorAll('#ribbon rect')]
+      .filter(r => r.getAttribute('fill') === '#16302e');
+    const hits = [...document.querySelectorAll('#riverhits button')];
+    if (bars.length !== hits.length || !bars.length) return false;
+    return bars.every((bar, i) => {
+      const b = bar.getBoundingClientRect(), h = hits[i].getBoundingClientRect();
+      const mid = b.top + b.height / 2;
+      return mid >= h.top && mid <= h.bottom &&
+             h.left <= b.left + 1 && h.right >= b.right - 1;
+    });
+  }),
+  await page.evaluate(() => {
+    const bars = [...document.querySelectorAll('#ribbon rect')]
+      .filter(r => r.getAttribute('fill') === '#16302e')
+      .map(r => Math.round(r.getBoundingClientRect().top));
+    const hits = [...document.querySelectorAll('#riverhits button')]
+      .map(h => Math.round(h.getBoundingClientRect().top));
+    return 'bars at ' + bars.join(',') + ' · buttons at ' + hits.join(',');
+  }));
+
+/* THE PRESS LANDS ON THE ROW IT NAMES. Rows are stacked and adjacent, so an
+   off-by-one in the hit band would open the neighbour — and every label would
+   still be right. */
+for (const i of [0, 1, 2, 3]){
+  await page.evaluate(() => {
+    const s = document.getElementById('riverpick');
+    s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(700);
+  const shot = await page.evaluate((k) => {
+    const h = [...document.querySelectorAll('#riverhits button')][k];
+    const r = h.getBoundingClientRect();
+    return { x: r.x + r.width * 0.62, y: r.y + r.height / 2,
+             want: h.textContent };
+  }, i);
+  await page.mouse.click(shot.x, shot.y);
+  await page.waitForTimeout(700);
+  const opened = await page.evaluate(() => ({
+    id: state.riverId,
+    name: state.riverId ? byId(state.riverId).name : null,
+    picker: document.getElementById('riverpick').value }));
+  check('pressing row ' + i + ' opens the river it names',
+    !!opened.id && shot.want === 'Open the ' + opened.name && opened.picker === opened.id,
+    shot.want + ' → ' + JSON.stringify(opened));
+}
+
+/* The header picker is the other route to the same state, and the two must
+   not disagree — a row that opened a river while the menu still said "All
+   rivers" would be two answers to one question. */
+check('the header picker follows the row that was pressed',
+  await page.evaluate(() => document.getElementById('riverpick').value === state.riverId));
+
+/* PUT BACK WHAT THIS BLOCK FOUND. These checks drive the river picker, and
+   everything after here is written against the Sacramento — a suite that
+   leaves the app on a different river hands its own mess to the next check
+   and the failure surfaces somewhere unrelated. */
+await page.evaluate(() => {
+  const s = document.getElementById('riverpick');
+  s.value = 'sacramento'; s.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(1200);
+
 /* --- FOUR BARS THAT MEAN SOMETHING WHEN COMPARED ------------------------
    Every bar used to be stretched to the same width whatever distance it
    covered. Four stacked bars exist to be compared, so equal bars said the

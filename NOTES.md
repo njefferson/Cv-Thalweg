@@ -5,11 +5,11 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.5.0 on `staging`. **Production is 1.1.0** and stays there until a
+- Version 1.6.0 on `staging`. **Production is 1.1.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.5.0** at https://staging.cv-thalweg.pages.dev — the
-  Depth panel acts before it explains, with every paragraph kept but folded.
+- Staged candidate: **1.6.0** at https://staging.cv-thalweg.pages.dev — the
+  ribbon's rows open their river, as real buttons laid over the drawing.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -84,6 +84,29 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **`role="img"` prunes everything inside it from the accessibility tree.** The
+  ribbon's rows were made pressable by putting focusable rects with
+  `role="button"` into the SVG — correct-looking markup that no screen reader
+  could ever reach, because the figure is a `role="img"` with a written
+  description and that role removes its subtree. axe reported it as
+  `nested-interactive`; the real cost was not untidiness but four controls that
+  did not exist for anyone not using a mouse. The controls are HTML buttons
+  laid over the drawing now, and the picture stays a picture.
+- **An SVG element has no `offsetTop`.** `offsetTop` and `offsetLeft` are
+  `HTMLElement` properties and are `undefined` on an SVG, so positioning the
+  overlay from them produced the string `"undefinedpx"`, which the browser
+  discarded silently — leaving four full-width buttons three hundred pixels
+  down the page, over the map. **Three of the four still opened a river when a
+  test clicked their own bounding boxes**, because a button in the wrong place
+  is still a button: driving an element by its own geometry can never tell you
+  the geometry is wrong. The check that catches it compares the button's box
+  against the BAR IT IS FOR, in the drawing.
+- **A test block that drives the river picker has to put the river back.** The
+  row-pressing checks left the app on the Mokelumne and the next unrelated
+  check, written against the Sacramento, failed with a null dereference forty
+  lines later. A suite that leaves state behind hands its mess to whatever runs
+  next, and the failure surfaces nowhere near the cause.
 
 - **A panel that explains itself before it does anything is one nobody reaches
   the bottom of.** Every section of the Depth tab was a heading, then two or
