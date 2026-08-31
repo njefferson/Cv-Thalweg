@@ -455,8 +455,10 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
        centres its content, which floated the two cards with a line less of
        text eight pixels below the other two. */
     const tops = await page.evaluate(() =>
-      [...document.querySelectorAll('.rivergrid .rivercard')]
+      [...document.querySelectorAll('.rivergrid .rivercard:not(.networkcard)')]
         .map(c => Math.round(c.getBoundingClientRect().top)));
+    /* The four rivers, not the Delta — its card is below the grid on purpose
+       and is not expected to share their line. */
     check(`${name}: every river card starts on the same line`,
       tops.length === 4 && new Set(tops).size === 1 && tops[0] > 0, tops.join(', '));
   }
@@ -1038,11 +1040,16 @@ for (const [label, width, height] of [
         grid: g ? Math.round(g.getBoundingClientRect().width) : 0,
         tops: cards.map(c => Math.round(c.getBoundingClientRect().top)),
         cards: cards.length,
+        network: document.querySelectorAll('.networkcard').length,
         chip: (chip && chip.textContent || '').trim(),
       };
     });
 
     check(`${label} ${w}×${h}: nothing reaches past the edge`, m.over === 0, m.over + 'px');
+    /* FOUR, and the Delta is deliberately not among them: it is where the
+       four arrive rather than a fifth of them, so it has its own card below
+       the grid. A fifth card in this grid would leave an orphan row at every
+       phone width, which is the defect the rule below exists for. */
     check(`${label} ${w}×${h}: all four rivers are offered`, m.cards === 4, String(m.cards));
     /* NOT "they are one row" — between 901 and 1199 two by two is the right
        shape and one row of four would be 190px wide. What is never right is an
@@ -1052,6 +1059,8 @@ for (const [label, width, height] of [
     const perRow = m.tops.filter(t => t === m.tops[0]).length;
     check(`${label} ${w}×${h}: no river is left on a row of its own`,
       m.cards === 4 && m.cards % perRow === 0, `${perRow} per row (${m.tops.join(', ')})`);
+    check(`${label} ${w}×${h}: and the Delta is offered too, on its own card`,
+      m.network === 1, String(m.network));
     if (w >= 1200)
       check(`${label} ${w}×${h}: the compare view is not stranded in a narrow column`,
         m.grid >= 900, m.grid + 'px');

@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.1.0 on `staging`. **Production is 2.0.0** and stays there until a
+- Version 2.2.0 on `staging`. **Production is 2.0.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.1.0** at https://staging.cv-thalweg.pages.dev — the
-  profile holds the point you let go of, and the map's gauge rings say which way
-  the water is running.
+- Staged candidate: **2.2.0** at https://staging.cv-thalweg.pages.dev — the
+  Delta as its own entry, surveys filed by the water they sit on, and the bottom
+  change between two surveys of one bed.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -856,6 +856,75 @@ repo; assume it every time, rather than rediscovering it.
 
 **And the figure has a key**, because a picture that says two things in colour
 and neither in words is a defect this app has now shipped twice.
+
+## The Delta as built (2.2.0), and the three things it turned on
+
+**`tools/fetch-delta.mjs` bakes it.** DWR's Legal Delta Boundary — whose own
+attribution names the Delta Protection Act, section 12220 of the Water Code —
+is the extent, thinned from 2,131 points to 278. Inside it, 97 named channels
+from USGS national hydrography, kept only where most of a segment falls in the
+polygon, at the same 400 m spacing as the river centrelines. 64 KB, lazy, in
+`public/delta.js`. **Attributes are dropped apart from the citation**: the DWR
+record carries the name of the person who last edited it, and republishing
+somebody's name because a dataset included it is not something this repo does.
+
+**The boundary fetch 403'd first**, from Node's own fetch, exactly as LESSONS
+§173 describes — it reads NODE_USE_ENV_PROXY at startup, so the tool re-execs
+itself the way `check-deploy.mjs` does. It looked precisely like the state
+refusing us while curl returned 200 in the same shell.
+
+**The channel query pages at 2,000 and says so.** Taking page one would have
+shipped half a network with nothing to show it was half.
+
+**`network:true` is what stops the Delta pretending.** No profile down its own
+course, because it has 97 channels and no main stem; the cross-section and the
+tap-snap take the NEAREST channel instead, which is the only sense in which
+"the river" exists there. `linesFor` and `nearestOnAny` are where every
+"which water is this" question goes now.
+
+**It is not a fifth card in the river grid.** Five cards leave an orphan row at
+every phone width — the a11y walk's own rule, added after auto-fit stranded a
+fourth river on an iPad. It has its own dashed full-width card below the four,
+which is truer anyway: it is where they arrive, not another of them.
+
+**No reaches, and the app says why.** Title 14's Delta provisions were not
+confirmed against the regulation, and the existing empty-reaches branch already
+said the right thing.
+
+## Filing by water instead of by box
+
+`surveyRiverId` takes the survey extent's centre and finds the nearest channel
+within `SURVEY_NEAR_M` (4,000 m), **with the four named rivers taking
+precedence over the Delta** — the legal Delta reaches past Freeport and its
+channel list includes the Sacramento itself, so without precedence a Sacramento
+survey would be filed under the Delta and be missing from the river a reader
+picked by name.
+
+Measured against the real catalogue, the threshold separates cleanly: 16 of 18
+convertible surveys land within a few hundred metres of a channel, and the two
+that do not are **Dyer Reservoir and Lake Del Valle**, which are reservoirs.
+They go to nobody, which is correct.
+
+The render-test fixture had to move: its synthetic Sacramento survey floated
+nine kilometres off the channel, which is data the state does not publish.
+
+## The bottom change, and the datum that stops it
+
+Where the same water is surveyed twice there is a measured answer to "has the
+sandbar moved" — Grant Line and Fabian Canal in June 2023 and May 2024, Sugar
+Cut in April 2023 and August 2025.
+
+**But a depth is a height measured from something, and these services do not
+all say from what.** Read live on 2026-08-31: the 2024 Grant Line survey
+declares `NAVD88_height_(ftUS)`; the 2023 survey of the same canal declares no
+vertical coordinate system at all. Their value ranges are within a foot of each
+other, which is exactly the trap — subtracting them yields a plausible number
+resting on an assumption nobody published.
+
+So `bedChange` compares only when both surveys NAME a datum and name the same
+one, and prints the reason when it will not. `vertcsOf` reads it out of the
+WKT. **The real pair in the catalogue is the refusing case**, which is why the
+refusal path is the one that had to be right.
 
 ## The Delta, and where the state actually surveys
 
