@@ -5,7 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.2.0.
+- Version 1.2.0 on `staging`. **Production is 1.1.0** and stays there until a
+  promote — these are two numbers on purpose, and writing one of them here
+  covering both is how a handoff comes to name a build nobody can open.
+- Staged candidate: **1.2.0** at https://staging.cv-thalweg.pages.dev — the tap
+  is snapped onto the water before the survey is asked, and the displacement is
+  said in the popup and aloud.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
