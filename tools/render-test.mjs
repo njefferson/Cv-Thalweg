@@ -487,6 +487,115 @@ check('the declared station still has its NOAA name and a real position',
            Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
            st.lat > 37 && st.lat < 41;
   }));
+/* --- THE TIDE ALONG THE RIVER -------------------------------------------
+   The app could say the tide turns and at which station, and could say
+   "running both ways — 3 of 6 gauges read upstream". What it could not do was
+   show WHERE along the river the tide is winning, which is the question
+   somebody standing on a bank actually has. */
+
+/* SLACK IS A DRIFT THROUGH ZERO, NOT A CROSSING OF IT. Measured against the
+   real service, Walnut Grove appeared to turn three times between 06:00 and
+   06:30 — velocity hovering at zero and flickering sign, not the tide turning
+   three times in half an hour. */
+check('a drift through zero is one turn, not three',
+  await page.evaluate(() => {
+    const t0 = Date.parse('2026-08-31T06:00:00Z'), q = 15 * 60000;
+    const series = [ -0.9, -0.6, -0.3, 0.04, -0.02, 0.03, -0.05, 0.3, 0.8, 1.1 ]
+      .map((v, i) => ({ t: t0 + i * q, v: v }));
+    const runs = velocityRuns(series);
+    return runs.length === 2 && runs[0].dir === 'up' && runs[1].dir === 'down';
+  }),
+  await page.evaluate(() => {
+    const t0 = Date.parse('2026-08-31T06:00:00Z'), q = 15 * 60000;
+    const series = [ -0.9, -0.6, -0.3, 0.04, -0.02, 0.03, -0.05, 0.3, 0.8, 1.1 ]
+      .map((v, i) => ({ t: t0 + i * q, v: v }));
+    return JSON.stringify(velocityRuns(series).map(r => r.dir));
+  }));
+/* And a real reversal is still one, not none — the threshold must not eat it. */
+check('a real reversal is still counted',
+  await page.evaluate(() => {
+    const t0 = Date.now() - 6 * 3600000, q = 15 * 60000;
+    const series = [ 1.2, 0.9, 0.4, -0.5, -1.1, -1.4 ]
+      .map((v, i) => ({ t: t0 + i * q, v: v }));
+    return velocityRuns(series).length === 2;
+  }));
+
+const along = await page.evaluate(() => {
+  const h = [...document.querySelectorAll('#panel-water h2')]
+    .find(x => /along the river/i.test(x.textContent));
+  if (!h) return null;
+  let n = h.nextElementSibling, text = '', figs = 0, desc = null, btn = null;
+  while (n && n.tagName !== 'H2'){
+    text += ' ' + n.textContent;
+    figs += n.querySelectorAll ? n.querySelectorAll('svg[role="img"]').length : 0;
+    if (!desc && n.querySelector) desc = n.querySelector('[id^=alongdesc-]');
+    if (!btn && n.querySelector) btn = [...n.querySelectorAll('button')]
+      .find(b => /Show the last day/.test(b.textContent));
+    n = n.nextElementSibling;
+  }
+  const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+  return { text: text, figs: figs, hasFigure: !!fig,
+    describedBy: fig ? fig.getAttribute('aria-describedby') : null,
+    descId: desc ? desc.id : null,
+    descLines: desc ? desc.querySelectorAll('p').length : 0,
+    key: fig ? fig.textContent : '',
+    askedForDay: !!btn };
+});
+check('a tidal river gets a section for the tide along it', !!along, 'section missing');
+check('and it draws the figure', along.hasFigure, JSON.stringify(along && { figs: along.figs }));
+
+/* IT MUST NOT PREDICT. NOAA publishes tidal current predictions for 4,430
+   places and the furthest upstream on this water is below Rio Vista, so above
+   that point nobody forecasts which way the water will run. Working one out
+   from these readings would be a guess wearing the clothes of a reading. */
+/* A PREDICTION NAMES A TIME. The panel's own disclaimer contains the words
+   "when the tide will next turn", so a check for that phrase fails on the
+   sentence promising not to do it — the first version of this did exactly
+   that. What must not appear is a future turn with a time attached to it. */
+check('it never says when the tide will next turn',
+  !/(will|next|expected to)\s+turn[a-z]*\s*(at|in|around|by)?\s*\d/i.test(along.text),
+  along.text.slice(0, 200));
+check('it says when each place LAST turned, which is measured',
+  /last turned|has not turned/.test(along.text + along.key), (along.text + along.key).slice(0, 200));
+/* And it says the limit out loud rather than leaving the reader to wonder. */
+check('and says plainly that nobody publishes the forecast for this water',
+  /no forecast|nobody publishes|does not|will not tell you/i.test(along.text),
+  along.text.slice(0, 300));
+
+/* A FIGURE THAT SAYS TWO THINGS IN COLOUR AND NEITHER IN WORDS IS THE DEFECT
+   THIS APP HAS ALREADY SHIPPED TWICE. */
+check('the figure carries its own key for both colours',
+  /pushing in/.test(along.key) && /running out/.test(along.key), along.key.slice(0, 160));
+
+/* EVERYTHING DRAWN IS INSIDE A role="img", WHICH PRUNES ITS SUBTREE — so the
+   same facts have to exist as sentences or they exist for nobody who cannot
+   see the picture. */
+check('the figure is described in words for anything that cannot see it',
+  !!along.descId && along.describedBy === along.descId && along.descLines >= 1,
+  JSON.stringify({ describedBy: along.describedBy, descId: along.descId,
+                   lines: along.descLines }));
+
+/* A GAUGE ARGUING WITH ITSELF IS DROPPED FROM THE DRAWING AND NOT FROM THE
+   ACCOUNT OF IT. The rest of the app refuses to choose between a velocity and
+   a discharge that sign differently; this figure must not quietly decide. */
+check('a self-contradicting gauge is left out of the arrows',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const drawn = velGauges(river).map(r => r.id);
+    const bad = velConflicts(river).map(r => r.id);
+    return bad.length > 0 && bad.every(id => drawn.indexOf(id) === -1);
+  }),
+  await page.evaluate(() => JSON.stringify({
+    drawn: velGauges(byId('sacramento')).map(r => r.id),
+    conflicted: velConflicts(byId('sacramento')).map(r => r.id) })));
+check('and it is named rather than silently dropped',
+  /left out of this/.test(along.text) && /disagree/.test(along.text),
+  along.text.slice(0, 300));
+
+/* THE DAY IS 47 KB AND THIS IS THE LANDING PANEL. */
+check('the day of readings is asked for, not fetched for everybody',
+  along.askedForDay, 'no button offering the last day');
+
 /* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
    The map's key promised it; tapping a station opened a label naming the
    station and offering nothing. So the one sentence in the app telling a

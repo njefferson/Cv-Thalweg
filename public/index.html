@@ -641,7 +641,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.7.0';
+var VERSION = '2.0.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -3212,6 +3212,13 @@ function renderWater(){
     if (river.tidal){
       if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Tide'}));
       p.appendChild(tideSection(river));
+      /* THE TIDE AT A PLACE, THEN THE TIDE ALONG THE RIVER. The section above
+         predicts the water level at one station; this one shows which way the
+         water is actually running at every gauge that measures it, in river
+         order. They answer different questions and the second was missing. */
+      if (rivers.length === 1)
+        p.appendChild(el('h2',{class:'sec',text:'The tide along the river'}));
+      p.appendChild(tideAlongRiver(river));
     }
 
     if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Gauges'}));
@@ -5148,6 +5155,371 @@ function parseUsgsSeries(j){
   return out;
 }
 
+/* =====================================================================
+   THE TIDE ALONG THE RIVER.
+
+   The app could say the tide turns, and at which station, and it could say
+   "running both ways — 3 of 6 gauges read upstream". What it could not do is
+   show WHERE along the river the tide is winning, which is the question
+   somebody standing on a bank actually has.
+
+   IT IS MEASURED, NOT PREDICTED, AND THAT IS NOT A COMPROMISE. NOAA publishes
+   tidal CURRENT predictions — slack water, maximum flood and ebb — for 4,430
+   stations, 48 of them in the Delta, and every one of those is in the WESTERN
+   Delta: the furthest upstream on this river is Sacramento River Light 14 at
+   38.077, below Rio Vista. Above that point nobody publishes which way the
+   water will be running, at any time. USGS measures it instead, at six gauges
+   on this river, and every one of them is at or below Freeport — the
+   instrument network exists in the tidal reach and stops where the tide does.
+
+   So this draws the measurement and never guesses past it. It does not say
+   when the tide will next turn: that would be an inference dressed as a
+   reading, on water where the real thing is not published. It says when each
+   place last turned, which is a fact, and the reader can count forward.
+   ===================================================================== */
+
+/* SLACK IS NOT A CROSSING OF ZERO, IT IS A DRIFT THROUGH IT. Counting sign
+   changes reported Walnut Grove turning three times between 06:00 and 06:30 —
+   that is the velocity hovering at zero through slack water and flickering,
+   not the tide turning three times in half an hour. A direction only counts
+   as established once the water is moving hard enough to mean it. */
+var VEL_SLACK = 0.15;   /* ft/s */
+
+/* A series of readings becomes a list of runs: each one a confirmed direction
+   with the time it began. Readings inside the slack band belong to whichever
+   run they are between, and start no run of their own. */
+function velocityRuns(points){
+  var runs = [], dir = null;
+  points.forEach(function(pt){
+    if (!isNum(pt.v)) return;
+    if (Math.abs(pt.v) < VEL_SLACK) return;      /* still in the turn */
+    var d = pt.v >= 0 ? 'down' : 'up';
+    if (d !== dir){
+      dir = d;
+      runs.push({ dir:d, from:pt.t, to:pt.t, peak:Math.abs(pt.v) });
+    } else {
+      var r = runs[runs.length - 1];
+      r.to = pt.t;
+      if (Math.abs(pt.v) > r.peak) r.peak = Math.abs(pt.v);
+    }
+  });
+  return runs;
+}
+
+/* One request, one day, one parameter. Roughly 47 KB for six sites at fifteen
+   minutes, which is why it is asked for on a press rather than on every river
+   the reader looks at. */
+function usgsVelocity(ids){
+  var url = USGS + '?format=json&sites=' + ids.join(',') +
+            '&parameterCd=72255&period=P1D&siteStatus=all';
+  return getJSON(url, 45000).then(function(j){
+    var out = {};
+    ((j && j.value && j.value.timeSeries) || []).forEach(function(ts){
+      var code = ts.sourceInfo.siteCode[0].value;
+      var pts = [];
+      (((ts.values || [])[0] || {}).value || []).forEach(function(v){
+        var n = parseFloat(v.value);
+        /* -999999 is the no-reading sentinel and is not a velocity. */
+        if (!isNum(n) || n <= -999998) return;
+        pts.push({ t: Date.parse(v.dateTime), v: n });
+      });
+      pts.sort(function(a, b){ return a.t - b.t; });
+      if (pts.length) out[code] = pts;
+    });
+    logNet('USGS velocity', url, true, Object.keys(out).length + ' site(s) with a day of velocity');
+    return out;
+  }, function(e){
+    logNet('USGS velocity', url, false, String(e && e.message || e));
+    throw e;
+  });
+}
+
+/* The gauges that actually measure which way the water is going, ordered
+   downstream first — the same order as the ribbon reads left to right. */
+function velGauges(river){
+  var payload = state.gauges[river.id];
+  if (!payload || !payload.rows) return [];
+  return payload.rows
+    .filter(function(r){
+      if (r.context || !isNum(r.vel) || !isNum(axisValue(river, r))) return false;
+      /* A GAUGE ARGUING WITH ITSELF IS NOT A DIRECTION. Where the velocity and
+         the discharge at one instrument sign differently, the app already
+         refuses to choose between them, and drawing an arrow here would be
+         this figure asserting what the rest of the app declines to. */
+      var vr = velReading(r);
+      return !!vr && !vr.conflict;
+    })
+    .sort(function(a, b){ return axisValue(river, a) - axisValue(river, b); });
+}
+
+/* Named separately so they can be SAID rather than silently dropped. */
+function velConflicts(river){
+  var payload = state.gauges[river.id];
+  if (!payload || !payload.rows) return [];
+  return payload.rows.filter(function(r){
+    if (r.context || !isNum(r.vel)) return false;
+    var vr = velReading(r);
+    return !!vr && vr.conflict;
+  });
+}
+
+var FLOOD = '#7BD5D9';   /* the tide pushing in  */
+var EBB   = '#9BD98C';   /* the river running out */
+
+function tideAlongRiver(river){
+  var box = el('div', {});
+  var gs = velGauges(river);
+  if (!gs.length){
+    box.appendChild(el('p',{class:'note',
+      text:'No gauge on the ' + river.name + ' publishes water velocity, so there is nothing measured to say which way it is running. The tide table above is a prediction for one place and stays the only answer here.'}));
+    return box;
+  }
+
+  var up = gs.filter(function(r){ return r.vel < 0; }).length;
+  box.appendChild(el('p',{class:'note',
+    text: up === 0
+      ? 'Every gauge that measures it is running downstream right now. The tide is not pushing water back up any part of this river that is instrumented.'
+      : up === gs.length
+        ? 'Every gauge that measures it is running upstream right now — the tide is pushing in along the whole instrumented reach.'
+        : 'The tide is pushing in at ' + up + ' of these ' + gs.length +
+          ' and the river is winning at the rest. The change happens between them.'}));
+
+  var hist = (state.velHistory || {})[river.id];
+  box.appendChild(tideAlongFigure(river, gs, hist));
+
+  /* Dropped from the drawing, not from the account of it. */
+  var bad = velConflicts(river);
+  if (bad.length)
+    box.appendChild(el('p',{class:'note',
+      text: (bad.length === 1 ? 'One gauge is' : bad.length + ' gauges are') +
+        ' left out of this: ' +
+        bad.map(function(r){ return shortGauge(river, r, 99); }).join(', ') +
+        '. Its velocity and its discharge disagree about which way that water is going, and two instruments at one place disagreeing is not a fact about the river \u2014 picking the likelier one would be inventing the answer.'}));
+
+  /* The day is 47 KB and this panel is the landing screen, so it is asked for
+     rather than fetched for everybody. */
+  var row = el('div',{class:'rowline'});
+  if (!hist){
+    var b = el('button',{type:'button',
+      text: state.velLoading ? 'Reading the last day…' : 'Show the last day'});
+    b.disabled = !!state.velLoading;
+    b.addEventListener('click', function(){
+      state.velLoading = true; renderWater();
+      usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
+        state.velHistory = state.velHistory || {};
+        state.velHistory[river.id] = out;
+        state.velLoading = false; renderWater();
+        announce('The last day of velocity is drawn.');
+      }, function(e){
+        state.velLoading = false;
+        state.velFailed = String(e && e.message || e);
+        renderWater();
+      });
+    });
+    row.appendChild(b);
+    box.appendChild(row);
+    if (state.velFailed)
+      box.appendChild(el('p',{class:'err',
+        text:'The velocity history did not answer: ' + state.velFailed + '. Nothing you did — that is the USGS server. The arrows above are this moment and do not need it.'}));
+    else
+      box.appendChild(el('p',{class:'note',
+        text:'About 47 KB, one request, so it is not fetched unless you ask.'}));
+  }
+
+  box.appendChild(foldNote('What this is measuring, and what it will not tell you', [
+    'The sign of a gauge\u2019s velocity is the useful part: negative means the water is running upstream, which on this water is the tide pushing in. It is a MEASUREMENT of this moment, where the tide table above is a prediction \u2014 and where the two disagree, the water is the authority.',
+    'It will not tell you when the tide will next turn. Nobody publishes that for this river: NOAA predicts tidal currents at 4,430 places and the furthest upstream on this water is below Rio Vista, so above that point there is no forecast of which way the water will run. Working one out from these readings would be a guess wearing the clothes of a reading. What is shown is when each place last turned, which is measured, and the interval between turns is a little over six hours.',
+    'A gauge that has not turned in the day shown has not turned in the day shown \u2014 it is not a statement that the tide never reaches it. How far up the reversal goes depends on how much water the river is carrying, so it moves with the season and with every storm.'
+  ]));
+  return box;
+}
+
+/* THE FIGURE. One row per gauge, downstream at the top, so reading down the
+   page is going up the river. Each row carries an arrow for what the water is
+   doing NOW, and — once the day has been asked for — a band of the last
+   twenty-four hours beside it, flood and ebb shaded.
+
+   Stacked that way the tidal wave is visible as a diagonal: the turn arrives
+   at Rio Vista and reaches Georgiana Slough an hour and three quarters later,
+   and the top of the reach never turns at all. That is the distance-and-time
+   shape the convention uses for a wave travelling up an estuary, and it is
+   the only view here that answers "what is the tide doing to the RIVER"
+   rather than "what is it doing at one station". */
+function tideAlongFigure(river, gs, hist){
+  var narrow = window.matchMedia && window.matchMedia('(max-width:620px)').matches;
+  var W = narrow ? 320 : 560;
+  /* Wide enough for the longest hint at the size it is drawn — "Below Walnut
+     Grove bridge" ran into the arrow column at 132. */
+  var rowH = 34, top = 22, labelW = narrow ? 104 : 156, arrowW = 74;
+  var bandX = labelW + arrowW + 8;
+  var bandW = Math.max(40, W - bandX - 8);
+  /* Room at the foot for the key. This figure says two things in colour and
+     would otherwise say neither: the same defect as a map whose cyan wash had
+     no swatch, in the same app, two releases ago. */
+  var keyH = 20;
+  var H = top + gs.length * rowH + 26 + keyH;
+
+  var fig = svg('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%',
+    height:String(H), role:'img',
+    'aria-label':'Which way the water is running at each gauge on the ' +
+      river.name + ', downstream at the top' +
+      (hist ? ', with the last day beside it shaded blue where the tide was pushing upstream and green where the river was running down' : '') + '.',
+    'aria-describedby': 'alongdesc-' + river.id });
+  var g = svg('g', {});
+
+  /* The clock only exists once there is a day to put under it. */
+  var now = Date.now(), dayAgo = now - 24 * 3600 * 1000;
+  if (hist){
+    g.appendChild(svg('text',{ x:bandX, y:12, fill:'#9FB3B1', 'font-size':'9' }))
+      .textContent = '24 hours ago';
+    var rt = svg('text',{ x:bandX + bandW, y:12, fill:'#9FB3B1', 'font-size':'9',
+      'text-anchor':'end' });
+    rt.textContent = 'now';
+    g.appendChild(rt);
+  }
+
+  gs.forEach(function(r, i){
+    var y = top + i * rowH;
+
+    var nm = svg('text',{ x:0, y:y + 4, fill:'#E6F0EF', 'font-size':'10' });
+    nm.textContent = shortGauge(river, r, narrow ? 17 : 24);
+    g.appendChild(nm);
+
+    /* NOW: an arrow whose direction is the direction and whose length is the
+       speed, against a common scale so two rows can be compared. */
+    var up = r.vel < 0, sp = Math.abs(r.vel);
+    var maxSp = Math.max.apply(null, gs.map(function(x){ return Math.abs(x.vel); })) || 1;
+    var len = 14 + (sp / maxSp) * (arrowW - 24);
+    var ax = labelW + 6, mid = y;
+    var x1 = up ? ax + len : ax, x2 = up ? ax : ax + len;
+    g.appendChild(svg('line',{ x1:x1, y1:mid, x2:x2, y2:mid,
+      stroke: up ? FLOOD : EBB, 'stroke-width':'3', 'stroke-linecap':'round' }));
+    var hx = up ? ax : ax + len, dx = up ? 6 : -6;
+    g.appendChild(svg('path',{ d:'M' + hx + ' ' + mid + ' l' + dx + ' -4 l0 8 z',
+      fill: up ? FLOOD : EBB }));
+    var sl = svg('text',{ x:labelW + 6 + arrowW - 16, y:mid + 12, fill:'#9FB3B1',
+      'font-size':'9', 'text-anchor':'end' });
+    sl.textContent = fmt(sp, 2) + ' ft/s';
+    g.appendChild(sl);
+
+    if (!hist) return;
+
+    /* THE DAY. Each confirmed run shaded; the gaps between runs are the
+       turns, drawn as nothing rather than as a guess about the moment. */
+    var pts = hist[r.id] || [];
+    var bx = function(t){
+      return bandX + Math.max(0, Math.min(1, (t - dayAgo) / (now - dayAgo))) * bandW;
+    };
+    g.appendChild(svg('rect',{ x:bandX, y:y - 7, width:bandW, height:14,
+      fill:'#16302e', stroke:'#1F5B57' }));
+    if (!pts.length){
+      var no = svg('text',{ x:bandX + 5, y:y + 4, fill:'#9FB3B1', 'font-size':'9' });
+      /* IT IS THE HISTORY THAT IS MISSING, NOT THE VELOCITY. This gauge has
+         an arrow beside it, so saying "no velocity published" here
+         contradicts the row it is on. A gauge can report the instant and
+         publish no day of it. */
+      no.textContent = 'no day of readings published for this gauge';
+      g.appendChild(no);
+      return;
+    }
+    var runs = velocityRuns(pts);
+    runs.forEach(function(run){
+      var x = bx(run.from), w = Math.max(1, bx(run.to) - x);
+      g.appendChild(svg('rect',{ x:x, y:y - 7, width:w, height:14,
+        fill: run.dir === 'up' ? FLOOD : EBB, 'fill-opacity':'.55' }));
+    });
+    /* The mark on each turn, which is the thing the eye should follow down
+       the rows. The FIRST run has no turn before it inside this window. */
+    runs.slice(1).forEach(function(run){
+      var x = bx(run.from);
+      g.appendChild(svg('line',{ x1:x, y1:y - 9, x2:x, y2:y + 9,
+        stroke:'#E6F0EF', 'stroke-width':'1' }));
+    });
+    var last = runs.length > 1 ? runs[runs.length - 1] : null;
+    var tl = svg('text',{ x:bandX + bandW, y:y + 18, fill:'#9FB3B1', 'font-size':'9',
+      'text-anchor':'end' });
+    tl.textContent = last
+      ? 'last turned ' + agoWords(now - last.from)
+      : 'has not turned in this day';
+    g.appendChild(tl);
+  });
+
+  /* THE KEY. Two colours carrying two meanings, said plainly, inside the
+     picture that uses them. */
+  var ky = top + gs.length * rowH + 14;
+  var kx = labelW ? 0 : 0;
+  [[FLOOD, 'the tide pushing in — upstream'], [EBB, 'the river running out — downstream']]
+    .forEach(function(pair, i){
+      var x = kx + i * (narrow ? 0 : 250);
+      var yy = ky + (narrow ? i * 13 : 0);
+      g.appendChild(svg('rect',{ x:x, y:yy - 7, width:14, height:9,
+        fill:pair[0], 'fill-opacity':'.55', stroke:'#1F5B57' }));
+      var t2 = svg('text',{ x:x + 19, y:yy, fill:'#9FB3B1', 'font-size':'9' });
+      t2.textContent = pair[1];
+      g.appendChild(t2);
+    });
+  if (narrow) fig.setAttribute('height', String(H + 13));
+  if (narrow) fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 13));
+
+  fig.appendChild(g);
+
+  /* EVERYTHING ABOVE IS INSIDE A role="img", WHICH PRUNES ITS SUBTREE.
+     Every gauge's name, direction, speed and last turn is drawn in there and
+     is therefore unreachable — the same trap that made four river-row buttons
+     invisible a release ago. So the figure carries a described-by list saying
+     the same things in sentences. It is hidden from the eye because the
+     picture already shows it, and present for anything that cannot see the
+     picture. */
+  var wrap2 = el('div', {});
+  wrap2.appendChild(fig);
+  var desc = el('div', { class:'vh', id:'alongdesc-' + river.id });
+  gs.forEach(function(r){
+    var up2 = r.vel < 0;
+    var line = shortGauge(river, r, 99) + ': running ' +
+      (up2 ? 'upstream, the tide pushing in' : 'downstream') +
+      ' at ' + fmt(Math.abs(r.vel), 2) + ' feet per second';
+    if (hist){
+      var pts2 = hist[r.id] || [];
+      if (!pts2.length) line += '; no day of readings published for this gauge';
+      else {
+        var runs2 = velocityRuns(pts2);
+        line += runs2.length > 1
+          ? '; last turned ' + agoWords(Date.now() - runs2[runs2.length - 1].from)
+          : '; has not turned in the last day';
+      }
+    }
+    desc.appendChild(el('p', { text: line + '.' }));
+  });
+  wrap2.appendChild(desc);
+  return wrap2;
+}
+
+/* "SACRAMENTO R BL GEORGIANA SLOUGH CA" in a 96px column is a smear, and
+   chopping it produced "Walnut grove br a wal…". Every declared gauge already
+   carries a hint written by a person — "below Walnut Grove bridge", "Deep
+   Water Ship Channel near Freeport" — so the short name is one that exists
+   rather than one cut out of the service's. Only a gauge found by the basin
+   sweep falls back to trimming, and then the river's own name is the part
+   every row shares and so the part to drop. */
+function shortGauge(river, r, max){
+  var declared = (river.gauges || []).filter(function(g){ return g.id === r.id; })[0];
+  var s2 = (declared && declared.hint) || String(r.name || r.id)
+    .replace(/^SACRAMENTO R(IVER)?\s+(A|AT|BL|BELOW|AB|ABOVE|NR|NEAR)\s+/i, '')
+    .replace(/^MOKELUMNE R(IVER)?\s+(A|AT|BL|BELOW|AB|ABOVE|NR|NEAR)\s+/i, '')
+    .replace(/^SACRAMENTO R(IVER)?\s+/i, '')
+    .replace(/^MOKELUMNE R(IVER)?\s+/i, '')
+    .replace(/\s+CA$/i, '');
+  s2 = s2.charAt(0).toUpperCase() + s2.slice(1);
+  return s2.length > max ? s2.slice(0, max - 1) + '\u2026' : s2;
+}
+
+function agoWords(ms){
+  var m = Math.round(ms / 60000);
+  if (m < 60) return m + ' min ago';
+  var h = Math.floor(m / 60), r = m % 60;
+  return h + 'h' + (r ? ' ' + r + 'm' : '') + ' ago';
+}
+
 function usgsTrend(ids){
   var url = USGS + '?format=json&sites=' + ids.join(',') +
             '&parameterCd=00060,00010&period=P' + TREND_DAYS + 'D&siteStatus=all';
@@ -6578,6 +6950,16 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.0.0', date:'2026-08-31', changes:[
+      'Version two. Version one could tell you where the deep water is. This one can be USED \u2014 with a finger, one-handed, on a riverbank, which is the only place it was ever going to be read. Nearly everything between the two came from somebody opening it on a phone and finding that the thing they pressed did nothing: pins eleven pixels wide, a map that would not go where it was told, a panel whose controls were buried under four paragraphs, four river bars that looked like a chart and were meant to be pressed. What is still not right is listed below, as it has been in every release.',
+      'And the tide stopped being a number for one place. It is a thing that happens ALONG the river now \u2014 you can see it pushing in at the bottom, the river winning at the top, and where the two meet.',
+      'There is a new section under the tide: the tide along the river. Until now the app could tell you the tide at ONE station, and one line saying "running both ways" with no hint of where. This shows which way the water is actually running at every gauge on the river that measures it, in river order, downstream at the top \u2014 so you can see the tide pushing in at the bottom, the river winning at the top, and roughly where the two meet.',
+      'Press "Show the last day" and each gauge gets a band of the last twenty-four hours beside it, shaded for which way the water was going. Stacked in river order the tide is visible as a diagonal: the turn arrives at Rio Vista and reaches the gauges above it an hour or two later. That is the tide travelling up the river, measured, and it is about 47 KB, so it is only fetched when you ask.',
+      'It is measured, not predicted, and that is not a compromise. NOAA forecasts tidal currents at 4,430 places and the furthest upstream on this river is below Rio Vista \u2014 above there, nobody publishes which way the water will be running at any time. So the app tells you when each place LAST turned, which is a real reading, and leaves you to count forward. It will not guess the next one.',
+      'A gauge whose velocity and whose flow disagree about which way its water is going is left out of the picture and named underneath, rather than being drawn as though the app had picked a side.',
+  ], broken:[
+      'How far up the river the tide reverses moves with the season and with every storm, because it depends on how much water the river is carrying. A gauge shown as not having turned has not turned in the day you are looking at — it is not a promise that the tide never reaches it.',
+  ] },
   { v:'1.7.0', date:'2026-08-31', changes:[
       'Tapping another tide station on the map now offers to read the tide there, which the key has been saying it would. It said "tap to switch" and tapping only opened a label with the station\u2019s name \u2014 so the one sentence in the app telling you the station is a choice was describing something the map did not do. This matters more than it looks: high water at Rio Vista and high water at Freeport are hours apart, so reading the wrong station puts you out by hours, and the popup now says that too.',
       'The station you are already reading does not offer to switch you to itself.',
