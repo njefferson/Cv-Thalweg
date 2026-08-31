@@ -258,6 +258,19 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **AN ANSWER THAT IS NOT THE ANSWER HAS TO SAY FOUR THINGS**, and all four of
+  this app's did only the first: what happened, whether the reader did anything
+  wrong, what would otherwise have happened, and what to do now. Tapping water
+  the state has never surveyed returned a sentence about weed defeating a
+  sounder — true, and it left a reader unable to tell whether they had made a
+  mistake, whether it would ever work, or where to tap instead. All four
+  outcomes carry the shape now, the spoken line carries it too (somebody reading
+  by ear gets that sentence and nothing else), and the "nowhere" case offers the
+  button that takes them to water where it works.
+  The suite drives every branch by calling `depthNode` with each result shape
+  rather than trusting that the one somebody happened to photograph got fixed.
+  It also caught the grammar: "One survey covers this point and none of them has
+  a reading here".
 - **THE LIMITS BELONG TO THE APP, NOT TO A RELEASE.** The what-changed dialog
   showed `broken` only when the current version declared one, so 1.1.0 — which
   added no new caveat — told a reader by omission that the app had none.

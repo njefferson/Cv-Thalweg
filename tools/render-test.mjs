@@ -1003,6 +1003,53 @@ await page.waitForTimeout(400);
 const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
 check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
   Math.round(w0) + ' -> ' + Math.round(w1));
+/* --- every answer that is not a depth ----------------------------------
+   "This tells a user nothing about what happened, what should have happened,
+   what will happen, or how to do it, or if they did something wrong."
+   That was true of all four. Each one now has to say what happened, whether
+   the reader did anything wrong, and what to do about it — and this drives
+   every branch rather than trusting that the one somebody saw got fixed. */
+const outcomes = await page.evaluate(() => {
+  const cases = {
+    failed:      { failed: 'HTTP 500' },
+    nocatalog:   { none: 'nocatalog', covering: [] },
+    nowhere:     { none: 'nowhere', covering: [] },
+    notmeasured: { none: 'notmeasured', covering: [{ name: 'Bathy_TEST_SacramentoRvr' }] }
+  };
+  const out = {};
+  Object.keys(cases).forEach(k => {
+    const n = depthNode(cases[k], 38.45, -121.6);
+    out[k] = { text: n.textContent, spoken: depthSentence(cases[k]),
+               buttons: [...n.querySelectorAll('button')].map(b => b.textContent.trim()) };
+  });
+  return out;
+});
+Object.keys(outcomes).forEach(k => {
+  const o = outcomes[k];
+  /* Whose doing it was. A reader who cannot tell whether they made a mistake
+     will assume they did. */
+  check(`the "${k}" answer says whether the reader did anything wrong`,
+    /nothing you did/i.test(o.text), o.text.slice(0, 180));
+  /* And what to do now — a next step, or a button that takes it. */
+  check(`the "${k}" answer says what to do next`,
+    /try (the same spot )?again|tap (anywhere )?inside|tap further out|nearer the middle|when you have one|in a moment/i.test(o.text) ||
+    o.buttons.length > 0,
+    o.text.slice(0, 200));
+  /* Read by ear, the spoken line is all somebody gets. */
+  check(`the "${k}" answer says the same thing aloud`,
+    /nothing you did/i.test(o.spoken) && o.spoken.length > 60, o.spoken);
+});
+/* Where the reader is simply outside every survey, the app can just take them
+   somewhere it does work. */
+check('tapping unsurveyed water offers to take you to surveyed water',
+  outcomes.nowhere.buttons.some(b => /surveyed water/i.test(b)),
+  JSON.stringify(outcomes.nowhere.buttons));
+/* The old text said "One survey covers this point and none of them has a
+   reading here" — one, and none of them. */
+check('the not-measured answer is grammatical about how many surveys there are',
+  !/One survey covers[^.]*none of them/i.test(outcomes.notmeasured.text),
+  outcomes.notmeasured.text.slice(0, 200));
+
 /* --- where the depth actually is ---------------------------------------
    The surveys are a few reaches of hundreds of kilometres, the app opens on the
    whole basin, and nothing marked them — so "I cannot see where the depth is"

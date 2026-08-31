@@ -5980,13 +5980,17 @@ function showDepthAt(lat, lon){
   });
 }
 
+/* What is said aloud. It carries the same four things the panel does — what
+   happened, whose doing it was, and what to do — because somebody reading by
+   ear gets this sentence and nothing else. */
 function depthSentence(res){
-  if (res.loading) return 'Reading the depth…';
-  if (res.failed)  return 'The depth service did not answer.';
-  if (res.none === 'nocatalog') return 'The survey directory has not arrived, so this cannot be answered yet.';
-  if (res.none === 'nowhere') return 'No published survey covers this point.';
+  if (res.loading) return 'Asking the survey how deep it is here.';
+  if (res.failed)  return 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
+  if (res.none === 'nocatalog') return 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
+  if (res.none === 'nowhere') return 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
   if (res.none === 'notmeasured')
-    return 'No measured depth within ' + DEPTH_SPAN_M + ' metres of this point.';
+    return 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
+      ' metres of it. Nothing you did wrong. A spot nearer the middle of the channel usually has a reading.';
   return fmt(Math.abs(res.value), 1) + ' feet ' +
     (res.value <= 0 ? 'deep' : 'ABOVE the survey datum — bank, not bottom') +
     (res.exact ? ' here' : ', ' + fmt(res.away, 0) + ' metres away') + '.';
@@ -5996,30 +6000,60 @@ function depthNode(res, lat, lon){
   var box = el('div',{});
   box.appendChild(el('span',{class:'pop-name',text:'Depth here'}));
 
+  /* EVERY ANSWER THAT IS NOT A DEPTH SAYS FOUR THINGS: what happened, whether
+     the reader did anything wrong, what would have happened, and what to do
+     now. The old ones said the first and stopped, so a reader who tapped
+     water the state has never surveyed got a sentence about weed and no idea
+     whether they had made a mistake, whether it would ever work, or where to
+     tap instead. */
+  function outcome(what, yours, next, kind){
+    box.appendChild(el('p',{class:kind || 'note', text:what}));
+    if (yours) box.appendChild(el('p',{class:'note', text:yours}));
+    if (next) box.appendChild(el('p',{class:'note', text:next}));
+  }
+  function actionRow(label, fn){
+    var r = el('div',{class:'rowline'});
+    var b2 = el('button',{type:'button',text:label});
+    b2.addEventListener('click', fn);
+    r.appendChild(b2);
+    box.appendChild(r);
+  }
+
   if (res.loading){
-    box.appendChild(el('p',{class:'note',text:'Asking the survey…'}));
+    box.appendChild(el('p',{class:'note',
+      text:'Asking the published survey how deep it is at this point. It usually takes a second or two.'}));
     return box;
   }
   if (res.failed){
-    box.appendChild(el('p',{class:'err',
-      text:'The survey did not answer: ' + res.failed + '. Nothing is shown, because nothing is known.'}));
+    outcome('The depth service did not answer: ' + res.failed + '.',
+      'Nothing you did — that is the state\u2019s server, not this app, and nothing is shown because nothing is known.',
+      'It needs a signal. Tap the same spot again when you have one; depth is the only part of this app that cannot work offline.',
+      'err');
     return box;
   }
   if (res.none === 'nocatalog'){
-    box.appendChild(el('p',{class:'note',
-      text:'The survey directory has not arrived, so this cannot be answered yet. That is not the same as there being no survey here — it means nothing has been asked.'}));
+    outcome('The list of published surveys has not arrived yet, so there was nothing to ask.',
+      'Nothing you did. This is not the same as there being no survey here \u2014 it means the question has not been put.',
+      'The list comes down on its own as soon as there is a signal. Try the same spot again in a moment.');
     return box;
   }
   if (res.none === 'nowhere'){
-    box.appendChild(el('p',{class:'note',
-      text:'No published survey covers this point. Where the state has not measured, this app has nothing to tell you and will not guess.'}));
+    outcome('You tapped water the state has never surveyed, so there is no depth to give you.',
+      'Nothing you did wrong. Only a handful of reaches out of hundreds of kilometres have been measured, and outside them this app has nothing and will not guess.',
+      'The surveyed reaches are the dashed outlines on the map. Tap anywhere inside one and you get a number.');
+    actionRow('Take me to the surveyed water', function(){
+      state.map.closePopup();
+      goToDepth(byId(state.riverId));
+    });
     return box;
   }
   if (res.none === 'notmeasured'){
-    box.appendChild(el('p',{class:'note',
-      text:'Nothing measured within ' + DEPTH_SPAN_M + ' metres. ' +
-        (res.covering.length === 1 ? 'One survey covers' : res.covering.length + ' surveys cover') +
-        ' this point and none of them has a reading here — weed stops a sounder returning, and those patches are dropped rather than filled in.'}));
+    var n = res.covering.length;
+    outcome('This spot IS inside a published survey, but the survey has no reading within ' +
+        DEPTH_SPAN_M + ' metres of it.',
+      'Nothing you did wrong. ' + (n === 1 ? 'The one survey covering it' : 'None of the ' + n + ' surveys covering it') +
+        ' measured here: weed stops a sounder returning, and the boat only measures where it went, so those patches are left out rather than filled in.',
+      'A spot nearer the middle of the channel usually has one. Depth along a line, in the Depth tab, shows you where the gaps are before you go tapping.');
     return box;
   }
 
@@ -6036,7 +6070,7 @@ function depthNode(res, lat, lon){
   v.appendChild(s);
   box.appendChild(v);
   if (!below) box.appendChild(el('div',{class:'err',
-    text:'That reading is ABOVE the survey’s datum, not below it. This is bank or a bar that was dry when the survey boat went past, not depth of water.'}));
+    text:'That reading is ABOVE the survey’s datum, not below it — this is bank, or a bar that was dry when the survey boat went past, and not a depth of water. Nothing you did wrong: it is what the survey recorded there. Tap further out and you will get water.'}));
 
   box.appendChild(el('span',{class:'pop-sub',
     text: res.exact
@@ -6068,6 +6102,7 @@ function depthNode(res, lat, lon){
    ===================================================================== */
 var RELEASES = [
   { v:'1.1.0', date:'2026-08-30', changes:[
+      'When tapping the map does not give you a depth, it now tells you what happened, whether you did anything wrong, and what to do about it. Before, it named the outcome and stopped \u2014 so tapping water the state has never surveyed produced a sentence about weed and no way to tell whether you had made a mistake, whether it would ever work, or where to tap instead. Tapping outside the surveyed reaches now says so plainly and offers to take you to water where it does work.',
       'You can trace the depth profile. Drag a finger along it and a mark moves along the line on the map, showing you where that deep bit actually is, with the depth the survey measured there. Where the survey measured nothing it says so rather than reading a number off the line.',
       'There is a way back. Once the app knows where you are, a Back to me button on the map returns you there from wherever you have wandered to \u2014 and if you have not used Where I am but you have kept marks, it goes to the nearest one and says so. It only appears when there is somewhere to go.',
   ] },
