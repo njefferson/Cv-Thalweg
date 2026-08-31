@@ -770,7 +770,10 @@ const news = await page.evaluate(() => {
   return {
     open: d.open,
     title: document.getElementById('newtitle').textContent,
-    items: [...body.querySelectorAll('li')].map(li => li.textContent),
+    /* The FIRST list is the changes; a second list follows it for what is
+       still not right, and counting every li conflates the two. */
+    items: [...(body.querySelector('ul') ? body.querySelector('ul').querySelectorAll('li') : [])]
+      .map(li => li.textContent),
     focused: document.activeElement && document.activeElement.id,
     older: !!document.getElementById('newolder'),
     aboutOpen: document.getElementById('about').open
@@ -787,6 +790,19 @@ check('it lists this version\u2019s changes, and only this version\u2019s',
 check('the first thing in it is a change, not the front of the About panel',
   news.items.length > 0 && !/What Thalweg is/.test(news.items[0] || ''), news.items[0]);
 check('the whole history is one press away rather than in your way', news.older);
+/* A 1.0 STATES ITS LIMITS WHERE A READER MEETS THEM, not eight releases down.
+   The dialog a reader sees after an update has to carry them. */
+check('the update dialog carries what is still not right',
+  await page.evaluate(() => {
+    const r = RELEASES.filter(x => x.v === VERSION)[0];
+    if (!r || !r.broken || !r.broken.length) return false;
+    const t = document.getElementById('newbody').textContent;
+    return /Still not right/i.test(t) && t.includes(r.broken[0].slice(0, 40));
+  }),
+  await page.evaluate(() => {
+    const r = RELEASES.filter(x => x.v === VERSION)[0];
+    return r ? (r.broken || []).length + ' known issue(s) declared' : 'no note for this version';
+  }));
 check('the dialog takes focus when it opens', news.focused === 'newtitle', news.focused);
 /* Patch notes are for the reader. This is the app's own copy asserted against
    the same closed vocabulary tools/notes-check.mjs holds the source to, so a

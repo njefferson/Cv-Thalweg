@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.15.0.
+- Version 1.0.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,13 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **A CLAIM WITH A DATE ON IT LIVED FOR FIFTEEN RELEASES.** The first-run page
+  said "This is the first release" from 0.1.0 to 1.0.0. Nothing checked it,
+  because nothing could: it is a true sentence that quietly expires. A sentence
+  about which release this is has to come FROM the release or not be said, and
+  the accessibility suite now refuses that phrase outright. Same family as the
+  version stamp that could lie (0.2.1) and the doctrine sentence that said all
+  four palettes cleared every floor (hub LESSONS 186).
 - **THE DOOR WAS LABELLED WRONG, AND FOUR ROUNDS WERE SPENT REARRANGING THE
   ROOM.** "Where is the depth", "I do not see where the depth is at", "not of
   the whole river", "where do I find depth profiles" — each time the fix was

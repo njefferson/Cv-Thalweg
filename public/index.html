@@ -622,7 +622,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.15.0';
+var VERSION = '1.0.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -5855,10 +5855,19 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
-  { v:'0.15.0', date:'2026-08-30', changes:[
+  { v:'1.0.0', date:'2026-08-30', changes:[
+      'Version one. Not because it is finished — what is still not right is listed below, as it has been in every release — but because it now does the thing it is named for. It tells you where the deep water is, where the state has actually measured and where it has not, when the tide turns and at which station, what the water is doing at every gauge that reports, and where you are allowed to stand. It works with no signal once it has loaded, and it holds nothing about you.',
       'The tab called Layers is called Depth. That is what is behind it \u2014 where the state has surveyed, the depth at a point, and the profile along a line \u2014 and \u201cLayers\u201d is a mapping word that told you nothing about what you would find. If you have been looking for the depth profiles and not finding them, that is why, and it was the app\u2019s fault rather than yours.',
       'Inside that tab, the profile now comes before the single-point reading, and its heading says the word: Depth along a line \u2014 the profile.',
       'You can now buy a coffee by Venmo as well as PayPal, under the (i). Same coffee, whichever is less trouble.',
+  ], broken:[
+      'Depth exists only where the state has surveyed — a handful of reaches out of hundreds of kilometres of river. The surveyed water is outlined on the map so you can see what is covered before you go looking for a number that was never measured.',
+      'There are no boat ramps in this app. No published list of them for these rivers could be found, and rather than invent one it shows CDFW’s own public land instead, which is a different thing and is labelled as one.',
+      'It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.',
+      'Season dates are each reach’s standing open season. The Commission can start a reach later or end it earlier, and the printed regulations are the authority — not this.',
+      'A weir going over its crest has not happened while this app has existed, so what you will see if one does has been tested against a made-up file and never against the day.',
+      'On the Mokelumne every gauge is tidal, so its flow figure swings with the tide rather than telling you what the river is carrying, and no gauge on it publishes a week of history.',
+      'It will not tell you where fish are being caught, and it is not going to. There is no honest source for that, and a made-up one would be worse than nothing.',
   ] },
   { v:'0.14.0', date:'2026-08-30', changes:[
       'There is a way to buy me a coffee, under the (i) button. It is a link and nothing else \u2014 no counter, no total, no thank-you tier, and nothing about the app changes whether you use it or not. There is no version you are missing.',
@@ -6320,7 +6329,7 @@ function showWelcome(){
   b.appendChild(el('div',{class:'magbox',
     text:'It does not know where fish are being caught and will not guess — no live catch feed exists for these rivers. It is not a navigation aid: the depth surveys come from the state, whose own notes say they are not for navigating by.'}));
 
-  para('This is the first release. Every number comes from USGS, NOAA, DWR or CDFW and is labelled with which one — but it is a first release, so treat what you see as new until it has agreed with something you trust.', 'note');
+  para('Every number here comes from USGS, NOAA, DWR or CDFW and is labelled with which one, and where a figure is missing this app says why rather than showing you a zero. It is still young: check what you see against something you trust before you rely on it, and what is still not right is listed under the (i).', 'note');
 
   /* THE INSTALL OFFER SAT IN THE MIDDLE, and a first-time reader scrolling for
      the button went straight past it — reported by somebody meeting the app on

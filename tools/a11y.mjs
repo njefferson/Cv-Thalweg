@@ -118,6 +118,17 @@ async function welcomeChecks(page, name) {
     JSON.stringify(order));
   check(`${name}: it says where everything it just showed you has gone`,
     order.pointsAtI, JSON.stringify(order));
+  /* A CLAIM WITH A DATE ON IT. The welcome said "this is the first release"
+     from 0.1.0 to 1.0.0, which stopped being true fifteen releases before
+     anybody noticed. A sentence about which release this is has to come from
+     the release, or not be said. */
+  check(`${name}: the first-run page does not claim to be the first release`,
+    await page.evaluate(() => !/first release/i.test(document.getElementById('welcomebody').textContent)),
+    await page.evaluate(() => {
+      const t = document.getElementById('welcomebody').textContent;
+      const i = t.search(/first release/i);
+      return i === -1 ? 'clean' : t.slice(Math.max(0, i - 60), i + 80);
+    }));
   check(`${name}: first run offers a way out at the end as well`,
     open.bottomOut, JSON.stringify(open));
   check(`${name}: first run is bounded by the screen`,
@@ -537,7 +548,9 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      lead with the changes and offer the rest rather than serve it. */
   check(`${name}: it shows this version's changes and offers the rest`,
     await page.evaluate(() => {
-      const n = document.getElementById('newbody').querySelectorAll('li').length;
+      /* The first list is the changes; the second is what is still not right. */
+      const first = document.getElementById('newbody').querySelector('ul');
+      const n = first ? first.querySelectorAll('li').length : 0;
       return n === RELEASES.filter(r => r.v === VERSION)[0].changes.length &&
              !!document.getElementById('newolder');
     }),
