@@ -5,12 +5,11 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.4.0 on `staging`. **Production is 1.1.0** and stays there until a
+- Version 1.5.0 on `staging`. **Production is 1.1.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.4.0** at https://staging.cv-thalweg.pages.dev — the
-  ribbon's four bars are drawn to one distance scale, the tidal limit is a mark
-  rather than a fade, and its key is on screen for the first time.
+- Staged candidate: **1.5.0** at https://staging.cv-thalweg.pages.dev — the
+  Depth panel acts before it explains, with every paragraph kept but folded.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -85,6 +84,28 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **A panel that explains itself before it does anything is one nobody reaches
+  the bottom of.** Every section of the Depth tab was a heading, then two or
+  three paragraphs of what the thing is and where its data came from, and only
+  then the control. Measured on a 900px window: 1,277 characters of prose stood
+  between the top of the panel and "Read the depth at the map centre", which
+  sat 733px down a 661px panel — off the screen. **Each paragraph was written
+  for a good reason and the sum of them was a defect**, which is why no single
+  review of any one section would ever have found it.
+  The fix is order, not deletion: control first, the one line that answers
+  "why is there nothing here" beside it, everything else behind a summary
+  saying what it holds. 1,277 characters became 265 and nothing was cut.
+  **The gate is a budget on VISIBLE prose before the last primary control** —
+  text inside a closed fold does not count — plus a check that every long
+  sentence is still somewhere in the panel, because a shorter panel achieved by
+  dropping provenance would pass a length budget perfectly.
+- **`compareDocumentPosition` returns PRECEDING for the argument, not the
+  receiver.** `el.compareDocumentPosition(node) & DOCUMENT_POSITION_PRECEDING`
+  is true when NODE comes before EL. Read the other way round it counts
+  everything after the element instead of before it, and the first version of
+  the budget check measured 2,280 characters where the honest answer was 265 —
+  a number that looked like a catastrophic failure and was a reversed test.
 
 - **Four stacked bars drawn to four different scales.** Each river's bar was
   stretched to the full width whatever distance it spanned, so the Sacramento's

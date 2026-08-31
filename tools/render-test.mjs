@@ -1396,6 +1396,68 @@ check('while a tide station stays round, so the two read apart',
 
 await page.click('#tab-layers');
 await page.waitForTimeout(800);
+/* --- THE PANEL DOES BEFORE IT EXPLAINS ---------------------------------
+   Every section here was a heading, then two or three paragraphs of what the
+   thing is and where its data comes from, and only then the button that does
+   it. All true, none of it deletable — and stacked in front of the controls
+   it pushed the rest of the panel off the screen, so the reader who wanted
+   the second control never learnt there was one. Measured before the change,
+   on a 900px window: "Read the depth at the map centre" sat 733px down a
+   661px panel. */
+const panel = await page.evaluate(() => {
+  const p = document.getElementById('panel-layers');
+  /* Text a reader can actually see: not the inside of a closed fold. */
+  const visibleTextBefore = (el) => {
+    let n = 0;
+    const walk = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walk.nextNode())){
+      /* PRECEDING means "node comes before el" — count those and only those. */
+      if (!(el.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING)) continue;
+      if (node.parentElement.closest('details:not([open])')) continue;
+      n += node.textContent.trim().length;
+    }
+    return n;
+  };
+  const all = [...p.querySelectorAll('button, details.foldbox')];
+  const btn = (re) => [...p.querySelectorAll('button')].find(b => re.test(b.textContent));
+  const centre = btn(/Read the depth at the map centre/);
+  const folds = [...p.querySelectorAll('details.foldbox')];
+  return {
+    proseBeforeLastPrimary: centre ? visibleTextBefore(centre) : -1,
+    folds: folds.length,
+    /* every fold has a control ahead of it — the panel acts, then explains */
+    everyFoldFollowsAControl: folds.every(f => {
+      const i = all.indexOf(f);
+      return all.slice(0, i).some(e => e.tagName === 'BUTTON');
+    }),
+    closedByDefault: folds.every(f => !f.open),
+    everyFoldIsNamed: folds.every(f => (f.querySelector('summary')||{}).textContent.trim().length > 8),
+    text: p.textContent
+  };
+});
+check('the explanations are folded, not stacked in front of the controls',
+  panel.folds >= 5, panel.folds + ' fold(s)');
+check('every fold comes after something that does the thing',
+  panel.everyFoldFollowsAControl);
+check('and each one says what it holds before you open it',
+  panel.everyFoldIsNamed && panel.closedByDefault);
+/* The budget is the point: this is the number the reader was complaining
+   about, and a fixed pixel assertion would move with the font. */
+check('a reader reaches the last depth control without wading',
+  panel.proseBeforeLastPrimary > 0 && panel.proseBeforeLastPrimary < 450,
+  panel.proseBeforeLastPrimary + ' characters of visible prose before it');
+/* NOTHING WAS DELETED. Folding honesty out of the way is fine; losing it is
+   not, and a shorter panel achieved by dropping provenance would pass every
+   check above. */
+[ 'no coordinate down the middle of these rivers was invented here',
+  'THEY ARE NOT BOAT RAMPS',
+  'missing data, not flat bottom',
+  'the nearest place it did measure',
+  'middle of a property rather than a spot on the bank'
+].forEach(frag => check('still says: ' + frag.slice(0, 34),
+  panel.text.includes(frag)));
+
 const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
 await page.click('#panel-layers button:text-is("Show them on the map")');
 await page.waitForTimeout(600);

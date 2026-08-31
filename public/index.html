@@ -627,7 +627,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.4.0';
+var VERSION = '1.5.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -3506,6 +3506,33 @@ function appendBasemap(p){
     p.appendChild(el('div',{class:'warnbox', text:state.basemapError}));
 }
 
+/* A PANEL THAT EXPLAINS ITSELF BEFORE IT DOES ANYTHING IS A PANEL NOBODY
+   REACHES THE BOTTOM OF.
+
+   Every section here was a heading, then two or three paragraphs of what the
+   thing is and where its data comes from, and only then the button that does
+   it. All of it true and none of it deletable — the provenance and the
+   caveats are half of what makes this app worth trusting. But stacked in
+   front of the controls it pushed the rest of the panel off the screen, and
+   the reader who wanted the second control never learnt there was one.
+
+   So the order inverts: the control first, the one fact that answers "why is
+   there nothing here" beside it, and everything else behind a summary that
+   says what it holds. Nothing is removed and nothing is shortened; it is one
+   press away instead of four paragraphs in the way. The pattern is the one
+   already used for the tide-station box, so the panel has one idiom rather
+   than two. */
+function foldNote(sumText, texts){
+  var d = el('details',{class:'foldbox'});
+  var sum = el('summary',{});
+  sum.appendChild(el('b',{text:sumText}));
+  d.appendChild(sum);
+  var body = el('div',{class:'foldbody'});
+  texts.forEach(function(t){ body.appendChild(el('p',{class:'note',text:t})); });
+  d.appendChild(body);
+  return d;
+}
+
 function renderLayers(){
   var p = $('#panel-layers'); p.innerHTML = '';
 
@@ -3552,17 +3579,19 @@ function renderLayers(){
   whereRow.appendChild(whereBtn);
   p.appendChild(whereRow);
   var nSurveys = surveysForRiver(river).length;
+  /* THIS ONE STAYS IN THE OPEN. It is the answer to the question this app is
+     asked most — why is there no depth where I am — and it is one line. */
   p.appendChild(el('p',{class:'note',
     text: nSurveys
       ? 'The state has surveyed ' + nSurveys + ' reach(es) of the ' + river.name +
-        ', and nothing else. Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.'
-      : 'No published multibeam survey has arrived for the ' + river.name + ' yet. That is not the same as there being none \u2014 it means nothing has answered.'}));
+        ', and nothing else.'
+      : 'No published multibeam survey has arrived for the ' + river.name + ' yet.'}));
+  p.appendChild(foldNote(nSurveys ? 'How to see what is covered' : 'What that does and does not mean',
+    nSurveys
+      ? ['Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.']
+      : ['That is not the same as there being none \u2014 it means nothing has answered.']));
 
   p.appendChild(el('h2',{class:'sec',text:'Depth along a line — the profile'}));
-  p.appendChild(el('p',{class:'note',
-    text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
-  p.appendChild(el('p',{class:'note',
-      text:'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.'}));
   var profRow = el('div',{class:'rowline'});
   if (state.profArm){
     profRow.appendChild(el('b',{text: state.profArm.length
@@ -3610,10 +3639,11 @@ function renderLayers(){
     }
   }
   p.appendChild(profRow);
+  p.appendChild(foldNote('What a profile is, and whose line it follows', [
+    'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.',
+    'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.']));
 
   p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
   var centreRow = el('div',{class:'rowline'});
   var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
   centreBtn.addEventListener('click', function(){
@@ -3623,6 +3653,8 @@ function renderLayers(){
   });
   centreRow.appendChild(centreBtn);
   p.appendChild(centreRow);
+  p.appendChild(foldNote('What tapping the map gives you', [
+    'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.']));
 
   /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
      ONE. A point answers "how deep is it here"; a line answers where the
@@ -3677,9 +3709,10 @@ function renderLayers(){
 
   if (cat.unplaced.length){
     p.appendChild(el('h2',{class:'sec',text:'Could not be placed'}));
-    p.appendChild(el('p',{class:'note',
-      text:cat.unplaced.length + ' published survey' + (cat.unplaced.length===1?'':'s') +
-      ' report an extent in a projection this build does not convert, so they are not assigned to a river rather than assigned to the wrong one. Their names are in the diagnostic report.'}));
+    p.appendChild(foldNote(cat.unplaced.length + ' survey' +
+      (cat.unplaced.length===1?'':'s') + ' this build cannot locate', [
+      cat.unplaced.length + ' published survey' + (cat.unplaced.length===1?'':'s') +
+      ' report an extent in a projection this build does not convert, so they are not assigned to a river rather than assigned to the wrong one. Their names are in the diagnostic report.']));
   }
 
   /* --- charts --- */
@@ -3688,21 +3721,23 @@ function renderLayers(){
     p.appendChild(el('p',{class:'note',
       text:'The chart tile path in this build did not return an image, so the toggle is not offered. The path is recorded in the README as unverified.'}));
   } else {
-    var crow = el('div',{class:'layer'});
+    var crow = el('div',{class:'rowline'});
     var cb = el('button',{type:'button','aria-pressed':state.layers.chart?'true':'false',
       text:'Show chart'});
     cb.addEventListener('click', function(){ toggleChart(cb); });
     crow.appendChild(cb);
-    crow.appendChild(el('p',{text:'Chart coverage of these waters ends upstream of about Verona; the limit is drawn on the map when the layer is on. Soundings on a chart are for navigation and this app is not.' +
-      (state.chartUsable === null ? ' The tile path has not been confirmed against the live service; the first time you switch it on, it checks.' : '')}));
     p.appendChild(crow);
+    p.appendChild(foldNote('Where the chart stops, and what it is for', [
+      'Chart coverage of these waters ends upstream of about Verona; the limit is drawn on the map when the layer is on. Soundings on a chart are for navigation and this app is not.' +
+      (state.chartUsable === null ? ' The tile path has not been confirmed against the live service; the first time you switch it on, it checks.' : '')]));
   }
 
-  p.appendChild(el('h2',{class:'sec',text:'Reading the gaps'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Single beam data are points along the boat’s track. The water between two tracks was never measured and is not drawn.'}));
+  /* The one section that is ONLY prose, so it becomes one fold rather than a
+     heading with two paragraphs under it. It stays where it is, immediately
+     after the surveys it is about. */
+  p.appendChild(foldNote('Reading the gaps — why parts of a survey are blank', [
+    'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.',
+    'Single beam data are points along the boat\u2019s track. The water between two tracks was never measured and is not drawn.']));
 
   /* GETTING TO THE WATER. Depth is no use from a road you cannot stop on. */
   var sites = accessSites(river);
@@ -3712,8 +3747,10 @@ function renderLayers(){
       text:'CDFW publishes no land of its own within twelve kilometres of the ' +
         river.name + '. That is not the same as there being nowhere to fish from \u2014 it means the state does not own it.'}));
   } else {
+    /* THE ONE THAT MUST NOT FOLD. Calling these boat ramps is the mistake the
+       app exists to avoid making, so the denial stays on screen. */
     p.appendChild(el('p',{class:'note',
-      text:'These are CDFW\u2019s own lands within twelve kilometres of this river \u2014 places the department says the public may go, in its words, with a link to its page where it has one. THEY ARE NOT BOAT RAMPS: no published list of ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.'}));
+      text:'CDFW\u2019s own lands within twelve kilometres of this river. THEY ARE NOT BOAT RAMPS.'}));
     var accRow = el('div',{class:'rowline'});
     var accBtn = el('button',{type:'button',
       'aria-pressed': state.showAccess === false ? 'false' : 'true',
@@ -3725,6 +3762,9 @@ function renderLayers(){
     });
     accRow.appendChild(accBtn);
     p.appendChild(accRow);
+    p.appendChild(foldNote('What these places are, and what they are not', [
+      'These are places the department says the public may go, in its words, with a link to its page where it has one.',
+      'No published list of boat ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
 
     var ul = el('ul',{class:'tight'});
     sites.slice(0, 12).forEach(function(site){
@@ -6415,6 +6455,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.5.0', date:'2026-08-31', changes:[
+      'The Depth tab does things before it explains them. Every section used to open with two or three paragraphs about what the thing is and where its data comes from, and put the button that does it underneath \u2014 so "Read the depth at the map centre" sat below the bottom of the screen, and if you did not scroll past the wall of text you never found out it was there. The controls are at the top of each section now.',
+      'None of that writing has gone. Where the numbers come from, what the state has not measured, why a patch of a survey is blank, and the fact that the public-land pins are not boat ramps \u2014 all still there, one press away behind a heading that says what it holds, instead of four paragraphs in the way. Measured: 1,277 characters of text stood between the top of the panel and the last depth control; now it is 265.',
+      'The one sentence that never folds is the one saying those places are NOT boat ramps.',
+  ] },
   { v:'1.4.0', date:'2026-08-31', changes:[
       'The four bars at the top are drawn to one distance scale, so their lengths mean something. Every bar used to be stretched to the full width whatever stretch of river it covered \u2014 which said the four rivers are the same length. They are not. The Sacramento now runs long and the others are as short as they actually are, and the line underneath says how long the longest one is.',
       'The tide marking has an end you can see. It was a cyan wash fading away over a bar the colour of the background, so it looked like the bar was simply a gradient, and the caption under it sat pointing at nothing \u2014 worse, where it ran up against the right-hand edge it lined up with the end of the bar and read as labelling the end of the river. There is now a dashed rule standing at the limit, and the words hang off it on a leader so it is clear what they refer to.',
