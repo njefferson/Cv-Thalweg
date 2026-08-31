@@ -974,8 +974,17 @@ check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1
    was a correct reading of the map. */
 await page.click('#tab-layers');
 await page.waitForTimeout(1000);
-check('the panel says where the depth is before it says anything else about depth',
-  /Where the depth is/.test(await page.textContent('#panel-layers')));
+/* DEPTH FIRST, BASEMAP LAST. The panel used to open with three radio buttons
+   for which picture to draw the water on, so somebody looking for depth met a
+   preference and two orange boxes before anything about the bottom. */
+const order = await page.evaluate(() => {
+  const t = document.getElementById('panel-layers').textContent;
+  return { where: t.indexOf('where the depth is'), base: t.indexOf('Basemap'),
+           hasWhere: /Bathymetry — where the depth is/.test(t) };
+});
+check('the panel leads with where the depth is', order.hasWhere, JSON.stringify(order));
+check('and the basemap chooser is below it, not above',
+  order.where > -1 && order.base > order.where, JSON.stringify(order));
 check('the surveyed reaches are drawn on the map',
   await page.evaluate(() => state.surveyLayer && state.surveyLayer.getLayers().length > 0),
   'boxes: ' + await page.evaluate(() => state.surveyLayer ? state.surveyLayer.getLayers().length : -1));

@@ -606,7 +606,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.11.0';
+var VERSION = '0.12.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2034,7 +2034,14 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
     /* Below the lower band of figures, not through it, and never past the
        edge of the drawing — a caption clipped mid-word says less than no
        caption, and the right-hand end of the ribbon is upstream. */
-    var text = (RIB.narrow ? 'tide to ' : 'tide predicted to ') + edge.name;
+    /* IT READ "tide to SACRAMENTO, SACRAMENTO RIVER". The station's own name is
+       a place and a river with a comma between them, so bolting it onto "tide
+       to" produced a caption that parses as nowhere. What this mark actually
+       says is how far up the river the tide is predicted to reach, and the
+       station's name belongs in the tide panel where there is room to say
+       whose it is. */
+    var text = RIB.narrow ? 'tide reaches about here'
+                          : 'tide is predicted about this far up';
     var half = text.length * RIB.note * 0.29;
     var anchor = 'middle', lx = tx;
     if (tx + half > x1){ anchor = 'end'; lx = x1; }
@@ -3182,9 +3189,7 @@ function switchTideStation(river, id){
    reach with no published survey says so in words; it does not get an
    empty toggle that turns nothing on.
    ===================================================================== */
-function renderLayers(){
-  var p = $('#panel-layers'); p.innerHTML = '';
-
+function appendBasemap(p){
   p.appendChild(el('h2',{class:'sec',text:'Basemap'}));
   BASEMAPS.forEach(function(b){
     var row = el('div',{class:'rowline'});
@@ -3196,10 +3201,18 @@ function renderLayers(){
     row.appendChild(el('label',{for:id,text:b.label,class:'grow'}));
     p.appendChild(row);
   });
-
   if (state.basemapError)
     p.appendChild(el('div',{class:'warnbox', text:state.basemapError}));
+}
 
+function renderLayers(){
+  var p = $('#panel-layers'); p.innerHTML = '';
+
+  /* DEPTH FIRST. This panel opened with three radio buttons for which picture
+     to draw the water on — a preference — and put the thing the app exists for
+     underneath them. Somebody looking for depth met a basemap chooser and two
+     orange boxes before anything about the bottom. The basemap is still here;
+     it is at the end, where a preference belongs. */
   if (!BATHY_PROXY){
     p.appendChild(el('div',{class:'warnbox',
       text:'BATHY_PROXY is empty, so bathymetry requests go straight to gis.water.ca.gov. That is California’s public GIS infrastructure, not a tile API. Fine on a laptop; not fine in public.'}));
@@ -3208,16 +3221,17 @@ function renderLayers(){
       text:'The bathymetry proxy at ' + BATHY_PROXY + ' did not answer, so no depth is available. If this is a static deploy, the site was published without its functions directory.'}));
   }
 
-  p.appendChild(el('h2',{class:'sec',text:'Bathymetry'}));
 
   if (!state.catalog){
     p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
+    appendBasemap(p);
     return;
   }
   var river = state.riverId ? byId(state.riverId) : null;
   if (!river){
     p.appendChild(el('p',{class:'note',
       text:'Depth belongs to a reach, so it comes with a river. Pick one above and the map opens with it — All rivers is for choosing between them, not for reading bottom.'}));
+    appendBasemap(p);
     return;
   }
   var cat = catalogFor(state.catalog, river);
@@ -3230,7 +3244,7 @@ function renderLayers(){
      reaches of hundreds of kilometres, the app opens on the whole basin, and
      nothing marked where they were — so "I cannot see where the depth is" was
      a correct reading of the map rather than a reader missing something. */
-  p.appendChild(el('h2',{class:'sec',text:'Where the depth is'}));
+  p.appendChild(el('h2',{class:'sec',text:'Bathymetry — where the depth is'}));
   var whereRow = el('div',{class:'rowline'});
   var whereBtn = el('button',{type:'button',text:'Take me to the surveyed water'});
   whereBtn.addEventListener('click', function(){ goToDepth(river); });
@@ -3387,6 +3401,10 @@ function renderLayers(){
     text:'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.'}));
   p.appendChild(el('p',{class:'note',
     text:'Single beam data are points along the boat’s track. The water between two tracks was never measured and is not drawn.'}));
+
+  /* The basemap chooser, last, because it is a preference and this panel is
+     about the bottom. */
+  appendBasemap(p);
 }
 
 /* Ranked lists get long — eighty-one single beam layers touch the Delta.
@@ -4197,14 +4215,26 @@ function updateStaleness(){
     if (worst === null || g.fetchedAt < worst) worst = g.fetchedAt;
     if (looksOld(g)) anyStale = true;
   });
+  /* IT SAID "seconds old — network did not answer", which is two claims that
+     cannot both be true. A response that arrives carrying no readings still
+     stamps fetchedAt with the moment it arrived, so the age was the age of the
+     ATTEMPT rather than of any reading — and the sentence quoted it next to a
+     statement that nothing had answered.
+     An age is only worth printing when there is a reading to be that old. */
+  var noneAnswered = rivers.every(function(r){
+    var g = state.gauges[r.id];
+    return !g || g.failed || g.noData;
+  });
   var out = '';
   if (worst === null){
     out = 'No readings yet';
+  } else if (noneAnswered){
+    out = 'No current flow or temperature — nothing answered';
   } else {
     var age = Date.now() - worst;
     if (anyStale || age > 45 * 60 * 1000)
       out = 'Flow and temperature ' + ageText(age) +
-            (anyStale ? ' — network did not answer' : '');
+            (anyStale ? ' — showing what was stored' : '');
   }
   $('#staleness').textContent = out;
 }
@@ -5709,6 +5739,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.12.0', date:'2026-08-30', changes:[
+      'The Layers panel leads with depth now. It used to open with three radio buttons for which picture to draw the water on \u2014 a preference \u2014 and two orange warning boxes, so anybody looking for the bottom met all of that first. The basemap chooser is still there, at the end, where a preference belongs.',
+      'The strip at the top could say two things that cannot both be true: readings "seconds old" and "network did not answer". A reply that arrives carrying nothing still counts as having arrived, so the app was quoting the age of the attempt rather than of any reading. When nothing has answered it now says so and quotes no age.',
+      'The caption on the river bar read "tide to SACRAMENTO, SACRAMENTO RIVER", which parses as nowhere \u2014 that is a station\u2019s name, a place and a river with a comma between them. The mark says how far up the tide is predicted to reach, so that is what it says now, and the station\u2019s name stays in the tide panel where there is room for it.',
+  ] },
   { v:'0.11.0', date:'2026-08-30', changes:[
       'You can see where the depth is now. The state has surveyed a handful of reaches out of hundreds of kilometres of river, and the app opened on the whole basin with nothing marking them \u2014 so there was no way to tell surveyed water from water nobody has ever measured. The surveyed reaches are outlined on the map, they are in the map key, and one button in Layers takes you straight to them.',
       'Cross-sections cut across the river, not across the screen. The old one drew a line between the left and right edges of whatever the map was showing, which at the size this app opens on is a line across the state and a cross-section of nothing. It now cuts at right angles to the river\u2019s own course, a few hundred metres bank to bank, at the point on the river nearest the middle of your map.',
