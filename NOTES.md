@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.8.0 on `staging`. **Production is 1.7.0** and stays there until a
+- Version 2.0.0 on `staging`. **Production is 1.7.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.8.0** at https://staging.cv-thalweg.pages.dev — the tide
-  along the river: which way the water is running at every gauge that measures
-  it, in river order, with a day of it behind one press.
+- Staged candidate: **2.0.0** at https://staging.cv-thalweg.pages.dev — version
+  two: the tide along the river, on top of a release run that made the app
+  usable by a finger.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -825,7 +825,7 @@ lets Playwright resolve its own download when it is not.
 USGS, NOAA and DWR; when a public agency is having a bad morning that must not
 read as this repo being broken. It is reported, not enforced.
 
-## The tide along the river, as built (1.8.0)
+## The tide along the river, as built (2.0.0)
 
 **Where it lives:** the Water panel, under the tide section, because the two
 answer different questions — that one predicts the water LEVEL at one station,

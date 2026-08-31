@@ -641,7 +641,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.8.0';
+var VERSION = '2.0.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -6950,7 +6950,9 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
-  { v:'1.8.0', date:'2026-08-31', changes:[
+  { v:'2.0.0', date:'2026-08-31', changes:[
+      'Version two. Version one could tell you where the deep water is. This one can be USED \u2014 with a finger, one-handed, on a riverbank, which is the only place it was ever going to be read. Nearly everything between the two came from somebody opening it on a phone and finding that the thing they pressed did nothing: pins eleven pixels wide, a map that would not go where it was told, a panel whose controls were buried under four paragraphs, four river bars that looked like a chart and were meant to be pressed. What is still not right is listed below, as it has been in every release.',
+      'And the tide stopped being a number for one place. It is a thing that happens ALONG the river now \u2014 you can see it pushing in at the bottom, the river winning at the top, and where the two meet.',
       'There is a new section under the tide: the tide along the river. Until now the app could tell you the tide at ONE station, and one line saying "running both ways" with no hint of where. This shows which way the water is actually running at every gauge on the river that measures it, in river order, downstream at the top \u2014 so you can see the tide pushing in at the bottom, the river winning at the top, and roughly where the two meet.',
       'Press "Show the last day" and each gauge gets a band of the last twenty-four hours beside it, shaded for which way the water was going. Stacked in river order the tide is visible as a diagonal: the turn arrives at Rio Vista and reaches the gauges above it an hour or two later. That is the tide travelling up the river, measured, and it is about 47 KB, so it is only fetched when you ask.',
       'It is measured, not predicted, and that is not a compromise. NOAA forecasts tidal currents at 4,430 places and the furthest upstream on this river is below Rio Vista \u2014 above there, nobody publishes which way the water will be running at any time. So the app tells you when each place LAST turned, which is a real reading, and leaves you to count forward. It will not guess the next one.',
