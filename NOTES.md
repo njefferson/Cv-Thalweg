@@ -258,6 +258,26 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **A VIEW COMPUTED AGAINST A ZERO-SIZE MAP IS THE WHOLE WORLD.** On a phone
+  the map lives in a tab, so most of the time its container is `display:none`
+  and measures 0 by 0 — and `fitBounds` in that state does exactly what it is
+  told: it finds the zoom at which those bounds fit into nothing, which is zoom
+  0. Reported from a real phone and reproduced immediately: on All rivers the
+  map genuinely sat at zoom 0. Everything that moves the map now goes through
+  `mapView()`, which HOLDS a view while the container has no size and applies it
+  from `mapBecameVisible()`. Holding it exposed the other half: a Leaflet map
+  with no view at all throws "Set map center and zoom first" the moment anything
+  asks for a centre, so the map opens on a derived view — the middle of the four
+  declared rivers at the most zoomed-out of their own declared zooms — which is
+  replaced the instant the map is real.
+- **A THIN DASHED LINE OVER SATELLITE IMAGERY IS NOT A LINE.** "It does not show
+  the river line, just a bunch of dots." The profiled line was 2px dashed among
+  sixty pins on a photograph. It is a bright stroke over a dark casing now, the
+  way a route is drawn on imagery, and the key names it.
+- **A COLOUR THAT MEANS SOMETHING NEEDS A KEY AS MUCH AS THE TEMPERATURE RAMP
+  DOES.** Part of each tidal river's ribbon bar is washed in cyan to show how far
+  the tide reaches, and there was no legend for it anywhere — three bars tinted
+  differently with nothing saying why. The scale now carries a swatch.
 - **A CLAIM WITH A DATE ON IT LIVED FOR FIFTEEN RELEASES.** The first-run page
   said "This is the first release" from 0.1.0 to 1.0.0. Nothing checked it,
   because nothing could: it is a true sentence that quietly expires. A sentence

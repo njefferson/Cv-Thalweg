@@ -950,6 +950,22 @@ check('a profile is drawn', prof.shown && prof.paths > 0, JSON.stringify(prof));
 check('one request per survey, not one per sample',
   profileCalls - before === 1, 'calls: ' + (profileCalls - before));
 check('the line it profiled is on the map too', prof.onMap >= 2, JSON.stringify(prof));
+/* "IT DOES NOT SHOW THE RIVER LINE, JUST A BUNCH OF DOTS" — over imagery, with
+   sixty pins on it, a two-pixel dashed stroke is not a line anybody can see. */
+check('the profiled line is drawn heavily enough to see over a photograph',
+  await page.evaluate(() => {
+    const strokes = state.profLayer.getLayers()
+      .filter(l => typeof l.getLatLngs === 'function')
+      .map(l => l.options.weight);
+    return strokes.length >= 2 && Math.max(...strokes) >= 6 &&
+           strokes.some(w => w >= 3 && w < 6);
+  }),
+  await page.evaluate(() => state.profLayer.getLayers()
+    .filter(l => typeof l.getLatLngs === 'function')
+    .map(l => l.options.color + '@' + l.options.weight).join(' ')));
+check('and the key explains what that line is',
+  await page.evaluate(() => [...document.querySelectorAll('#maplegend .keyrow')]
+    .some(r => /line the depth below is measured along/i.test(r.textContent))));
 check('it reports the deepest sounding it actually found',
   Math.abs(Math.abs(prof.deepest) - 30) < 1.5, String(prof.deepest));
 check('the sentence names the survey and the depth',
