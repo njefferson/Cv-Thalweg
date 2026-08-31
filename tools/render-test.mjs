@@ -264,6 +264,80 @@ const note = await page.textContent('#ribbonnote');
 check('ribbon plots the gauges that had positions', /3 gauges plotted/.test(note), note);
 check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('#ribbon circle').length) === 3);
 
+/* --- FOUR BARS THAT MEAN SOMETHING WHEN COMPARED ------------------------
+   Every bar used to be stretched to the same width whatever distance it
+   covered. Four stacked bars exist to be compared, so equal bars said the
+   four rivers were the same length. They are not. */
+const ribbon = await page.evaluate(() => {
+  const river = byId('sacramento');
+  const rows = ((state.gauges.sacramento || {}).rows) || [];
+  const sp = ribbonSpan(river, rows);
+  return { metres: Math.round(sp.metres), min: RIB_MIN_BAR,
+           hasEdge: !!sp.edge, lo: sp.lo, hi: sp.hi };
+});
+check('a bar knows how much river it covers, in metres',
+  ribbon.metres > 1000, JSON.stringify(ribbon));
+/* The floor exists only to keep a bar drawable. A floor wide enough to look
+   tidy overstates the length of every short river, which is the defect the
+   scale was added to fix. */
+check('the minimum bar is a floor for drawing, not a tidy-looking width',
+  ribbon.min <= 32, 'RIB_MIN_BAR is ' + ribbon.min);
+/* Proportionality itself, driven rather than eyeballed: two spans in a known
+   ratio must come out as bar widths in that ratio. */
+check('bar width follows the distance covered',
+  await page.evaluate(() => {
+    const a = { metres: 200000 }, b = { metres: 50000 };
+    const full = 800, x0 = 96, maxM = a.metres;
+    const w = (sp) => Math.max(RIB_MIN_BAR, Math.min(full, full * sp.metres / maxM));
+    return Math.abs(w(a) / w(b) - 4) < 0.01;
+  }));
+
+/* --- THE TIDAL REACH IS A REGION WITH AN END ----------------------------
+   It was a wash fading to nothing over a channel the colour of the page, so
+   it read as a gradient decorating the bar. The caption under it pointed at
+   nothing, and where it met the right-hand edge it anchored to the end of the
+   bar, where it read as naming the end of the RIVER. */
+const tidal = await page.evaluate(() => {
+  const rules = [...document.querySelectorAll('#ribbon line[stroke-dasharray]')];
+  const leaders = [...document.querySelectorAll('#ribbon path[stroke="#4E7C7A"]')];
+  const caption = [...document.querySelectorAll('#ribbon text')]
+    .map(t => t.textContent).filter(t => /tide/.test(t));
+  return { rules: rules.length, leaders: leaders.length, caption };
+});
+check('the tidal limit is marked, not merely faded to',
+  tidal.rules >= 1, JSON.stringify(tidal));
+check('and the caption is joined to that mark by a leader',
+  tidal.leaders >= 1, JSON.stringify(tidal));
+check('the caption points at the mark rather than describing the bar',
+  tidal.caption.every(c => /here/.test(c)), JSON.stringify(tidal.caption));
+
+/* --- A KEY THAT IS CLIPPED IS A KEY THAT DOES NOT EXIST -----------------
+   There WAS a swatch for the cyan wash. It was drawn 26px below a ramp that
+   already sits 26px above the bottom edge, which put it exactly on the
+   boundary of the viewBox — off the drawing, on every screen, since it was
+   written. Nobody had ever seen it, and its presence in the source answered
+   "have we explained this" for everybody afterwards. */
+check('every part of the key is inside the drawing',
+  await page.evaluate(() => {
+    const svgEl = document.getElementById('ribbon');
+    const h = +svgEl.getAttribute('height'), w = +svgEl.getAttribute('width');
+    return [...svgEl.querySelectorAll('rect, text, line')].every(el => {
+      const b = el.getBBox();
+      return b.y >= -0.5 && b.y + b.height <= h + 0.5 &&
+             b.x >= -0.5 && b.x + b.width <= w + 0.5;
+    });
+  }),
+  await page.evaluate(() => {
+    const svgEl = document.getElementById('ribbon');
+    const h = +svgEl.getAttribute('height'), w = +svgEl.getAttribute('width');
+    const bad = [...svgEl.querySelectorAll('rect, text, line')].filter(el => {
+      const b = el.getBBox();
+      return !(b.y >= -0.5 && b.y + b.height <= h + 0.5 &&
+               b.x >= -0.5 && b.x + b.width <= w + 0.5);
+    });
+    return bad.map(el => el.tagName + ':' + (el.textContent || '').slice(0, 24)).join(' | ') || 'none';
+  }));
+
 /* --- tide --- */
 check('tide curve drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
 check('high and low table populated', /High ·|Low ·/.test(water), water.slice(0, 300));

@@ -627,7 +627,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.3.0';
+var VERSION = '1.4.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2009,10 +2009,14 @@ var RIB = { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:fal
    So rows shrink to fit a share of the viewport, and below a floor where a
    dot and its figure no longer fit, the ribbon is not drawn at all: a floor
    that exceeds the space available is just the next fixed size that fails. */
-function ribbonMetrics(W, rowCount, budget){
+function ribbonMetrics(W, rowCount, budget, tidal){
   var n = W < 620;
   var m = n ? { rowH:44, top:18, foot:24, dot:5, fig:10, name:10, note:8, narrow:true }
             : { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
+  /* The tide key sits above the temperature ramp, so the foot has to hold
+     both. Reserved only when a tidal river is actually drawn — the ribbon
+     showing the Feather alone has no wash on it and owes no room for one. */
+  if (tidal) m.foot += 16;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
@@ -2022,53 +2026,106 @@ function ribbonMetrics(W, rowCount, budget){
   RIB = m;
 }
 
-function ribbonRow(g, river, rows, x0, x1, y, showName){
+/* HOW MUCH RIVER A BAR COVERS, IN METRES.
+
+   Every bar used to be stretched to the same width whatever distance it
+   spanned, which is the one thing four stacked bars must not do: the reason
+   they are stacked is to be compared, and equal-length bars say the four
+   rivers are the same length. They are not. This measures the span each bar
+   actually draws so they can share one scale.
+
+   Computed ONCE and handed to the drawing, rather than worked out again
+   there — a width and a position derived separately from the same numbers
+   are two chances to disagree. */
+function ribbonSpan(river, rows){
   var edge = river.tidal ? tidalEdge(river) : null;
-  rows = rows.filter(function(r){ return !r.context; });
-  var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
+  var pts = (rows || []).filter(function(r){
+    return !r.context && isNum(axisValue(river, r));
+  });
   var vals = pts.map(function(r){ return axisValue(river, r); });
+  if (edge) vals.push(edge.v);
   var lo, hi;
-  if (vals.length){
-    lo = Math.min.apply(null, vals); hi = Math.max.apply(null, vals);
-  } else { lo = 0; hi = 1; }
-  if (edge){ lo = Math.min(lo, edge.v); hi = Math.max(hi, edge.v); }
+  if (vals.length){ lo = Math.min.apply(null, vals); hi = Math.max.apply(null, vals); }
+  else { lo = 0; hi = 1; }
   if (hi - lo < 1e-6){ lo -= 0.05; hi += 0.05; }
   var pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  var metres = river.axis === 'lon'
+    ? metresBetween(river.center[0], lo, river.center[0], hi)
+    : metresBetween(lo, river.center[1], hi, river.center[1]);
+  return { lo:lo, hi:hi, metres:metres, edge:edge, plotted:pts.length };
+}
+
+/* THE ONLY FLOOR IS THE ONE THAT KEEPS A BAR DRAWABLE.
+   A minimum wide enough to look tidy is a minimum that overstates the length
+   of every short river, which is the defect this scale was introduced to fix.
+   So it is set to about what one dot needs and nothing more: a river whose
+   gauges are all in one place gets a stub, and a stub is the truth about it.
+   With the real gauge networks on these four rivers it does not bind. */
+var RIB_MIN_BAR = 28;
+
+function ribbonRow(g, river, rows, x0, x1, y, showName, span){
+  var edge = span.edge;
+  rows = rows.filter(function(r){ return !r.context; });
+  var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
+  var lo = span.lo, hi = span.hi;
   var sx = function(v){ return x0 + (v - lo) / (hi - lo) * (x1 - x0); };
 
   /* the channel */
   g.appendChild(svg('rect', { x:x0, y:y-5, width:(x1-x0), height:10,
     fill:'#16302e', stroke:'#1F5B57' }));
 
-  /* tidal reach, fading out where the influence is said to stop */
+  /* THE TIDAL REACH IS A REGION WITH AN END, AND IT HAS TO LOOK LIKE ONE.
+
+     It used to be a cyan wash fading to nothing, over a channel whose own
+     fill is nearly the page's background — so it read as a soft gradient
+     that decorated the bar rather than as a marked stretch of river, and
+     nothing said where it stopped. The caption underneath was worse than
+     unhelpful: it sat under the fade with no mark to point at, so it named
+     nothing, and where it ran up against the right-hand edge it was anchored
+     to the end of the bar, where it read as labelling the end of the RIVER.
+
+     So: a flat wash at one opacity, so it is plainly a filled region; a
+     short fade only in the last stretch, because the limit is approximate
+     and a hard edge would claim a precision nobody has; and a dashed rule
+     standing at the limit with the label hung off it. The rule is the mark
+     the caption was always missing. */
   if (edge){
     var gid = 'tidegrad-' + river.id;
     var defs = svg('defs', {});
     var lg = svg('linearGradient', { id:gid, x1:'0', x2:'1', y1:'0', y2:'0' });
-    lg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
-    lg.appendChild(svg('stop', { offset:'.55', 'stop-color':'#7BD5D9', 'stop-opacity':'.28' }));
-    lg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+    lg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.62' }));
+    lg.appendChild(svg('stop', { offset:'.8', 'stop-color':'#7BD5D9', 'stop-opacity':'.58' }));
+    lg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'.2' }));
     defs.appendChild(lg); g.appendChild(defs);
     var tx = sx(edge.v);
     var left = Math.min(x0, tx), right = Math.max(x0, tx);
     g.appendChild(svg('rect', { x:left, y:y-5, width:Math.max(0, right-left),
       height:10, fill:'url(#' + gid + ')' }));
-    /* Below the lower band of figures, not through it, and never past the
-       edge of the drawing — a caption clipped mid-word says less than no
-       caption, and the right-hand end of the ribbon is upstream. */
-    /* IT READ "tide to SACRAMENTO, SACRAMENTO RIVER". The station's own name is
-       a place and a river with a comma between them, so bolting it onto "tide
-       to" produced a caption that parses as nowhere. What this mark actually
-       says is how far up the river the tide is predicted to reach, and the
-       station's name belongs in the tide panel where there is room to say
-       whose it is. */
-    var text = RIB.narrow ? 'tide reaches about here'
-                          : 'tide is predicted about this far up';
+
+    /* The mark itself: a dashed rule through the channel and a little past
+       it, so it is visible against both the wash and the bare bar. */
+    var tickTop = y - 9, tickBot = y + 9;
+    g.appendChild(svg('line', { x1:tx, x2:tx, y1:tickTop, y2:tickBot,
+      stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
+      'stroke-linecap':'round' }));
+
+    /* THE LABEL HANGS OFF THE MARK, and the leader is what makes that true
+       even when the words have to shuffle sideways to stay on the drawing.
+       Anchoring the text to the end of the bar without a leader is how it
+       came to look like a label for the end of the bar. */
+    var text = RIB.narrow ? 'tide to here' : 'tide reaches about here';
+    var ly = y + RIB.dot + (RIB.narrow ? 25 : 31);
     var half = text.length * RIB.note * 0.29;
     var anchor = 'middle', lx = tx;
-    if (tx + half > x1){ anchor = 'end'; lx = x1; }
-    else if (tx - half < x0){ anchor = 'start'; lx = x0; }
-    var lab = svg('text', { x:lx, y:y + RIB.dot + (RIB.narrow ? 25 : 31),
+    if (tx + half > x1){ anchor = 'end'; lx = Math.min(x1, tx + half); }
+    if (lx - (anchor === 'end' ? 2 * half : half) < x0){ anchor = 'start'; lx = x0; }
+    /* The horizontal run stops clear of the words. Level with them it read as
+       an underscore stuck to the front of the caption. */
+    g.appendChild(svg('path', {
+      d:'M' + tx + ' ' + tickBot + ' V' + (ly - RIB.note - 3) +
+        (Math.abs(lx - tx) > 1 ? ' H' + lx : ''),
+      fill:'none', stroke:'#4E7C7A', 'stroke-width':'1' }));
+    var lab = svg('text', { x:lx, y:ly,
       fill:'#9FB3B1', 'font-size':String(RIB.note), 'text-anchor':anchor });
     lab.textContent = text;
     g.appendChild(lab);
@@ -2114,7 +2171,7 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
   return pts.length;
 }
 
-function tempScale(g, x, y, w){
+function tempScale(g, x, y, w, tidal){
   var id = 'tempscale';
   var defs = svg('defs', {});
   var lg = svg('linearGradient', { id:id, x1:'0', x2:'1', y1:'0', y2:'0' });
@@ -2132,21 +2189,38 @@ function tempScale(g, x, y, w){
     g.appendChild(t);
   });
 
-  /* THE OTHER THING THIS DRAWING ENCODES, WHICH HAD NO KEY AT ALL. Part of
-     each tidal river's bar is washed in cyan, fading out where the tide's
-     influence is said to stop — and a reader looking at four bars, three of
-     them tinted differently, had nothing anywhere telling them why. A colour
-     that means something needs saying as much as the temperature ramp does. */
-  var ty = y + 26, tw = Math.min(w, 54);
+  /* THE OTHER THING THIS DRAWING ENCODES, AND ITS KEY WAS NEVER ON SCREEN.
+     Part of each tidal river's bar is washed in cyan and a reader had nothing
+     to look that up in — so it read as decoration, or as the bar simply being
+     a gradient. There WAS a swatch for it. It was drawn 26px below a ramp
+     that already sits 26px above the bottom edge, which put it exactly on the
+     boundary of the viewBox, outside the drawing, on every screen since it
+     was written. **A key that is clipped is a key that does not exist**, and
+     it is worse than none, because its presence in the source answers "have
+     we explained this" for everybody afterwards.
+     It is drawn ABOVE the ramp now, inside the box, and it carries the same
+     dashed rule the bar does so the two are recognisably the same mark. */
+  if (!tidal) return;
+  var ty = y - 14, tw = Math.min(w, 54);
   var tid = 'tidekey';
   var tg = svg('linearGradient', { id:tid, x1:'0', x2:'1', y1:'0', y2:'0' });
-  tg.appendChild(svg('stop', { offset:'0',  'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
-  tg.appendChild(svg('stop', { offset:'1',  'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+  tg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.62' }));
+  tg.appendChild(svg('stop', { offset:'.8', 'stop-color':'#7BD5D9', 'stop-opacity':'.58' }));
+  tg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'.2' }));
   defs.appendChild(tg);
   g.appendChild(svg('rect', { x:x, y:ty, width:tw, height:8,
     fill:'url(#'+tid+')', stroke:'#1F5B57' }));
-  var tl = svg('text', { x:x + tw + 6, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
-  tl.textContent = 'tidal — the tide reaches this far up';
+  g.appendChild(svg('line', { x1:x + tw, x2:x + tw, y1:ty - 3, y2:ty + 11,
+    stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
+    'stroke-linecap':'round' }));
+  /* SHORT ENOUGH TO FIT INSIDE THE RAMP'S OWN WIDTH. The first wording ran
+     past the right-hand edge and came out as "to the dashed m", which is the
+     same defect as the clipped swatch one line up — the drawing does not
+     scroll, so anything wider than it is simply lost. The dashed rule on the
+     swatch is the same mark that stands on the bars, so it does the pointing
+     and the words do not have to. */
+  var tl = svg('text', { x:x + tw + 8, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
+  tl.textContent = 'tidal reach';
   g.appendChild(tl);
 }
 
@@ -2185,7 +2259,21 @@ function drawRibbon(again){
     budget = Math.round((window.innerHeight || 800) * 0.32) - extra
              - (again && isNum(again) ? again : 0);
   }
-  ribbonMetrics(W, list.length, budget);
+  /* ONE SCALE FOR ALL FOUR, measured before anything is drawn. Every bar used
+     to be stretched to the same width whatever distance it covered, which is
+     the one thing four stacked bars must not do: the reason they are stacked
+     is to be compared, and equal bars say the four rivers are equal lengths.
+     Measured first because the foot depends on whether any of them is tidal. */
+  var spans = list.map(function(river){
+    return ribbonSpan(river, ((state.gauges[river.id] || {}).rows) || []);
+  });
+  var maxM = 0, anyTidal = false;
+  spans.forEach(function(sp){
+    if (!sp) return;
+    if (sp.metres > maxM) maxM = sp.metres;
+    if (sp.edge) anyTidal = true;
+  });
+  ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
   wrap.hidden = !!RIB.tooTight;
   if (RIB.tooTight) return;
@@ -2198,12 +2286,19 @@ function drawRibbon(again){
   var g = svg('g', {});
   var plotted = 0, missing = 0;
 
+  /* Room for the longest river name at the weight it is drawn in. At 74 the
+     bold "Sacramento" ended a few pixels INSIDE the left cap of its own bar. */
+  var x0 = list.length > 1 ? (RIB.narrow ? 86 : 96) : 30;
+  var full = (W - 20) - x0;
+
   list.forEach(function(river, i){
     var payload = state.gauges[river.id];
     var rows = (payload && payload.rows) || [];
     var onRiver = rows.filter(function(r){ return !r.context; });
-    var n = ribbonRow(g, river, rows, list.length > 1 ? (RIB.narrow ? 74 : 96) : 30,
-                      W - 20, top + i * rowH, list.length > 1);
+    var sp = spans[i];
+    var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
+    var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
+    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp);
     plotted += n;
     missing += onRiver.length - n;
   });
@@ -2211,14 +2306,21 @@ function drawRibbon(again){
      right-hand edge it was simply invisible, and it is the key to every
      colour above it. */
   tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
-            RIB.narrow ? 104 : 170);
+            RIB.narrow ? 104 : 170, anyTidal);
   host.appendChild(g);
 
+  /* THE SHORT NOTE HAS TO CARRY THE SCALE TOO. Bars of visibly different
+     lengths with nothing saying why is the same defect as the wash with no
+     key: the phone reader is the one who most needs telling, and was the one
+     told least. */
   var note = RIB.narrow
-    ? 'Downstream left. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
+    ? 'Downstream left' +
+      (state.riverId ? '' : '; one distance scale, longest ' + Math.round(maxM / 1000) + ' km') +
+      '. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
     : 'Downstream on the left; ' +
       (state.riverId ? byId(state.riverId).axisLabel
-                     : 'each river on its own axis, one temperature scale') + '. ' +
+                     : 'all rivers to one distance scale — the longest bar is ' +
+                       Math.round(maxM / 1000) + ' km — and one temperature scale') + '. ' +
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
   $('#ribbonnote').textContent = note + '.';
@@ -6313,6 +6415,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.4.0', date:'2026-08-31', changes:[
+      'The four bars at the top are drawn to one distance scale, so their lengths mean something. Every bar used to be stretched to the full width whatever stretch of river it covered \u2014 which said the four rivers are the same length. They are not. The Sacramento now runs long and the others are as short as they actually are, and the line underneath says how long the longest one is.',
+      'The tide marking has an end you can see. It was a cyan wash fading away over a bar the colour of the background, so it looked like the bar was simply a gradient, and the caption under it sat pointing at nothing \u2014 worse, where it ran up against the right-hand edge it lined up with the end of the bar and read as labelling the end of the river. There is now a dashed rule standing at the limit, and the words hang off it on a leader so it is clear what they refer to.',
+      'The cyan has a key, and always should have. There was one written \u2014 it had been drawn just past the bottom edge of the picture since the day it was added, so nobody has ever seen it. It sits above the temperature scale now and carries the same dashed mark that stands on the bars.',
+      'On a phone the caption now says the bars share one distance scale too. It said so only on a wide screen, which left the reader with the least room seeing bars of wildly different lengths and nothing explaining why.',
+  ] },
   { v:'1.3.0', date:'2026-08-31', changes:[
       'The circles marking places you may go can be pressed. They were thirteen pixels across \u2014 the size a finger needs is forty-four \u2014 so a press usually missed, and a miss was not nothing: it went to the map underneath and came back with a depth. Pressing "places I can go" returned a depth reading, which is why the circles looked like they did nothing. A press within a finger\u2019s width of any pin now reaches that pin. Tide stations, gauges and your own marks were the same size and are fixed by the same change.',
       'And they no longer look like tide stations. They were a green ring on a dark middle beside a teal ring on a dark middle, at five pixels\u2019 radius, outdoors. Public land is now drawn as a SQUARE and tide stations stay round, so the difference survives sunlight and does not depend on telling two colours apart. The key shows the square too.',

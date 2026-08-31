@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.3.0 on `staging`. **Production is 1.1.0** and stays there until a
+- Version 1.4.0 on `staging`. **Production is 1.1.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.3.0** at https://staging.cv-thalweg.pages.dev — pins can
-  be pressed with a finger, public land is a square rather than another small
-  circle, and three separate reasons the map would not go where it was told.
+- Staged candidate: **1.4.0** at https://staging.cv-thalweg.pages.dev — the
+  ribbon's four bars are drawn to one distance scale, the tidal limit is a mark
+  rather than a fade, and its key is on screen for the first time.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -85,6 +85,34 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **Four stacked bars drawn to four different scales.** Each river's bar was
+  stretched to the full width whatever distance it spanned, so the Sacramento's
+  265 km and the American's thirty looked identical. **The reason bars are
+  stacked is to be compared**, and equal lengths are a claim — that the rivers
+  are the same length — made silently by the layout rather than by anything
+  anyone wrote. They share one distance scale now, and the caption says so.
+  The floor for a short bar is deliberately about what one dot needs and no
+  more: a minimum wide enough to look tidy overstates the length of every short
+  river, which is the defect being fixed.
+- **A key that is clipped is a key that does not exist, and is worse than
+  none.** The cyan tidal wash had a swatch. It was drawn 26 px below a
+  temperature ramp that already sits 26 px above the bottom edge, putting it
+  exactly on the viewBox boundary — off the drawing, on every screen, since the
+  day it was written. Nobody had ever seen it, and the reader's report was that
+  the colour band had no legend, which was exactly right. **Its presence in the
+  source answered "have we explained this" for every session afterwards.** Same
+  family as the skip link that was never reachable: built, correct, invisible.
+  Gated now by a check that walks every drawn element's bounding box and
+  requires it inside the picture.
+- **A caption with nothing to point at names nothing.** "tide is predicted
+  about this far up" sat under a fade with no mark, and when it ran up against
+  the right-hand edge it was anchored to the end of the bar — where it read as
+  labelling the end of the RIVER. A mark and a leader are what make a caption
+  refer to something; without them it is a sentence floating over a picture.
+  The fade was the second half of it: fading to nothing over a channel that is
+  nearly the page's own background reads as decoration rather than as a region
+  with an end.
 
 - **Every pin was 11 to 19 pixels wide, and a miss was not inert.** Measured by
   walking out from each centre and asking the document what was on top: 13 px
