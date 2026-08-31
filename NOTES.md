@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.0.0.
+- Version 1.1.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,12 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE LIMITS BELONG TO THE APP, NOT TO A RELEASE.** The what-changed dialog
+  showed `broken` only when the current version declared one, so 1.1.0 — which
+  added no new caveat — told a reader by omission that the app had none.
+  Requiring every release to restate them would make the notes repetitive and
+  the honest part would get skimmed. It shows the most recently declared list,
+  whether or not this version added to it.
 - **A VIEW COMPUTED AGAINST A ZERO-SIZE MAP IS THE WHOLE WORLD.** On a phone
   the map lives in a tab, so most of the time its container is `display:none`
   and measures 0 by 0 — and `fitBounds` in that state does exactly what it is

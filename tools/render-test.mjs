@@ -792,16 +792,19 @@ check('the first thing in it is a change, not the front of the About panel',
 check('the whole history is one press away rather than in your way', news.older);
 /* A 1.0 STATES ITS LIMITS WHERE A READER MEETS THEM, not eight releases down.
    The dialog a reader sees after an update has to carry them. */
+/* THE LIMITS BELONG TO THE APP, NOT TO A RELEASE. A version that added no new
+   caveat must still show the standing ones — otherwise a reader updating to a
+   small release is told, by omission, that the app has no limits. */
 check('the update dialog carries what is still not right',
   await page.evaluate(() => {
-    const r = RELEASES.filter(x => x.v === VERSION)[0];
-    if (!r || !r.broken || !r.broken.length) return false;
+    const standing = RELEASES.find(x => x.broken && x.broken.length);
+    if (!standing) return false;
     const t = document.getElementById('newbody').textContent;
-    return /Still not right/i.test(t) && t.includes(r.broken[0].slice(0, 40));
+    return /Still not right/i.test(t) && t.includes(standing.broken[0].slice(0, 40));
   }),
   await page.evaluate(() => {
-    const r = RELEASES.filter(x => x.v === VERSION)[0];
-    return r ? (r.broken || []).length + ' known issue(s) declared' : 'no note for this version';
+    const s = RELEASES.find(x => x.broken && x.broken.length);
+    return s ? s.broken.length + ' standing limit(s), declared at ' + s.v : 'none declared anywhere';
   }));
 check('the dialog takes focus when it opens', news.focused === 'newtitle', news.focused);
 /* Patch notes are for the reader. This is the app's own copy asserted against
@@ -1188,6 +1191,64 @@ check('and the sentence says that is what it did',
   riv.note.slice(0, 160));
 check('it still costs one request per survey',
   profileCalls - beforeRiver === 1, 'calls: ' + (profileCalls - beforeRiver));
+
+/* --- tracing the profile onto the map ----------------------------------
+   The picture says how deep it is somewhere along the line; the map says where
+   things are. Until now a reader held the join between them in their head. */
+const box = await page.evaluate(() => {
+  const r = document.getElementById('profsvg').getBoundingClientRect();
+  return { x: Math.round(r.left + r.width * 0.5), y: Math.round(r.top + r.height * 0.5),
+           x2: Math.round(r.left + r.width * 0.7) };
+});
+await page.mouse.move(box.x, box.y);
+await page.mouse.down();
+await page.waitForTimeout(300);
+const traced = await page.evaluate(() => ({
+  onMap: state.traceLayer ? state.traceLayer.getLayers().length : -1,
+  readout: [...document.querySelectorAll('#profsvg text')]
+    .map(t => t.textContent).filter(t => /ft$|not measured/.test(t)),
+  at: state.traceLayer && state.traceLayer.getLayers()[0]
+    ? state.traceLayer.getLayers()[0].getLatLng() : null
+}));
+check('dragging the profile marks the place on the map',
+  traced.onMap === 1 && !!traced.at, JSON.stringify(traced).slice(0, 200));
+check('and shows the depth it actually measured there',
+  traced.readout.length > 0, JSON.stringify(traced.readout));
+/* THE MARK MUST MOVE WITH THE FINGER, not sit where it first landed. */
+await page.mouse.move(box.x2, box.y);
+await page.waitForTimeout(250);
+const moved = await page.evaluate(() => {
+  const l = state.traceLayer.getLayers()[0];
+  return l ? l.getLatLng() : null;
+});
+check('the mark follows the finger along the line',
+  !!moved && (Math.abs(moved.lat - traced.at.lat) > 1e-6 ||
+              Math.abs(moved.lng - traced.at.lng) > 1e-6),
+  JSON.stringify({ first: traced.at, then: moved }));
+await page.mouse.up();
+await page.waitForTimeout(250);
+check('letting go takes the mark off again',
+  await page.evaluate(() => state.traceLayer.getLayers().length) === 0);
+
+/* --- getting back ------------------------------------------------------- */
+const back = await page.evaluate(() => {
+  const b = document.getElementById('backbtn');
+  return { there: !!b, hidden: b ? b.hidden : null, text: b ? b.textContent.trim() : '' };
+});
+check('there is a way back to where you were', back.there && !back.hidden,
+  JSON.stringify(back));
+check('and it names which of the two it will go to', /Back to me|Back to my mark/.test(back.text),
+  back.text);
+await page.evaluate(() => state.map.setView([40.5, -122.2], 9));
+await page.waitForTimeout(400);
+await page.click('#backbtn');
+await page.waitForTimeout(800);
+check('pressing it returns to your own position',
+  await page.evaluate(() => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
 
 await page.click('#profclear');
 await page.waitForTimeout(400);
