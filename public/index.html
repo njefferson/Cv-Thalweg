@@ -398,6 +398,10 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    thickness, same two colours — because a key whose dot is merely dot-shaped
    teaches the reader a symbol the map does not use. */
 .legend i.sw{display:inline-block; flex:0 0 auto; border-radius:50%; box-sizing:border-box}
+/* The access pin. A square, drawn to the same weights as the circles beside
+   it so it reads as a member of the same family and not as a bug. */
+.accesspin{box-sizing:border-box; border:2px solid #9BD98C; background:#0D1A19}
+.legend i.sw.sq{border-radius:0}
 .legend .keyhead{display:flex; align-items:center; gap:.5rem; justify-content:space-between}
 .legend .keyhead button{border:0; padding:0 .2rem; min-height:22px; color:var(--mute);
   background:none; font-size:.7rem; line-height:1}
@@ -623,7 +627,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2317,11 +2321,61 @@ function labelNode(name, values, sub){
  * applied the moment the map is real. Everything that moves the map goes
  * through here.
  */
-function mapView(to, opts){
+/* WHERE THE MAP IS LOOKING BELONGS TO THE READER, AND THE LAST WORD IS THEIRS.
+   Pressing "Profile down the river itself" starts a fetch. On a slow signal
+   that fetch lands seconds later, and when it did it fitted the map to the
+   whole surveyed run — over the top of wherever the reader had gone in the
+   meantime. Press it, then press "Back to me", and the map arrived at you and
+   was then dragged away again to a stretch of river fifty miles off, with
+   nothing on screen explaining why.
+
+   A CLAIM, NOT A CLOCK. A time window would have to guess how slow the signal
+   is. This counts instead: every view the reader asks for takes the next
+   number, and a background task that captured an older one has been overruled
+   and says nothing. */
+function claimView(){
+  state.viewClaim = (state.viewClaim || 0) + 1;
+  return state.viewClaim;
+}
+
+/* AN ANIMATION IS FOR A MOVE THE EYE CAN FOLLOW, AND NOTHING ELSE.
+
+   Leaflet refuses to animate a pan longer than the window — its own source
+   says Chrome loses the tiles and puts the map in the wrong place — but that
+   guard is switched off by asking for `animate: true`, which is exactly what
+   every call here did. So "Back to me", pressed after panning off to look at a
+   surveyed reach, asked for a smooth pan of some hundreds of thousands of
+   pixels in a quarter of a second. The map did not arrive. It did not fail
+   either: it sat where it was, having been told to go, and the button read as
+   dead.
+
+   A move that starts off screen is a JUMP, and it always was — a
+   quarter-second smear across fifty miles shows the reader nothing they could
+   have followed. Animation is kept for the small moves it was meant for. */
+function viewIsNear(to){
+  var b = state.map.getBounds();
+  if (to && typeof to.getNorth === 'function') return b.contains(to);
+  return b.contains(L.latLng(to[0]));
+}
+
+function mapView(to, opts, claim){
   if (!state.map) return;
+  if (claim == null) claim = claimView();
+  else if (claim !== state.viewClaim) return;   /* the reader has moved on */
   var sz = state.map.getSize();
   if (!sz.x || !sz.y){ state.pendingView = { to:to, opts:opts }; return; }
   state.pendingView = null;
+  /* AN OPEN POPUP TETHERS THE MAP TO WHERE IT IS ANCHORED. Leaflet re-pans to
+     keep a popup in view whenever the view resets, so pressing a pin and then
+     "Back to me" arrived at you and was hauled straight back to the pin — the
+     button looked broken, and the reason was a label two hundred miles away
+     insisting on staying visible. A popup describes the place you are leaving,
+     so leaving closes it. */
+  state.map.closePopup();
+  if (opts && opts.animate && !viewIsNear(to)){
+    opts = Object.keys(opts).reduce(function(o, k){ o[k] = opts[k]; return o; }, {});
+    opts.animate = false;
+  }
   if (to && typeof to.getNorth === 'function') state.map.fitBounds(to, opts);
   else state.map.setView(to[0], to[1], opts);
 }
@@ -2431,6 +2485,11 @@ function initMap(){
        and a depth popup opening over the second tap would be the app talking
        across the reader. */
     if (state.profArm) return profilePoint(e.latlng.lat, e.latlng.lng);
+    /* A NEAR MISS ON A PIN IS A PRESS ON THAT PIN, NOT A QUESTION ABOUT THE
+       WATER UNDER IT. This handler only runs when Leaflet found no layer to
+       give the tap to — which is to say, only when the finger missed. */
+    var pin = nearestPin(e.latlng);
+    if (pin) return pin.openPopup();
     showDepthAt(e.latlng.lat, e.latlng.lng);
   });
   m.on('moveend', function(){
@@ -2649,8 +2708,11 @@ function drawHere(recentre){
 
   if (recentre){
     if (tabNames().indexOf('map') !== -1) selectTab('map');
-    if (ring) state.map.fitBounds(ring.getBounds(), { maxZoom:15, animate:!reduceMotion });
-    else state.map.setView([h.lat, h.lon], 14, { animate:!reduceMotion });
+    /* THROUGH mapView, LIKE EVERY OTHER MOVE. Calling the map directly skips
+        the guard that refuses to animate a jump longer than the window, and
+        skips the one that defers a view asked for while the map is hidden. */
+    if (ring) mapView(ring.getBounds(), { maxZoom:15, animate:!reduceMotion });
+    else mapView([[h.lat, h.lon], 14], { animate:!reduceMotion });
   }
 
   /* SAY WHERE YOU ARE RELATIVE TO THE THING ON SCREEN. Centring the map on a
@@ -3044,7 +3106,7 @@ function gaugeRow(r){
     go.textContent = 'Map';
     go.addEventListener('click', function(){
       if (tabNames().indexOf('map') !== -1) selectTab('map');
-      state.map.setView([r.lat, r.lon], 14, { animate:!reduceMotion });
+      mapView([[r.lat, r.lon], 14], { animate:!reduceMotion });
       announce('Map centred on ' + (r.name || r.id) + '.');
     });
     name.appendChild(go);
@@ -3223,7 +3285,7 @@ function tideSection(river){
     var sgo = el('button',{type:'button',text:'Show this station on the map'});
     sgo.addEventListener('click', function(){
       if (tabNames().indexOf('map') !== -1) selectTab('map');
-      state.map.setView([st.lat, st.lon], 13, { animate:!reduceMotion });
+      mapView([[st.lat, st.lon], 13], { animate:!reduceMotion });
       announce('Map centred on ' + (st.name || st.id) + '.');
     });
     srow.appendChild(sgo);
@@ -3572,7 +3634,7 @@ function renderLayers(){
         'aria-label':'Show ' + site.name + ' on the map', text:'Map'});
       go.addEventListener('click', function(){
         if (tabNames().indexOf('map') !== -1) selectTab('map');
-        state.map.setView([site.lat, site.lon], 13, { animate:!reduceMotion });
+        mapView([[site.lat, site.lon], 13], { animate:!reduceMotion });
         announce('Map centred on ' + site.name + '.');
       });
       li.appendChild(go);
@@ -3838,9 +3900,13 @@ function updateLegend(){
       style:'width:16px;height:0;border-radius:0;border:0;border-top:3px solid #F2A65A'});
     rows.push(keyRow(pl, 'The line the depth below is measured along'));
   }
-  if (state.accessLayer && state.accessLayer.getLayers().length)
-    rows.push(keyRow(swatch(5, 2, '#9BD98C', '#0D1A19'),
-      'Public land — CDFW says you may go'));
+  if (state.accessLayer && state.accessLayer.getLayers().length){
+    /* THE KEY HAS TO CARRY THE SHAPE. A round swatch beside a square pin is a
+       key that describes a map other than the one on screen. */
+    var ap = swatch(6, 2, '#9BD98C', '#0D1A19');
+    ap.className = 'sw sq';
+    rows.push(keyRow(ap, 'Public land — CDFW says you may go'));
+  }
   if (state.surveyLayer && state.surveyLayer.getLayers().length){
     var sq = el('i',{class:'sw',
       style:'width:14px;height:10px;border-radius:0;border:1px dashed #7BD5D9;background:rgba(123,213,217,.08)'});
@@ -4002,7 +4068,7 @@ function renderMarks(){
           'aria-label':'Show ' + river.name + ' and centre on this mark'});
         go.addEventListener('click',function(){
           selectRiver(river.id);
-          state.map.setView([m.lat,m.lon], 15);
+          mapView([[m.lat, m.lon], 15]);
           selectTab('map');
         });
         r.appendChild(go);
@@ -4059,7 +4125,7 @@ function renderMarks(){
         (m.depthAway ? ', measured ' + m.depthAway + ' m away' : '') + ', as published'}));
     r.appendChild(g);
     var go = el('button',{type:'button',text:'Go','aria-label':'Centre map on this mark'});
-    go.addEventListener('click',function(){ state.map.setView([m.lat,m.lon], 15); });
+    go.addEventListener('click',function(){ mapView([[m.lat, m.lon], 15]); });
     r.appendChild(go);
     var del = el('button',{type:'button',text:'Delete','aria-label':'Delete this mark'});
     del.addEventListener('click',function(){
@@ -5768,9 +5834,19 @@ function drawAccessSites(){
   if (!state.riverId || state.showAccess === false) return;
   var river = byId(state.riverId);
   accessSites(river).forEach(function(s){
-    L.circleMarker([s.lat, s.lon], {
-      pane:'accesspane', radius:5, weight:2,
-      color:'#9BD98C', fillColor:'#0D1A19', fillOpacity:.9
+    /* A SQUARE, NOT A CIRCLE — and the shape is the point, not the colour.
+       These were a green ring on a dark fill and an idle tide station is a
+       teal ring on a dark fill, at five pixels' radius, on a phone, outdoors.
+       They were reported as looking the same, and they do. Hue alone would
+       not have fixed it either: it is the one cue a colour-blind reader does
+       not get, and the one sunlight takes first.
+       A square is also the truer shape. A tide station is a point where a
+       measurement is taken; a public access site is a PROPERTY, an area you
+       may stand in, and the pin is its middle rather than a spot on the
+       bank. */
+    L.marker([s.lat, s.lon], {
+      pane:'accesspane', keyboard:false,
+      icon: L.divIcon({ className:'accesspin', html:'', iconSize:[12,12] })
     }).bindPopup(labelNode(s.name,
       [[String(s.km), 'km to the river']],
       s.type + '. ' + (s.access || 'CDFW does not say what the access is.') +
@@ -5909,10 +5985,12 @@ function crossSectionNow(river, lat, lon, halfWidthM){
 
 function profileRiverLine(river){
   announce('Reading down the river…');
-  loadRiverLines().then(function(){ profileRiverNow(river); },
+  /* Taken NOW, at the press, and carried to the other side of the fetch. */
+  var claim = claimView();
+  loadRiverLines().then(function(){ profileRiverNow(river, claim); },
     function(){ announce('The river centrelines did not load, so the app cannot follow the river.'); });
 }
-function profileRiverNow(river){
+function profileRiverNow(river, claim){
   var line = riverLineFor(river.id);
   if (!line || line.length < 2){
     announce('This build carries no centreline for the ' + river.name + '.');
@@ -5932,10 +6010,10 @@ function profileRiverNow(river){
   }
   if (tabNames().indexOf('map') !== -1) selectTab('map');
   state.profWhole = run; state.profCross = null;
-  runProfile(run.pts);
+  runProfile(run.pts, claim);
 }
 
-function runProfile(pts){
+function runProfile(pts, claim){
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
@@ -5958,7 +6036,7 @@ function runProfile(pts){
   announce('Reading the bottom along your line.');
   renderLayers();
   updateLegend();   /* the line is on the map now, so the key must say what it is */
-  mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion });
+  mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion }, claim);
   buildProfile(pts).then(function(model){
     state.profile = model;
     state.profZoom = 1;
@@ -5970,6 +6048,63 @@ function runProfile(pts){
       '. Nothing is drawn, because nothing is known.';
     renderProfile();
   });
+}
+
+/* =====================================================================
+   A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT.
+
+   Every pin on this map is drawn as a small circle: 13 px across for a public
+   access site, 11 for an idle tide station, 19 for the live one. Measured, by
+   walking out from each centre and asking the document what is on top. The
+   floor for something you press with a finger is 44.
+
+   That alone would only make them fiddly. What made it a defect worth a
+   report is WHAT A MISS DOES: the map's own click handler runs, and answers a
+   question about the depth of the water under the miss. So pressing a green
+   circle marked "places I can go" returned a depth — confidently, with a
+   sentence explaining how far the tap had been moved to get it — and the
+   circles read as decoration that does nothing.
+
+   THE FIX IS NOT A BIGGER CIRCLE. Drawing a 44 px transparent disc under every
+   pin would blanket a zoomed-out map with sixty tide stations and thirty
+   access sites, and the depth tap — the thing this app is for — would stop
+   working. The tap is resolved in code instead: the nearest pin within a
+   finger's width wins, and if none is near, the water gets the tap as before.
+   That also lets NEAREST win rather than whichever path happened to paint
+   last, which is what a stack of transparent discs would have given.
+
+   Soundings are deliberately not in this list. There are hundreds of them,
+   three pixels apart in places, and rescuing a near miss there would mean no
+   tap ever reached the water again. They are dense enough to hit directly. */
+var TOUCH_SLOP = 22;   /* half of the 44 px floor: the visible dot covers the rest */
+
+/* Highest precedence first, and it is the SAME order the panes already
+   encode — a reading wins over a station, a station over a footprint. Rank
+   only breaks a tie; a genuinely nearer pin wins regardless of what it is. */
+function pinLayers(){
+  return [[state.gaugeLayer, 0], [state.markLayer, 0], [state.hereLayer, 1],
+          [state.tideLayer, 2], [state.accessLayer, 3]];
+}
+
+function nearestPin(latlng){
+  if (!state.map) return null;
+  var origin = state.map.latLngToContainerPoint(latlng);
+  var best = null;
+  pinLayers().forEach(function(pair){
+    var layer = pair[0], rank = pair[1];
+    if (!layer || !layer.eachLayer) return;
+    layer.eachLayer(function(m){
+      /* A POPUP IS WHAT MAKES A THING TAPPABLE. Lines, accuracy rings and the
+         profile drawing have none, and must not swallow a press. */
+      if (!m.getLatLng || !m.getPopup || !m.getPopup()) return;
+      var d = origin.distanceTo(state.map.latLngToContainerPoint(m.getLatLng()));
+      if (d > TOUCH_SLOP) return;
+      if (!best || d < best.d - 0.5 ||
+          (Math.abs(d - best.d) <= 0.5 && rank < best.rank))
+        best = { m:m, d:d, rank:rank };
+    });
+  });
+  return best && best.m;
 }
 
 /* =====================================================================
@@ -6178,6 +6313,13 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.3.0', date:'2026-08-31', changes:[
+      'The circles marking places you may go can be pressed. They were thirteen pixels across \u2014 the size a finger needs is forty-four \u2014 so a press usually missed, and a miss was not nothing: it went to the map underneath and came back with a depth. Pressing "places I can go" returned a depth reading, which is why the circles looked like they did nothing. A press within a finger\u2019s width of any pin now reaches that pin. Tide stations, gauges and your own marks were the same size and are fixed by the same change.',
+      'And they no longer look like tide stations. They were a green ring on a dark middle beside a teal ring on a dark middle, at five pixels\u2019 radius, outdoors. Public land is now drawn as a SQUARE and tide stations stay round, so the difference survives sunlight and does not depend on telling two colours apart. The key shows the square too.',
+      'Pressing a pin and then "Back to me" now takes you back. It used to arrive and immediately spring back to the pin, because the open label was holding the map to itself. Leaving somewhere closes the label for it.',
+      'Going somewhere far away arrives. A long jump was being asked to animate smoothly across the distance, which the map cannot do \u2014 so it simply stayed put, and the button read as broken. Long moves now jump and short ones still glide.',
+      'If you ask for the profile down the river and then go somewhere else while it loads, it no longer drags you back when it arrives. Whatever you asked for last is where you stay.',
+  ] },
   { v:'1.2.0', date:'2026-08-31', changes:[
       'A tap near the river is read on the river. Fingers are wide and rivers are narrow, so a tap that landed on the bank used to be answered honestly and uselessly \u2014 no survey there, because there is no survey on dry land. A tap within a mile and a half of the river now moves to the nearest point on the water and the app says how far it moved, so you can see it was your tap that was adjusted and not the depth.',
       'A tap that is nowhere near the river is no longer treated as a question about the river. It says so, and offers to take you to the surveyed water rather than sending you a reading from open country.',

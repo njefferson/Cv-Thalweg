@@ -1248,6 +1248,80 @@ check('a public-land pin can be tapped and says what kind of place it is',
     const t = typeof n === 'string' ? n : n.textContent;
     return /km to the river/.test(t) && /not a boat ramp/.test(t);
   }));
+/* --- A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT --------------------------
+   Measured before the fix by walking out from each centre and asking the
+   document what was on top: 13 px across for an access site, 11 for an idle
+   tide station, 19 for the live one. The floor is 44.
+
+   And a miss was not inert. The map's own handler ran and answered a question
+   about the depth of the water under the miss — so pressing a circle marked
+   "places I can go" returned a depth, and the circles read as decoration.
+   These drive the geometry rather than the styling, because the styling was
+   never the thing that was wrong. */
+const pinAt = async (off) => {
+  await page.evaluate(() => { state.map.closePopup();
+    const s = ACCESS_LANDS.sacramento[0]; state.map.setView([s.lat, s.lon], 14); });
+  await page.waitForTimeout(500);
+  const pt = await page.evaluate(() => {
+    const p = state.map.latLngToContainerPoint(
+      [ACCESS_LANDS.sacramento[0].lat, ACCESS_LANDS.sacramento[0].lon]);
+    const b = state.map.getContainer().getBoundingClientRect();
+    return { x: b.x + p.x, y: b.y + p.y };
+  });
+  await page.mouse.click(pt.x + off, pt.y);
+  await page.waitForTimeout(700);
+  return page.evaluate(() => {
+    const pop = document.querySelector('.leaflet-popup-content');
+    if (!pop) return 'nothing';
+    return /Depth here|Not on the river/.test(pop.textContent) ? 'depth' : 'pin';
+  });
+};
+
+for (const off of [0, 10, 20]){
+  check('a press ' + off + ' px off a public-land pin reaches the pin',
+    await pinAt(off) === 'pin', 'got ' + await pinAt(off));
+}
+/* THE RESCUE HAS TO HAVE AN EDGE, or the map stops being able to answer the
+   question it is for. Past a finger's width the water gets the tap back. */
+check('a press well clear of every pin still asks the water',
+  await pinAt(45) === 'depth');
+
+/* The dense layer is deliberately outside the rescue: hundreds of soundings
+   three pixels apart would mean no tap ever reached the water again. */
+check('soundings are not in the rescue, so they cannot swallow the map',
+  await page.evaluate(() => pinLayers().every(p => p[0] !== state.soundingLayer)));
+check('and nothing without a popup can take a press',
+  await page.evaluate(() => {
+    state.map.setView([38.45, -121.6], 13);
+    return nearestPin({ lat: 0, lng: 0 }) === null;
+  }));
+
+/* --- AND THEY MUST NOT LOOK LIKE A TIDE STATION -------------------------
+   A green ring on a dark fill beside a teal ring on a dark fill, at five
+   pixels' radius, outdoors. Hue is the one cue a colour-blind reader does not
+   get and the one sunlight takes first, so the difference is a SHAPE. */
+check('a public-land pin is a square, not another small circle',
+  await page.evaluate(() => {
+    const pin = document.querySelector('.accesspin');
+    return !!pin && getComputedStyle(pin).borderRadius === '0px';
+  }),
+  await page.evaluate(() => { const p = document.querySelector('.accesspin');
+    return p ? getComputedStyle(p).borderRadius : 'no pin'; }));
+check('and the key carries the same shape, or it describes another map',
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#maplegend .keyrow')];
+    const r = rows.find(x => /Public land/.test(x.textContent));
+    return !!r && getComputedStyle(r.querySelector('i.sw')).borderRadius === '0px';
+  }));
+check('while a tide station stays round, so the two read apart',
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#maplegend .keyrow')];
+    const r = rows.find(x => /tide station/i.test(x.textContent));
+    return !!r && getComputedStyle(r.querySelector('i.sw')).borderRadius !== '0px';
+  }));
+
+await page.click('#tab-layers');
+await page.waitForTimeout(800);
 const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
 await page.click('#panel-layers button:text-is("Show them on the map")');
 await page.waitForTimeout(600);
@@ -1350,11 +1424,67 @@ check('and it names which of the two it will go to', /Back to me|Back to my mark
 await page.evaluate(() => state.map.setView([40.5, -122.2], 9));
 await page.waitForTimeout(400);
 await page.click('#backbtn');
-await page.waitForTimeout(800);
+/* WAIT FOR THE MAP TO STOP, DO NOT BET ON A NUMBER OF MILLISECONDS. This
+   asserted the centre 800 ms after the press, which is a bet that a six-zoom
+   animated pan finishes in 800 ms on whatever machine is running. It caught
+   the map IN FLIGHT — a third of the way from where the test had parked it to
+   where the button was correctly taking it — and reported the button as
+   broken. The button was never broken; the clock was. */
+await page.waitForFunction(() => {
+  const c = state.map.getCenter();
+  return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+}, null, { timeout: 8000 }).catch(() => {});
 check('pressing it returns to your own position',
   await page.evaluate(() => {
     const c = state.map.getCenter();
     return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+
+/* --- AND IT STAYS THERE ---------------------------------------------------
+   This is the defect the check above found by failing. Pressing "Profile down
+   the river itself" starts a fetch; on a slow signal it lands seconds later
+   and fitted the map to the whole surveyed run, over the top of wherever the
+   reader had gone in the meantime. The map arrived at you and was then dragged
+   away to a stretch of river fifty miles off, with nothing saying why.
+   The view the reader asked for last is the one that holds. */
+check('a fit that arrives late does not drag the map off the reader',
+  await page.evaluate(async () => {
+    const claim = claimView();              /* as a press would take */
+    goBackToMine();                         /* the reader asks for somewhere */
+    await new Promise(r => setTimeout(r, 400));
+    /* now the earlier press's fetch comes back and tries to have its way */
+    mapView(L.latLngBounds([[40.4, -122.3], [40.6, -122.1]]), { animate: false }, claim);
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+/* AN OPEN POPUP USED TO TETHER THE MAP. Leaflet re-pans to keep a popup in
+   view whenever the view resets, so pressing a pin and then a go-there button
+   arrived and was hauled straight back to the pin. The button looked broken,
+   and the cause was a label two hundred miles away insisting on staying on
+   screen. This is the check that would have caught it: it failed for four
+   different wrong reasons before the real one, so it is worth having. */
+check('a pin popup does not drag the map back when you ask to go elsewhere',
+  await page.evaluate(async () => {
+    state.map.setView([40.5, -122.2], 9);
+    const pin = state.accessLayer.getLayers()[0] || state.tideLayer.getLayers()[0];
+    pin.openPopup();
+    await new Promise(r => setTimeout(r, 300));
+    goBackToMine();
+    await new Promise(r => setTimeout(r, 600));
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+
+/* ...but it is not simply ignored forever: a fit nobody has overruled applies. */
+check('and a fit nobody has overruled still moves the map',
+  await page.evaluate(() => {
+    const claim = claimView();
+    mapView(L.latLngBounds([[40.4, -122.3], [40.6, -122.1]]), { animate: false }, claim);
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - 40.5) < 0.2;
   }),
   await page.evaluate(() => JSON.stringify(state.map.getCenter())));
 

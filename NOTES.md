@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.2.0 on `staging`. **Production is 1.1.0** and stays there until a
+- Version 1.3.0 on `staging`. **Production is 1.1.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.2.0** at https://staging.cv-thalweg.pages.dev — the tap
-  is snapped onto the water before the survey is asked, and the displacement is
-  said in the popup and aloud.
+- Staged candidate: **1.3.0** at https://staging.cv-thalweg.pages.dev — pins can
+  be pressed with a finger, public land is a square rather than another small
+  circle, and three separate reasons the map would not go where it was told.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -85,6 +85,40 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **Every pin was 11 to 19 pixels wide, and a miss was not inert.** Measured by
+  walking out from each centre and asking the document what was on top: 13 px
+  for an access site, 11 for an idle tide station, 19 for the live one, against
+  a 44 px floor. That alone is fiddliness. What made it a report was that the
+  map's own handler ran on the miss and answered with a DEPTH — so pressing a
+  circle labelled "places I can go" produced a depth reading, and the circles
+  read as decoration. **A miss that produces a confident answer is worse than a
+  miss that produces nothing**, because nothing invites a second try and an
+  answer ends the question.
+  The fix is not a bigger circle: a 44 px transparent disc under sixty tide
+  stations and thirty access sites blankets a zoomed-out map and the depth tap
+  stops working. The tap is resolved in code — nearest pin within a finger's
+  width wins, and NEAREST is better than whichever transparent disc painted
+  last.
+- **Three separate things stopped the map going where it was told, and each
+  looked exactly like the last.** They were found one behind the other, by one
+  failing check, and each fix revealed the next.
+  An open popup tethers the map: Leaflet re-pans to keep it in view on any view
+  reset, so pressing a pin and then a go-there button arrived and was hauled
+  back to the pin. `animate: true` disables Leaflet's own refusal to animate a
+  pan longer than the window — its source says the tiles are lost and the map
+  lands wrong — so a long jump asked for a smooth pan of hundreds of thousands
+  of pixels and simply did not move. And a fetch started by an earlier press
+  fitted the map when it landed, over the top of wherever the reader had gone
+  since.
+  **The common shape: the view is not a variable, it is a conversation, and the
+  reader's last word has to win.** The claim counter is a counter and not a
+  clock on purpose — a time window has to guess how slow the signal is.
+- **Seven view changes bypassed the one function that guards them.** Every
+  go-there button called `state.map.setView` directly, so none of them got the
+  deferral guard for a hidden map or the animation guard above. A guard in a
+  helper protects only the callers that go through the helper, and nothing had
+  ever said they must.
 
 - **A finger is wider than the river.** Every depth this app has is measured on
   the water, and a tap that lands twenty metres onto the bank is answered
