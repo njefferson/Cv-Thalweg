@@ -112,7 +112,21 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
 
 /* ---------- ribbon ---------- */
 #ribbonwrap{flex:0 0 auto; background:var(--panel-2); border-bottom:1px solid var(--teal);
-  padding:.35rem .5rem .1rem; overflow-x:auto}
+  padding:.35rem .5rem .1rem; overflow-x:auto; position:relative}
+/* The rows of the ribbon are pressable, and they are REAL BUTTONS laid over
+   the drawing rather than shapes inside it. The drawing is role="img" with a
+   written description, which is right for a picture — and a role="img" prunes
+   everything inside it from the accessibility tree, so a control drawn in
+   there is one no screen reader can reach however correct its markup. axe
+   called it as nested-interactive; it would have been unusable, not untidy. */
+#riverhits{position:absolute; pointer-events:none}
+#riverhits button{position:absolute; left:0; width:100%; padding:0; margin:0;
+  background:none; border:0; pointer-events:auto; cursor:pointer}
+#riverhits button:hover{background:rgba(123,213,217,.07)}
+/* Visible to a screen reader, not to the eye — the river's name is drawn in
+   the picture, which a reader can see and a screen reader cannot. */
+.vh{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);
+  clip-path:inset(50%); white-space:nowrap}
 #ribbon{display:block; width:100%; min-width:520px}
 @media (max-width:900px){ #ribbon{min-width:0} }
 .ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
@@ -398,6 +412,10 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    thickness, same two colours — because a key whose dot is merely dot-shaped
    teaches the reader a symbol the map does not use. */
 .legend i.sw{display:inline-block; flex:0 0 auto; border-radius:50%; box-sizing:border-box}
+/* The access pin. A square, drawn to the same weights as the circles beside
+   it so it reads as a member of the same family and not as a bug. */
+.accesspin{box-sizing:border-box; border:2px solid #9BD98C; background:#0D1A19}
+.legend i.sw.sq{border-radius:0}
 .legend .keyhead{display:flex; align-items:center; gap:.5rem; justify-content:space-between}
 .legend .keyhead button{border:0; padding:0 .2rem; min-height:22px; color:var(--mute);
   background:none; font-size:.7rem; line-height:1}
@@ -623,7 +641,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.1.0';
+var VERSION = '1.6.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2005,10 +2023,14 @@ var RIB = { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:fal
    So rows shrink to fit a share of the viewport, and below a floor where a
    dot and its figure no longer fit, the ribbon is not drawn at all: a floor
    that exceeds the space available is just the next fixed size that fails. */
-function ribbonMetrics(W, rowCount, budget){
+function ribbonMetrics(W, rowCount, budget, tidal){
   var n = W < 620;
   var m = n ? { rowH:44, top:18, foot:24, dot:5, fig:10, name:10, note:8, narrow:true }
             : { rowH:52, top:24, foot:30, dot:6, fig:11, name:11, note:9, narrow:false };
+  /* The tide key sits above the temperature ramp, so the foot has to hold
+     both. Reserved only when a tidal river is actually drawn — the ribbon
+     showing the Feather alone has no wash on it and owes no room for one. */
+  if (tidal) m.foot += 16;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
@@ -2018,62 +2040,119 @@ function ribbonMetrics(W, rowCount, budget){
   RIB = m;
 }
 
-function ribbonRow(g, river, rows, x0, x1, y, showName){
+/* HOW MUCH RIVER A BAR COVERS, IN METRES.
+
+   Every bar used to be stretched to the same width whatever distance it
+   spanned, which is the one thing four stacked bars must not do: the reason
+   they are stacked is to be compared, and equal-length bars say the four
+   rivers are the same length. They are not. This measures the span each bar
+   actually draws so they can share one scale.
+
+   Computed ONCE and handed to the drawing, rather than worked out again
+   there — a width and a position derived separately from the same numbers
+   are two chances to disagree. */
+function ribbonSpan(river, rows){
   var edge = river.tidal ? tidalEdge(river) : null;
-  rows = rows.filter(function(r){ return !r.context; });
-  var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
+  var pts = (rows || []).filter(function(r){
+    return !r.context && isNum(axisValue(river, r));
+  });
   var vals = pts.map(function(r){ return axisValue(river, r); });
+  if (edge) vals.push(edge.v);
   var lo, hi;
-  if (vals.length){
-    lo = Math.min.apply(null, vals); hi = Math.max.apply(null, vals);
-  } else { lo = 0; hi = 1; }
-  if (edge){ lo = Math.min(lo, edge.v); hi = Math.max(hi, edge.v); }
+  if (vals.length){ lo = Math.min.apply(null, vals); hi = Math.max.apply(null, vals); }
+  else { lo = 0; hi = 1; }
   if (hi - lo < 1e-6){ lo -= 0.05; hi += 0.05; }
   var pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  var metres = river.axis === 'lon'
+    ? metresBetween(river.center[0], lo, river.center[0], hi)
+    : metresBetween(lo, river.center[1], hi, river.center[1]);
+  return { lo:lo, hi:hi, metres:metres, edge:edge, plotted:pts.length };
+}
+
+/* THE ONLY FLOOR IS THE ONE THAT KEEPS A BAR DRAWABLE.
+   A minimum wide enough to look tidy is a minimum that overstates the length
+   of every short river, which is the defect this scale was introduced to fix.
+   So it is set to about what one dot needs and nothing more: a river whose
+   gauges are all in one place gets a stub, and a stub is the truth about it.
+   With the real gauge networks on these four rivers it does not bind. */
+var RIB_MIN_BAR = 28;
+
+function ribbonRow(g, river, rows, x0, x1, y, showName, span, W){
+  var edge = span.edge;
+
+  rows = rows.filter(function(r){ return !r.context; });
+  var pts = rows.filter(function(r){ return isNum(axisValue(river, r)); });
+  var lo = span.lo, hi = span.hi;
   var sx = function(v){ return x0 + (v - lo) / (hi - lo) * (x1 - x0); };
 
   /* the channel */
   g.appendChild(svg('rect', { x:x0, y:y-5, width:(x1-x0), height:10,
-    fill:'#16302e', stroke:'#1F5B57' }));
+    fill:'#16302e', stroke:'#1F5B57', 'pointer-events':'none' }));
 
-  /* tidal reach, fading out where the influence is said to stop */
+  /* THE TIDAL REACH IS A REGION WITH AN END, AND IT HAS TO LOOK LIKE ONE.
+
+     It used to be a cyan wash fading to nothing, over a channel whose own
+     fill is nearly the page's background — so it read as a soft gradient
+     that decorated the bar rather than as a marked stretch of river, and
+     nothing said where it stopped. The caption underneath was worse than
+     unhelpful: it sat under the fade with no mark to point at, so it named
+     nothing, and where it ran up against the right-hand edge it was anchored
+     to the end of the bar, where it read as labelling the end of the RIVER.
+
+     So: a flat wash at one opacity, so it is plainly a filled region; a
+     short fade only in the last stretch, because the limit is approximate
+     and a hard edge would claim a precision nobody has; and a dashed rule
+     standing at the limit with the label hung off it. The rule is the mark
+     the caption was always missing. */
   if (edge){
     var gid = 'tidegrad-' + river.id;
     var defs = svg('defs', {});
     var lg = svg('linearGradient', { id:gid, x1:'0', x2:'1', y1:'0', y2:'0' });
-    lg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
-    lg.appendChild(svg('stop', { offset:'.55', 'stop-color':'#7BD5D9', 'stop-opacity':'.28' }));
-    lg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+    lg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.62' }));
+    lg.appendChild(svg('stop', { offset:'.8', 'stop-color':'#7BD5D9', 'stop-opacity':'.58' }));
+    lg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'.2' }));
     defs.appendChild(lg); g.appendChild(defs);
     var tx = sx(edge.v);
     var left = Math.min(x0, tx), right = Math.max(x0, tx);
     g.appendChild(svg('rect', { x:left, y:y-5, width:Math.max(0, right-left),
-      height:10, fill:'url(#' + gid + ')' }));
-    /* Below the lower band of figures, not through it, and never past the
-       edge of the drawing — a caption clipped mid-word says less than no
-       caption, and the right-hand end of the ribbon is upstream. */
-    /* IT READ "tide to SACRAMENTO, SACRAMENTO RIVER". The station's own name is
-       a place and a river with a comma between them, so bolting it onto "tide
-       to" produced a caption that parses as nowhere. What this mark actually
-       says is how far up the river the tide is predicted to reach, and the
-       station's name belongs in the tide panel where there is room to say
-       whose it is. */
-    var text = RIB.narrow ? 'tide reaches about here'
-                          : 'tide is predicted about this far up';
+      height:10, fill:'url(#' + gid + ')', 'pointer-events':'none' }));
+
+    /* The mark itself: a dashed rule through the channel and a little past
+       it, so it is visible against both the wash and the bare bar. */
+    var tickTop = y - 9, tickBot = y + 9;
+    g.appendChild(svg('line', { x1:tx, x2:tx, y1:tickTop, y2:tickBot,
+      stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
+      'stroke-linecap':'round', 'pointer-events':'none' }));
+
+    /* THE LABEL HANGS OFF THE MARK, and the leader is what makes that true
+       even when the words have to shuffle sideways to stay on the drawing.
+       Anchoring the text to the end of the bar without a leader is how it
+       came to look like a label for the end of the bar. */
+    var text = RIB.narrow ? 'tide to here' : 'tide reaches about here';
+    var ly = y + RIB.dot + (RIB.narrow ? 25 : 31);
     var half = text.length * RIB.note * 0.29;
     var anchor = 'middle', lx = tx;
-    if (tx + half > x1){ anchor = 'end'; lx = x1; }
-    else if (tx - half < x0){ anchor = 'start'; lx = x0; }
-    var lab = svg('text', { x:lx, y:y + RIB.dot + (RIB.narrow ? 25 : 31),
+    if (tx + half > x1){ anchor = 'end'; lx = Math.min(x1, tx + half); }
+    if (lx - (anchor === 'end' ? 2 * half : half) < x0){ anchor = 'start'; lx = x0; }
+    /* The horizontal run stops clear of the words. Level with them it read as
+       an underscore stuck to the front of the caption. */
+    g.appendChild(svg('path', {
+      d:'M' + tx + ' ' + tickBot + ' V' + (ly - RIB.note - 3) +
+        (Math.abs(lx - tx) > 1 ? ' H' + lx : ''),
+      fill:'none', stroke:'#4E7C7A', 'stroke-width':'1', 'pointer-events':'none' }));
+    var lab = svg('text', { x:lx, y:ly, 'pointer-events':'none',
       fill:'#9FB3B1', 'font-size':String(RIB.note), 'text-anchor':anchor });
     lab.textContent = text;
     g.appendChild(lab);
   }
 
   if (showName){
-    var rn = svg('text', { x:6, y:y+4, fill:'#E6F0EF', 'font-size':String(RIB.name),
-      'font-weight':'600' });
-    rn.textContent = river.short;
+    /* CYAN, LIKE EVERY OTHER THING IN THIS APP YOU CAN PRESS, and with a
+       chevron after it. A row that opens a river and looks exactly like a
+       label is a row nobody presses. */
+    var rn = svg('text', { x:6, y:y+4, fill:'#7BD5D9', 'font-size':String(RIB.name),
+      'font-weight':'600', 'pointer-events':'none' });
+    rn.textContent = river.short + ' \u203a';
     g.appendChild(rn);
   }
 
@@ -2097,11 +2176,13 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
     ttl.textContent = (r.name || r.id) + (f === null ? ' — no temperature'
       : ' — ' + fmt(f,1) + 'F');
     c.appendChild(ttl);
+    /* The dot keeps its pointer events so the tooltip still works, so it has
+       to carry the same action or it would be a hole in the row. */
     g.appendChild(c);
     if (band){
       lastAt[band] = x;
       var t = svg('text', { x:x, y: high ? y - (RIB.dot + 5) : y + (RIB.dot + 13),
-        fill:'#E6F0EF', 'font-size':String(RIB.fig),
+        fill:'#E6F0EF', 'font-size':String(RIB.fig), 'pointer-events':'none',
         'text-anchor':'middle', 'font-family':'Georgia,serif', 'font-style':'italic' });
       t.textContent = f === null ? '—' : fmt(f,0);
       g.appendChild(t);
@@ -2110,7 +2191,7 @@ function ribbonRow(g, river, rows, x0, x1, y, showName){
   return pts.length;
 }
 
-function tempScale(g, x, y, w){
+function tempScale(g, x, y, w, tidal){
   var id = 'tempscale';
   var defs = svg('defs', {});
   var lg = svg('linearGradient', { id:id, x1:'0', x2:'1', y1:'0', y2:'0' });
@@ -2128,22 +2209,113 @@ function tempScale(g, x, y, w){
     g.appendChild(t);
   });
 
-  /* THE OTHER THING THIS DRAWING ENCODES, WHICH HAD NO KEY AT ALL. Part of
-     each tidal river's bar is washed in cyan, fading out where the tide's
-     influence is said to stop — and a reader looking at four bars, three of
-     them tinted differently, had nothing anywhere telling them why. A colour
-     that means something needs saying as much as the temperature ramp does. */
-  var ty = y + 26, tw = Math.min(w, 54);
+  /* THE OTHER THING THIS DRAWING ENCODES, AND ITS KEY WAS NEVER ON SCREEN.
+     Part of each tidal river's bar is washed in cyan and a reader had nothing
+     to look that up in — so it read as decoration, or as the bar simply being
+     a gradient. There WAS a swatch for it. It was drawn 26px below a ramp
+     that already sits 26px above the bottom edge, which put it exactly on the
+     boundary of the viewBox, outside the drawing, on every screen since it
+     was written. **A key that is clipped is a key that does not exist**, and
+     it is worse than none, because its presence in the source answers "have
+     we explained this" for everybody afterwards.
+     It is drawn ABOVE the ramp now, inside the box, and it carries the same
+     dashed rule the bar does so the two are recognisably the same mark. */
+  if (!tidal) return;
+  var ty = y - 14, tw = Math.min(w, 54);
   var tid = 'tidekey';
   var tg = svg('linearGradient', { id:tid, x1:'0', x2:'1', y1:'0', y2:'0' });
-  tg.appendChild(svg('stop', { offset:'0',  'stop-color':'#7BD5D9', 'stop-opacity':'.55' }));
-  tg.appendChild(svg('stop', { offset:'1',  'stop-color':'#7BD5D9', 'stop-opacity':'0' }));
+  tg.appendChild(svg('stop', { offset:'0',   'stop-color':'#7BD5D9', 'stop-opacity':'.62' }));
+  tg.appendChild(svg('stop', { offset:'.8', 'stop-color':'#7BD5D9', 'stop-opacity':'.58' }));
+  tg.appendChild(svg('stop', { offset:'1',   'stop-color':'#7BD5D9', 'stop-opacity':'.2' }));
   defs.appendChild(tg);
   g.appendChild(svg('rect', { x:x, y:ty, width:tw, height:8,
     fill:'url(#'+tid+')', stroke:'#1F5B57' }));
-  var tl = svg('text', { x:x + tw + 6, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
-  tl.textContent = 'tidal — the tide reaches this far up';
+  g.appendChild(svg('line', { x1:x + tw, x2:x + tw, y1:ty - 3, y2:ty + 11,
+    stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
+    'stroke-linecap':'round' }));
+  /* SHORT ENOUGH TO FIT INSIDE THE RAMP'S OWN WIDTH. The first wording ran
+     past the right-hand edge and came out as "to the dashed m", which is the
+     same defect as the clipped swatch one line up — the drawing does not
+     scroll, so anything wider than it is simply lost. The dashed rule on the
+     swatch is the same mark that stands on the bars, so it does the pointing
+     and the words do not have to. */
+  var tl = svg('text', { x:x + tw + 8, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
+  tl.textContent = 'tidal reach';
   g.appendChild(tl);
+}
+
+/* PRESSING A RIVER OPENS IT.
+
+   Four rivers across the top of the landing page, the most prominent thing on
+   the screen, and pressing one did nothing — the ways in were a select menu in
+   the header and a card further down. A row plainly ABOUT a river that does
+   nothing when pressed is the pin-too-small defect wearing a different coat:
+   the reader tries it, nothing happens, and they file the whole strip under
+   decoration.
+
+   These are HTML buttons positioned over the drawing, not shapes inside it.
+   The first version put a focusable rect in the SVG and it was wrong for a
+   reason worth writing down: the drawing is `role="img"` with a written
+   description, and a role="img" PRUNES ITS SUBTREE from the accessibility
+   tree. A control inside it is unreachable to a screen reader no matter how
+   correctly it is marked up — present, correct, and invisible, which is this
+   project's most familiar shape of defect.
+
+   The row is 52px on a desktop and 44 on a phone. On a very short screen the
+   ribbon shrinks its rows and these shrink with them, which is deliberate
+   rather than overlooked: the cards under "Which river" are the full-sized
+   route and are always there. */
+function riverHits(list, host, x0, top, rowH){
+  var wrap = document.getElementById('ribbonwrap');
+  var old = document.getElementById('riverhits');
+  if (old) old.parentNode.removeChild(old);
+  /* Nothing to choose between when the ribbon is showing one river. */
+  if (!wrap || list.length < 2) return;
+
+  /* AN SVG ELEMENT HAS NO offsetTop. `offsetTop` and `offsetLeft` are
+     HTMLElement properties; on an SVG they are undefined, so the first version
+     set the overlay's position to the string "undefinedpx", the browser
+     discarded it, and four full-width buttons came to rest three hundred
+     pixels down the page on top of the map. Three of the four still opened a
+     river when driven by their own bounding box, which is why this had to be
+     measured rather than looked at. Rectangles, then. */
+  var hr = host.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  /* An absolutely positioned child is placed against the padding box of its
+     containing block, and it scrolls with the content, so the offset wanted is
+     a content-space one. */
+  var offTop  = hr.top  - wr.top  - wrap.clientTop  + wrap.scrollTop;
+  var offLeft = hr.left - wr.left - wrap.clientLeft + wrap.scrollLeft;
+  /* The drawing is authored at 1:1, but CSS gives it width:100% and a
+     min-width, so a container narrower than that renders it at another size.
+     Take the scale off the rendered box rather than assuming it. */
+  var drawnH = parseFloat(host.getAttribute('height')) || hr.height;
+  var scale = hr.height / drawnH;
+
+  var box = document.createElement('div');
+  box.id = 'riverhits';
+  box.style.top = offTop + 'px';
+  box.style.left = offLeft + 'px';
+  box.style.width = hr.width + 'px';
+  box.style.height = hr.height + 'px';
+
+  list.forEach(function(river, i){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'riverhit';
+    b.style.top = Math.round((top + i * rowH - rowH / 2) * scale) + 'px';
+    b.style.height = Math.round(rowH * scale) + 'px';
+    /* The name is drawn in the picture, which the reader can see and a screen
+       reader cannot, so the button carries its own. */
+    b.appendChild(el('span', { class:'vh', text:'Open the ' + river.name }));
+    b.addEventListener('click', function(){
+      var sel = document.getElementById('riverpick');
+      if (sel) sel.value = river.id;
+      selectRiver(river.id);
+      announce('Opened the ' + river.name + '.');
+    });
+    box.appendChild(b);
+  });
+  wrap.appendChild(box);
 }
 
 function drawRibbon(again){
@@ -2181,7 +2353,21 @@ function drawRibbon(again){
     budget = Math.round((window.innerHeight || 800) * 0.32) - extra
              - (again && isNum(again) ? again : 0);
   }
-  ribbonMetrics(W, list.length, budget);
+  /* ONE SCALE FOR ALL FOUR, measured before anything is drawn. Every bar used
+     to be stretched to the same width whatever distance it covered, which is
+     the one thing four stacked bars must not do: the reason they are stacked
+     is to be compared, and equal bars say the four rivers are equal lengths.
+     Measured first because the foot depends on whether any of them is tidal. */
+  var spans = list.map(function(river){
+    return ribbonSpan(river, ((state.gauges[river.id] || {}).rows) || []);
+  });
+  var maxM = 0, anyTidal = false;
+  spans.forEach(function(sp){
+    if (!sp) return;
+    if (sp.metres > maxM) maxM = sp.metres;
+    if (sp.edge) anyTidal = true;
+  });
+  ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
   wrap.hidden = !!RIB.tooTight;
   if (RIB.tooTight) return;
@@ -2194,12 +2380,19 @@ function drawRibbon(again){
   var g = svg('g', {});
   var plotted = 0, missing = 0;
 
+  /* Room for the longest river name at the weight it is drawn in. At 74 the
+     bold "Sacramento" ended a few pixels INSIDE the left cap of its own bar. */
+  var x0 = list.length > 1 ? (RIB.narrow ? 86 : 96) : 30;
+  var full = (W - 20) - x0;
+
   list.forEach(function(river, i){
     var payload = state.gauges[river.id];
     var rows = (payload && payload.rows) || [];
     var onRiver = rows.filter(function(r){ return !r.context; });
-    var n = ribbonRow(g, river, rows, list.length > 1 ? (RIB.narrow ? 74 : 96) : 30,
-                      W - 20, top + i * rowH, list.length > 1);
+    var sp = spans[i];
+    var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
+    var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
+    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W);
     plotted += n;
     missing += onRiver.length - n;
   });
@@ -2207,14 +2400,26 @@ function drawRibbon(again){
      right-hand edge it was simply invisible, and it is the key to every
      colour above it. */
   tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
-            RIB.narrow ? 104 : 170);
+            RIB.narrow ? 104 : 170, anyTidal);
   host.appendChild(g);
+  riverHits(list, host, x0, top, rowH);
 
+  /* THE SHORT NOTE HAS TO CARRY THE SCALE TOO. Bars of visibly different
+     lengths with nothing saying why is the same defect as the wash with no
+     key: the phone reader is the one who most needs telling, and was the one
+     told least. */
+  /* AND IT SAYS THE ROWS CAN BE PRESSED. A control nobody knows about is the
+     same as no control, and a row that opens a river looks like a chart. */
+  var tapHint = state.riverId ? '' : (RIB.narrow ? 'Tap a river to open it. '
+                                                 : 'Press a river to open it. ');
   var note = RIB.narrow
-    ? 'Downstream left. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
-    : 'Downstream on the left; ' +
+    ? tapHint + 'Downstream left' +
+      (state.riverId ? '' : '; one distance scale, longest ' + Math.round(maxM / 1000) + ' km') +
+      '. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
+    : tapHint + 'Downstream on the left; ' +
       (state.riverId ? byId(state.riverId).axisLabel
-                     : 'each river on its own axis, one temperature scale') + '. ' +
+                     : 'all rivers to one distance scale — the longest bar is ' +
+                       Math.round(maxM / 1000) + ' km — and one temperature scale') + '. ' +
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
   $('#ribbonnote').textContent = note + '.';
@@ -2317,11 +2522,61 @@ function labelNode(name, values, sub){
  * applied the moment the map is real. Everything that moves the map goes
  * through here.
  */
-function mapView(to, opts){
+/* WHERE THE MAP IS LOOKING BELONGS TO THE READER, AND THE LAST WORD IS THEIRS.
+   Pressing "Profile down the river itself" starts a fetch. On a slow signal
+   that fetch lands seconds later, and when it did it fitted the map to the
+   whole surveyed run — over the top of wherever the reader had gone in the
+   meantime. Press it, then press "Back to me", and the map arrived at you and
+   was then dragged away again to a stretch of river fifty miles off, with
+   nothing on screen explaining why.
+
+   A CLAIM, NOT A CLOCK. A time window would have to guess how slow the signal
+   is. This counts instead: every view the reader asks for takes the next
+   number, and a background task that captured an older one has been overruled
+   and says nothing. */
+function claimView(){
+  state.viewClaim = (state.viewClaim || 0) + 1;
+  return state.viewClaim;
+}
+
+/* AN ANIMATION IS FOR A MOVE THE EYE CAN FOLLOW, AND NOTHING ELSE.
+
+   Leaflet refuses to animate a pan longer than the window — its own source
+   says Chrome loses the tiles and puts the map in the wrong place — but that
+   guard is switched off by asking for `animate: true`, which is exactly what
+   every call here did. So "Back to me", pressed after panning off to look at a
+   surveyed reach, asked for a smooth pan of some hundreds of thousands of
+   pixels in a quarter of a second. The map did not arrive. It did not fail
+   either: it sat where it was, having been told to go, and the button read as
+   dead.
+
+   A move that starts off screen is a JUMP, and it always was — a
+   quarter-second smear across fifty miles shows the reader nothing they could
+   have followed. Animation is kept for the small moves it was meant for. */
+function viewIsNear(to){
+  var b = state.map.getBounds();
+  if (to && typeof to.getNorth === 'function') return b.contains(to);
+  return b.contains(L.latLng(to[0]));
+}
+
+function mapView(to, opts, claim){
   if (!state.map) return;
+  if (claim == null) claim = claimView();
+  else if (claim !== state.viewClaim) return;   /* the reader has moved on */
   var sz = state.map.getSize();
   if (!sz.x || !sz.y){ state.pendingView = { to:to, opts:opts }; return; }
   state.pendingView = null;
+  /* AN OPEN POPUP TETHERS THE MAP TO WHERE IT IS ANCHORED. Leaflet re-pans to
+     keep a popup in view whenever the view resets, so pressing a pin and then
+     "Back to me" arrived at you and was hauled straight back to the pin — the
+     button looked broken, and the reason was a label two hundred miles away
+     insisting on staying visible. A popup describes the place you are leaving,
+     so leaving closes it. */
+  state.map.closePopup();
+  if (opts && opts.animate && !viewIsNear(to)){
+    opts = Object.keys(opts).reduce(function(o, k){ o[k] = opts[k]; return o; }, {});
+    opts.animate = false;
+  }
   if (to && typeof to.getNorth === 'function') state.map.fitBounds(to, opts);
   else state.map.setView(to[0], to[1], opts);
 }
@@ -2431,6 +2686,11 @@ function initMap(){
        and a depth popup opening over the second tap would be the app talking
        across the reader. */
     if (state.profArm) return profilePoint(e.latlng.lat, e.latlng.lng);
+    /* A NEAR MISS ON A PIN IS A PRESS ON THAT PIN, NOT A QUESTION ABOUT THE
+       WATER UNDER IT. This handler only runs when Leaflet found no layer to
+       give the tap to — which is to say, only when the finger missed. */
+    var pin = nearestPin(e.latlng);
+    if (pin) return pin.openPopup();
     showDepthAt(e.latlng.lat, e.latlng.lng);
   });
   m.on('moveend', function(){
@@ -2649,8 +2909,11 @@ function drawHere(recentre){
 
   if (recentre){
     if (tabNames().indexOf('map') !== -1) selectTab('map');
-    if (ring) state.map.fitBounds(ring.getBounds(), { maxZoom:15, animate:!reduceMotion });
-    else state.map.setView([h.lat, h.lon], 14, { animate:!reduceMotion });
+    /* THROUGH mapView, LIKE EVERY OTHER MOVE. Calling the map directly skips
+        the guard that refuses to animate a jump longer than the window, and
+        skips the one that defers a view asked for while the map is hidden. */
+    if (ring) mapView(ring.getBounds(), { maxZoom:15, animate:!reduceMotion });
+    else mapView([[h.lat, h.lon], 14], { animate:!reduceMotion });
   }
 
   /* SAY WHERE YOU ARE RELATIVE TO THE THING ON SCREEN. Centring the map on a
@@ -3044,7 +3307,7 @@ function gaugeRow(r){
     go.textContent = 'Map';
     go.addEventListener('click', function(){
       if (tabNames().indexOf('map') !== -1) selectTab('map');
-      state.map.setView([r.lat, r.lon], 14, { animate:!reduceMotion });
+      mapView([[r.lat, r.lon], 14], { animate:!reduceMotion });
       announce('Map centred on ' + (r.name || r.id) + '.');
     });
     name.appendChild(go);
@@ -3223,7 +3486,7 @@ function tideSection(river){
     var sgo = el('button',{type:'button',text:'Show this station on the map'});
     sgo.addEventListener('click', function(){
       if (tabNames().indexOf('map') !== -1) selectTab('map');
-      state.map.setView([st.lat, st.lon], 13, { animate:!reduceMotion });
+      mapView([[st.lat, st.lon], 13], { animate:!reduceMotion });
       announce('Map centred on ' + (st.name || st.id) + '.');
     });
     srow.appendChild(sgo);
@@ -3342,6 +3605,33 @@ function appendBasemap(p){
     p.appendChild(el('div',{class:'warnbox', text:state.basemapError}));
 }
 
+/* A PANEL THAT EXPLAINS ITSELF BEFORE IT DOES ANYTHING IS A PANEL NOBODY
+   REACHES THE BOTTOM OF.
+
+   Every section here was a heading, then two or three paragraphs of what the
+   thing is and where its data comes from, and only then the button that does
+   it. All of it true and none of it deletable — the provenance and the
+   caveats are half of what makes this app worth trusting. But stacked in
+   front of the controls it pushed the rest of the panel off the screen, and
+   the reader who wanted the second control never learnt there was one.
+
+   So the order inverts: the control first, the one fact that answers "why is
+   there nothing here" beside it, and everything else behind a summary that
+   says what it holds. Nothing is removed and nothing is shortened; it is one
+   press away instead of four paragraphs in the way. The pattern is the one
+   already used for the tide-station box, so the panel has one idiom rather
+   than two. */
+function foldNote(sumText, texts){
+  var d = el('details',{class:'foldbox'});
+  var sum = el('summary',{});
+  sum.appendChild(el('b',{text:sumText}));
+  d.appendChild(sum);
+  var body = el('div',{class:'foldbody'});
+  texts.forEach(function(t){ body.appendChild(el('p',{class:'note',text:t})); });
+  d.appendChild(body);
+  return d;
+}
+
 function renderLayers(){
   var p = $('#panel-layers'); p.innerHTML = '';
 
@@ -3388,17 +3678,19 @@ function renderLayers(){
   whereRow.appendChild(whereBtn);
   p.appendChild(whereRow);
   var nSurveys = surveysForRiver(river).length;
+  /* THIS ONE STAYS IN THE OPEN. It is the answer to the question this app is
+     asked most — why is there no depth where I am — and it is one line. */
   p.appendChild(el('p',{class:'note',
     text: nSurveys
       ? 'The state has surveyed ' + nSurveys + ' reach(es) of the ' + river.name +
-        ', and nothing else. Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.'
-      : 'No published multibeam survey has arrived for the ' + river.name + ' yet. That is not the same as there being none \u2014 it means nothing has answered.'}));
+        ', and nothing else.'
+      : 'No published multibeam survey has arrived for the ' + river.name + ' yet.'}));
+  p.appendChild(foldNote(nSurveys ? 'How to see what is covered' : 'What that does and does not mean',
+    nSurveys
+      ? ['Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.']
+      : ['That is not the same as there being none \u2014 it means nothing has answered.']));
 
   p.appendChild(el('h2',{class:'sec',text:'Depth along a line — the profile'}));
-  p.appendChild(el('p',{class:'note',
-    text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
-  p.appendChild(el('p',{class:'note',
-      text:'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.'}));
   var profRow = el('div',{class:'rowline'});
   if (state.profArm){
     profRow.appendChild(el('b',{text: state.profArm.length
@@ -3446,10 +3738,11 @@ function renderLayers(){
     }
   }
   p.appendChild(profRow);
+  p.appendChild(foldNote('What a profile is, and whose line it follows', [
+    'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.',
+    'The river\u2019s own line comes from the USGS national hydrography, baked into this build \u2014 no coordinate down the middle of these rivers was invented here. It follows the main stem, so where a river forks the app takes the longer channel and leaves the other alone rather than drawing a line between two waters that do not meet. Depth only exists where the state has surveyed, so profiling the river gives you the longest surveyed stretch of it, and says which stretch that is.']));
 
   p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
   var centreRow = el('div',{class:'rowline'});
   var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
   centreBtn.addEventListener('click', function(){
@@ -3459,6 +3752,8 @@ function renderLayers(){
   });
   centreRow.appendChild(centreBtn);
   p.appendChild(centreRow);
+  p.appendChild(foldNote('What tapping the map gives you', [
+    'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.']));
 
   /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
      ONE. A point answers "how deep is it here"; a line answers where the
@@ -3513,9 +3808,10 @@ function renderLayers(){
 
   if (cat.unplaced.length){
     p.appendChild(el('h2',{class:'sec',text:'Could not be placed'}));
-    p.appendChild(el('p',{class:'note',
-      text:cat.unplaced.length + ' published survey' + (cat.unplaced.length===1?'':'s') +
-      ' report an extent in a projection this build does not convert, so they are not assigned to a river rather than assigned to the wrong one. Their names are in the diagnostic report.'}));
+    p.appendChild(foldNote(cat.unplaced.length + ' survey' +
+      (cat.unplaced.length===1?'':'s') + ' this build cannot locate', [
+      cat.unplaced.length + ' published survey' + (cat.unplaced.length===1?'':'s') +
+      ' report an extent in a projection this build does not convert, so they are not assigned to a river rather than assigned to the wrong one. Their names are in the diagnostic report.']));
   }
 
   /* --- charts --- */
@@ -3524,21 +3820,23 @@ function renderLayers(){
     p.appendChild(el('p',{class:'note',
       text:'The chart tile path in this build did not return an image, so the toggle is not offered. The path is recorded in the README as unverified.'}));
   } else {
-    var crow = el('div',{class:'layer'});
+    var crow = el('div',{class:'rowline'});
     var cb = el('button',{type:'button','aria-pressed':state.layers.chart?'true':'false',
       text:'Show chart'});
     cb.addEventListener('click', function(){ toggleChart(cb); });
     crow.appendChild(cb);
-    crow.appendChild(el('p',{text:'Chart coverage of these waters ends upstream of about Verona; the limit is drawn on the map when the layer is on. Soundings on a chart are for navigation and this app is not.' +
-      (state.chartUsable === null ? ' The tile path has not been confirmed against the live service; the first time you switch it on, it checks.' : '')}));
     p.appendChild(crow);
+    p.appendChild(foldNote('Where the chart stops, and what it is for', [
+      'Chart coverage of these waters ends upstream of about Verona; the limit is drawn on the map when the layer is on. Soundings on a chart are for navigation and this app is not.' +
+      (state.chartUsable === null ? ' The tile path has not been confirmed against the live service; the first time you switch it on, it checks.' : '')]));
   }
 
-  p.appendChild(el('h2',{class:'sec',text:'Reading the gaps'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Single beam data are points along the boat’s track. The water between two tracks was never measured and is not drawn.'}));
+  /* The one section that is ONLY prose, so it becomes one fold rather than a
+     heading with two paragraphs under it. It stays where it is, immediately
+     after the surveys it is about. */
+  p.appendChild(foldNote('Reading the gaps — why parts of a survey are blank', [
+    'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.',
+    'Single beam data are points along the boat\u2019s track. The water between two tracks was never measured and is not drawn.']));
 
   /* GETTING TO THE WATER. Depth is no use from a road you cannot stop on. */
   var sites = accessSites(river);
@@ -3548,8 +3846,10 @@ function renderLayers(){
       text:'CDFW publishes no land of its own within twelve kilometres of the ' +
         river.name + '. That is not the same as there being nowhere to fish from \u2014 it means the state does not own it.'}));
   } else {
+    /* THE ONE THAT MUST NOT FOLD. Calling these boat ramps is the mistake the
+       app exists to avoid making, so the denial stays on screen. */
     p.appendChild(el('p',{class:'note',
-      text:'These are CDFW\u2019s own lands within twelve kilometres of this river \u2014 places the department says the public may go, in its words, with a link to its page where it has one. THEY ARE NOT BOAT RAMPS: no published list of ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.'}));
+      text:'CDFW\u2019s own lands within twelve kilometres of this river. THEY ARE NOT BOAT RAMPS.'}));
     var accRow = el('div',{class:'rowline'});
     var accBtn = el('button',{type:'button',
       'aria-pressed': state.showAccess === false ? 'false' : 'true',
@@ -3561,6 +3861,9 @@ function renderLayers(){
     });
     accRow.appendChild(accBtn);
     p.appendChild(accRow);
+    p.appendChild(foldNote('What these places are, and what they are not', [
+      'These are places the department says the public may go, in its words, with a link to its page where it has one.',
+      'No published list of boat ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
 
     var ul = el('ul',{class:'tight'});
     sites.slice(0, 12).forEach(function(site){
@@ -3572,7 +3875,7 @@ function renderLayers(){
         'aria-label':'Show ' + site.name + ' on the map', text:'Map'});
       go.addEventListener('click', function(){
         if (tabNames().indexOf('map') !== -1) selectTab('map');
-        state.map.setView([site.lat, site.lon], 13, { animate:!reduceMotion });
+        mapView([[site.lat, site.lon], 13], { animate:!reduceMotion });
         announce('Map centred on ' + site.name + '.');
       });
       li.appendChild(go);
@@ -3838,9 +4141,13 @@ function updateLegend(){
       style:'width:16px;height:0;border-radius:0;border:0;border-top:3px solid #F2A65A'});
     rows.push(keyRow(pl, 'The line the depth below is measured along'));
   }
-  if (state.accessLayer && state.accessLayer.getLayers().length)
-    rows.push(keyRow(swatch(5, 2, '#9BD98C', '#0D1A19'),
-      'Public land — CDFW says you may go'));
+  if (state.accessLayer && state.accessLayer.getLayers().length){
+    /* THE KEY HAS TO CARRY THE SHAPE. A round swatch beside a square pin is a
+       key that describes a map other than the one on screen. */
+    var ap = swatch(6, 2, '#9BD98C', '#0D1A19');
+    ap.className = 'sw sq';
+    rows.push(keyRow(ap, 'Public land — CDFW says you may go'));
+  }
   if (state.surveyLayer && state.surveyLayer.getLayers().length){
     var sq = el('i',{class:'sw',
       style:'width:14px;height:10px;border-radius:0;border:1px dashed #7BD5D9;background:rgba(123,213,217,.08)'});
@@ -4002,7 +4309,7 @@ function renderMarks(){
           'aria-label':'Show ' + river.name + ' and centre on this mark'});
         go.addEventListener('click',function(){
           selectRiver(river.id);
-          state.map.setView([m.lat,m.lon], 15);
+          mapView([[m.lat, m.lon], 15]);
           selectTab('map');
         });
         r.appendChild(go);
@@ -4059,7 +4366,7 @@ function renderMarks(){
         (m.depthAway ? ', measured ' + m.depthAway + ' m away' : '') + ', as published'}));
     r.appendChild(g);
     var go = el('button',{type:'button',text:'Go','aria-label':'Centre map on this mark'});
-    go.addEventListener('click',function(){ state.map.setView([m.lat,m.lon], 15); });
+    go.addEventListener('click',function(){ mapView([[m.lat, m.lon], 15]); });
     r.appendChild(go);
     var del = el('button',{type:'button',text:'Delete','aria-label':'Delete this mark'});
     del.addEventListener('click',function(){
@@ -4364,6 +4671,10 @@ function selectRiver(id){
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
     mapView([river.center, river.zoom]);
+    /* The centreline is what lets a tap be understood as a question about the
+       river, so it is fetched when a river is chosen rather than on the first
+       tap — the landing still never pays for it. */
+    loadRiverLines().catch(function(){});
     loadMarks(river.id);
   } else {
     state.markLayer.clearLayers(); state.marks = [];
@@ -5764,9 +6075,19 @@ function drawAccessSites(){
   if (!state.riverId || state.showAccess === false) return;
   var river = byId(state.riverId);
   accessSites(river).forEach(function(s){
-    L.circleMarker([s.lat, s.lon], {
-      pane:'accesspane', radius:5, weight:2,
-      color:'#9BD98C', fillColor:'#0D1A19', fillOpacity:.9
+    /* A SQUARE, NOT A CIRCLE — and the shape is the point, not the colour.
+       These were a green ring on a dark fill and an idle tide station is a
+       teal ring on a dark fill, at five pixels' radius, on a phone, outdoors.
+       They were reported as looking the same, and they do. Hue alone would
+       not have fixed it either: it is the one cue a colour-blind reader does
+       not get, and the one sunlight takes first.
+       A square is also the truer shape. A tide station is a point where a
+       measurement is taken; a public access site is a PROPERTY, an area you
+       may stand in, and the pin is its middle rather than a spot on the
+       bank. */
+    L.marker([s.lat, s.lon], {
+      pane:'accesspane', keyboard:false,
+      icon: L.divIcon({ className:'accesspin', html:'', iconSize:[12,12] })
     }).bindPopup(labelNode(s.name,
       [[String(s.km), 'km to the river']],
       s.type + '. ' + (s.access || 'CDFW does not say what the access is.') +
@@ -5905,10 +6226,12 @@ function crossSectionNow(river, lat, lon, halfWidthM){
 
 function profileRiverLine(river){
   announce('Reading down the river…');
-  loadRiverLines().then(function(){ profileRiverNow(river); },
+  /* Taken NOW, at the press, and carried to the other side of the fetch. */
+  var claim = claimView();
+  loadRiverLines().then(function(){ profileRiverNow(river, claim); },
     function(){ announce('The river centrelines did not load, so the app cannot follow the river.'); });
 }
-function profileRiverNow(river){
+function profileRiverNow(river, claim){
   var line = riverLineFor(river.id);
   if (!line || line.length < 2){
     announce('This build carries no centreline for the ' + river.name + '.');
@@ -5928,10 +6251,10 @@ function profileRiverNow(river){
   }
   if (tabNames().indexOf('map') !== -1) selectTab('map');
   state.profWhole = run; state.profCross = null;
-  runProfile(run.pts);
+  runProfile(run.pts, claim);
 }
 
-function runProfile(pts){
+function runProfile(pts, claim){
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
@@ -5954,7 +6277,7 @@ function runProfile(pts){
   announce('Reading the bottom along your line.');
   renderLayers();
   updateLegend();   /* the line is on the map now, so the key must say what it is */
-  mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion });
+  mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion }, claim);
   buildProfile(pts).then(function(model){
     state.profile = model;
     state.profZoom = 1;
@@ -5968,13 +6291,126 @@ function runProfile(pts){
   });
 }
 
+/* =====================================================================
+   A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT.
+
+   Every pin on this map is drawn as a small circle: 13 px across for a public
+   access site, 11 for an idle tide station, 19 for the live one. Measured, by
+   walking out from each centre and asking the document what is on top. The
+   floor for something you press with a finger is 44.
+
+   That alone would only make them fiddly. What made it a defect worth a
+   report is WHAT A MISS DOES: the map's own click handler runs, and answers a
+   question about the depth of the water under the miss. So pressing a green
+   circle marked "places I can go" returned a depth — confidently, with a
+   sentence explaining how far the tap had been moved to get it — and the
+   circles read as decoration that does nothing.
+
+   THE FIX IS NOT A BIGGER CIRCLE. Drawing a 44 px transparent disc under every
+   pin would blanket a zoomed-out map with sixty tide stations and thirty
+   access sites, and the depth tap — the thing this app is for — would stop
+   working. The tap is resolved in code instead: the nearest pin within a
+   finger's width wins, and if none is near, the water gets the tap as before.
+   That also lets NEAREST win rather than whichever path happened to paint
+   last, which is what a stack of transparent discs would have given.
+
+   Soundings are deliberately not in this list. There are hundreds of them,
+   three pixels apart in places, and rescuing a near miss there would mean no
+   tap ever reached the water again. They are dense enough to hit directly. */
+var TOUCH_SLOP = 22;   /* half of the 44 px floor: the visible dot covers the rest */
+
+/* Highest precedence first, and it is the SAME order the panes already
+   encode — a reading wins over a station, a station over a footprint. Rank
+   only breaks a tie; a genuinely nearer pin wins regardless of what it is. */
+function pinLayers(){
+  return [[state.gaugeLayer, 0], [state.markLayer, 0], [state.hereLayer, 1],
+          [state.tideLayer, 2], [state.accessLayer, 3]];
+}
+
+function nearestPin(latlng){
+  if (!state.map) return null;
+  var origin = state.map.latLngToContainerPoint(latlng);
+  var best = null;
+  pinLayers().forEach(function(pair){
+    var layer = pair[0], rank = pair[1];
+    if (!layer || !layer.eachLayer) return;
+    layer.eachLayer(function(m){
+      /* A POPUP IS WHAT MAKES A THING TAPPABLE. Lines, accuracy rings and the
+         profile drawing have none, and must not swallow a press. */
+      if (!m.getLatLng || !m.getPopup || !m.getPopup()) return;
+      var d = origin.distanceTo(state.map.latLngToContainerPoint(m.getLatLng()));
+      if (d > TOUCH_SLOP) return;
+      if (!best || d < best.d - 0.5 ||
+          (Math.abs(d - best.d) <= 0.5 && rank < best.rank))
+        best = { m:m, d:d, rank:rank };
+    });
+  });
+  return best && best.m;
+}
+
+/* =====================================================================
+   A TAP BELONGS ON THE WATER.
+
+   Depth is a property of a river, and a finger on a phone is not a precise
+   instrument — so a tap that lands in an orchard beside the Sacramento was
+   being answered as a serious question about the depth of an orchard. It is
+   not one, and the honest answer to it is not a paragraph about weed.
+
+   The centreline is already baked in, so the app can do what a person would:
+   take a tap near the river as meaning the river, and a tap nowhere near it as
+   not being about the river at all.
+
+   THE SNAP IS ALWAYS SAID OUT LOUD. Moving somebody's question without telling
+   them is worse than refusing it — they asked about one place and would be
+   reading the answer for another. */
+var SNAP_TAKE_M = 120;    /* inside this, the tap is taken as given */
+var SNAP_MAX_M  = 1500;   /* beyond this, it is not a question about the river */
+
+function snapToRiver(lat, lon){
+  if (!state.riverId) return { at:[lat, lon], moved:0 };
+  var line = riverLineFor(state.riverId);
+  /* Without the centreline loaded there is nothing to snap to, and guessing
+     would be worse than leaving the tap where it fell. */
+  if (!line || line.length < 2) return { at:[lat, lon], moved:0 };
+  var n = nearestOnLine(line, lat, lon);
+  if (!n) return { at:[lat, lon], moved:0 };
+  if (n.off > SNAP_MAX_M) return { tooFar:true, away:n.off, at:[lat, lon] };
+  if (n.off <= SNAP_TAKE_M) return { at:[lat, lon], moved:0 };
+  return { at:line[n.i], moved:n.off };
+}
+
 /* The reading, as a label on the map where the finger is. */
 function showDepthAt(lat, lon){
   if (!state.map) return;
-  var pop = L.popup(LABEL).setLatLng([lat, lon])
-    .setContent(depthNode({ loading:true }, lat, lon)).openOn(state.map);
-  depthAt(lat, lon).then(function(res){
-    pop.setContent(depthNode(res, lat, lon));
+  var snap = snapToRiver(lat, lon);
+
+  if (snap.tooFar){
+    var away = L.popup(LABEL).setLatLng([lat, lon]).openOn(state.map);
+    var box = el('div',{});
+    box.appendChild(el('span',{class:'pop-name',text:'Not on the river'}));
+    box.appendChild(el('p',{class:'note',
+      text:'That is ' + kmText(snap.away) + ' from the ' + byId(state.riverId).name +
+        '. Depth belongs to the river, so there is nothing to read there \u2014 and this app did not ask, rather than asking a question about a field.'}));
+    box.appendChild(el('p',{class:'note',
+      text:'Nothing you did wrong. Tap on the water and it will read the survey; a tap near the bank is taken as meaning the river.'}));
+    var r = el('div',{class:'rowline'});
+    var b2 = el('button',{type:'button',text:'Take me to the surveyed water'});
+    b2.addEventListener('click', function(){
+      state.map.closePopup(); goToDepth(byId(state.riverId));
+    });
+    r.appendChild(b2);
+    box.appendChild(r);
+    away.setContent(box);
+    announce('That is ' + kmText(snap.away) + ' from the river, so there is no depth to read there. Tap on the water.');
+    return;
+  }
+
+  var at = snap.at;
+  var pop = L.popup(LABEL).setLatLng(at)
+    .setContent(depthNode({ loading:true }, at[0], at[1])).openOn(state.map);
+  depthAt(at[0], at[1]).then(function(res){
+    res.snapped = snap.moved || 0;
+    pop.setContent(depthNode(res, at[0], at[1]));
     pop.update();
     announce(depthSentence(res));
   });
@@ -5985,13 +6421,19 @@ function showDepthAt(lat, lon){
    ear gets this sentence and nothing else. */
 function depthSentence(res){
   if (res.loading) return 'Asking the survey how deep it is here.';
-  if (res.failed)  return 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
-  if (res.none === 'nocatalog') return 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
-  if (res.none === 'nowhere') return 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
+  /* THE SNAP IS A PREFIX, NOT A BRANCH. It happened before the question was
+     asked, so it is true of every answer that follows — and written as its own
+     branch it swallowed the ones underneath it. */
+  var moved = res.snapped
+    ? 'Your tap was ' + fmt(res.snapped, 0) + ' metres off the river, so it was read on the water. '
+    : '';
+  if (res.failed)  return moved + 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
+  if (res.none === 'nocatalog') return moved + 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
+  if (res.none === 'nowhere') return moved + 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
   if (res.none === 'notmeasured')
-    return 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
+    return moved + 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
       ' metres of it. Nothing you did wrong. A spot nearer the middle of the channel usually has a reading.';
-  return fmt(Math.abs(res.value), 1) + ' feet ' +
+  return moved + fmt(Math.abs(res.value), 1) + ' feet ' +
     (res.value <= 0 ? 'deep' : 'ABOVE the survey datum — bank, not bottom') +
     (res.exact ? ' here' : ', ' + fmt(res.away, 0) + ' metres away') + '.';
 }
@@ -5999,6 +6441,17 @@ function depthSentence(res){
 function depthNode(res, lat, lon){
   var box = el('div',{});
   box.appendChild(el('span',{class:'pop-name',text:'Depth here'}));
+
+  /* MOVING SOMEBODY'S QUESTION WITHOUT SAYING SO IS WORSE THAN REFUSING IT —
+     and it is said HERE, above every branch, rather than beside the number.
+     Written down there it appeared only when there was a depth to show, so a
+     tap that was moved onto unsurveyed water read as the app failing at the
+     spot the reader picked, which is not where it looked. */
+  if (res.snapped)
+    box.appendChild(el('p',{class:'note',
+      text:'Your tap landed ' + fmt(res.snapped, 0) + ' m off the ' +
+        (state.riverId ? byId(state.riverId).name : 'river') +
+        ', so it was read on the water rather than on the bank.'}));
 
   /* EVERY ANSWER THAT IS NOT A DEPTH SAYS FOUR THINGS: what happened, whether
      the reader did anything wrong, what would have happened, and what to do
@@ -6101,6 +6554,32 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.6.0', date:'2026-08-31', changes:[
+      'Press a river\u2019s bar at the top of the page and it opens that river. The four bars are the most prominent thing on the landing screen and pressing one did nothing \u2014 the ways in were the menu in the header and a card further down. The whole row is the target, not just the bar, so it is a comfortable press with a thumb, and the names are cyan with a \u203a after them so it is clear they do something. The line underneath says so as well.',
+      'The gauge dots and the river names still say what they are; the row underneath them is what opens the river.',
+  ] },
+  { v:'1.5.0', date:'2026-08-31', changes:[
+      'The Depth tab does things before it explains them. Every section used to open with two or three paragraphs about what the thing is and where its data comes from, and put the button that does it underneath \u2014 so "Read the depth at the map centre" sat below the bottom of the screen, and if you did not scroll past the wall of text you never found out it was there. The controls are at the top of each section now.',
+      'None of that writing has gone. Where the numbers come from, what the state has not measured, why a patch of a survey is blank, and the fact that the public-land pins are not boat ramps \u2014 all still there, one press away behind a heading that says what it holds, instead of four paragraphs in the way. Measured: 1,277 characters of text stood between the top of the panel and the last depth control; now it is 265.',
+      'The one sentence that never folds is the one saying those places are NOT boat ramps.',
+  ] },
+  { v:'1.4.0', date:'2026-08-31', changes:[
+      'The four bars at the top are drawn to one distance scale, so their lengths mean something. Every bar used to be stretched to the full width whatever stretch of river it covered \u2014 which said the four rivers are the same length. They are not. The Sacramento now runs long and the others are as short as they actually are, and the line underneath says how long the longest one is.',
+      'The tide marking has an end you can see. It was a cyan wash fading away over a bar the colour of the background, so it looked like the bar was simply a gradient, and the caption under it sat pointing at nothing \u2014 worse, where it ran up against the right-hand edge it lined up with the end of the bar and read as labelling the end of the river. There is now a dashed rule standing at the limit, and the words hang off it on a leader so it is clear what they refer to.',
+      'The cyan has a key, and always should have. There was one written \u2014 it had been drawn just past the bottom edge of the picture since the day it was added, so nobody has ever seen it. It sits above the temperature scale now and carries the same dashed mark that stands on the bars.',
+      'On a phone the caption now says the bars share one distance scale too. It said so only on a wide screen, which left the reader with the least room seeing bars of wildly different lengths and nothing explaining why.',
+  ] },
+  { v:'1.3.0', date:'2026-08-31', changes:[
+      'The circles marking places you may go can be pressed. They were thirteen pixels across \u2014 the size a finger needs is forty-four \u2014 so a press usually missed, and a miss was not nothing: it went to the map underneath and came back with a depth. Pressing "places I can go" returned a depth reading, which is why the circles looked like they did nothing. A press within a finger\u2019s width of any pin now reaches that pin. Tide stations, gauges and your own marks were the same size and are fixed by the same change.',
+      'And they no longer look like tide stations. They were a green ring on a dark middle beside a teal ring on a dark middle, at five pixels\u2019 radius, outdoors. Public land is now drawn as a SQUARE and tide stations stay round, so the difference survives sunlight and does not depend on telling two colours apart. The key shows the square too.',
+      'Pressing a pin and then "Back to me" now takes you back. It used to arrive and immediately spring back to the pin, because the open label was holding the map to itself. Leaving somewhere closes the label for it.',
+      'Going somewhere far away arrives. A long jump was being asked to animate smoothly across the distance, which the map cannot do \u2014 so it simply stayed put, and the button read as broken. Long moves now jump and short ones still glide.',
+      'If you ask for the profile down the river and then go somewhere else while it loads, it no longer drags you back when it arrives. Whatever you asked for last is where you stay.',
+  ] },
+  { v:'1.2.0', date:'2026-08-31', changes:[
+      'A tap near the river is read on the river. Fingers are wide and rivers are narrow, so a tap that landed on the bank used to be answered honestly and uselessly \u2014 no survey there, because there is no survey on dry land. A tap within a mile and a half of the river now moves to the nearest point on the water and the app says how far it moved, so you can see it was your tap that was adjusted and not the depth.',
+      'A tap that is nowhere near the river is no longer treated as a question about the river. It says so, and offers to take you to the surveyed water rather than sending you a reading from open country.',
+  ] },
   { v:'1.1.0', date:'2026-08-30', changes:[
       'When tapping the map does not give you a depth, it now tells you what happened, whether you did anything wrong, and what to do about it. Before, it named the outcome and stopped \u2014 so tapping water the state has never surveyed produced a sentence about weed and no way to tell whether you had made a mistake, whether it would ever work, or where to tap instead. Tapping outside the surveyed reaches now says so plainly and offers to take you to water where it does work.',
       'You can trace the depth profile. Drag a finger along it and a mark moves along the line on the map, showing you where that deep bit actually is, with the depth the survey measured there. Where the survey measured nothing it says so rather than reading a number off the line.',

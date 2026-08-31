@@ -264,6 +264,205 @@ const note = await page.textContent('#ribbonnote');
 check('ribbon plots the gauges that had positions', /3 gauges plotted/.test(note), note);
 check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('#ribbon circle').length) === 3);
 
+/* --- THE ROWS OPEN THEIR RIVER -----------------------------------------
+   Four rivers across the top of the landing page, the most prominent thing on
+   the screen, and pressing one did nothing: the routes in were a select menu
+   in the header and a card further down. A row plainly ABOUT a river that does
+   nothing when pressed is the pin-too-small defect again — the reader tries
+   it, nothing happens, and concludes it is a picture. */
+const rows = await page.evaluate(() => {
+  const hits = [...document.querySelectorAll('#riverhits button')];
+  return hits.map(h => ({
+    label: h.textContent,
+    tabbable: !h.disabled,
+    h: Math.round(h.getBoundingClientRect().height),
+    named: h.textContent.trim().length > 8
+  }));
+});
+check('a single-river ribbon offers no row control — there is nothing to choose',
+  rows.length === 0, JSON.stringify(rows));
+
+/* And on the landing view, where there IS a choice. */
+await page.evaluate(() => {
+  const s = document.getElementById('riverpick');
+  s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(900);
+const all = await page.evaluate(() => {
+  const hits = [...document.querySelectorAll('#riverhits button')];
+  return { n: hits.length,
+    labelled: hits.every(h => /^Open the /.test(h.textContent || '')),
+    tabbable: hits.every(h => !h.disabled),
+    titled: hits.every(h => h.textContent.trim().length > 8),
+    tall: Math.min.apply(null, hits.map(h => Math.round(h.getBoundingClientRect().height))),
+    hint: document.getElementById('ribbonnote').textContent };
+});
+check('every river row is a control', all.n === 4, JSON.stringify(all));
+check('each one says which river it opens', all.labelled && all.titled, JSON.stringify(all));
+/* A REAL BUTTON, so Enter and Space come free and correct rather than being
+   re-implemented on a keydown listener. */
+check('each one is a real button and takes focus',
+  await page.evaluate(() => {
+    const hits = [...document.querySelectorAll('#riverhits button')];
+    if (!hits.every(h => h.tagName === 'BUTTON' && h.type === 'button')) return false;
+    hits[2].focus();
+    return document.activeElement === hits[2];
+  }));
+/* AND THEY ARE NOT INSIDE THE PICTURE. The first version drew focusable rects
+   into the SVG, which is role="img" — and a role="img" prunes its subtree from
+   the accessibility tree, so those controls were unreachable to a screen
+   reader however correct their markup. Present, correct and invisible. */
+check('no control is buried inside the figure, where nothing could reach it',
+  await page.evaluate(() => !document.querySelector(
+    '#ribbon button, #ribbon [role="button"], #ribbon [tabindex]')));
+check('and is tall enough to press with a finger', all.tall >= 44, all.tall + 'px');
+/* A control nobody knows about is the same as no control. */
+check('the note says the rows can be pressed', /ress a river|ap a river/.test(all.hint), all.hint);
+
+/* THE BUTTON SITS OVER THE BAR IT OPENS. An overlay is positioned by
+   arithmetic, and arithmetic against the wrong property is silent: the first
+   version used host.offsetTop, which does not exist on an SVG element, so the
+   four buttons came to rest three hundred pixels down the page over the map.
+   Three of the four still opened a river when driven by their own bounding
+   box, so only geometry against the DRAWING catches it. */
+check('each button lies over the bar it opens',
+  await page.evaluate(() => {
+    const bars = [...document.querySelectorAll('#ribbon rect')]
+      .filter(r => r.getAttribute('fill') === '#16302e');
+    const hits = [...document.querySelectorAll('#riverhits button')];
+    if (bars.length !== hits.length || !bars.length) return false;
+    return bars.every((bar, i) => {
+      const b = bar.getBoundingClientRect(), h = hits[i].getBoundingClientRect();
+      const mid = b.top + b.height / 2;
+      return mid >= h.top && mid <= h.bottom &&
+             h.left <= b.left + 1 && h.right >= b.right - 1;
+    });
+  }),
+  await page.evaluate(() => {
+    const bars = [...document.querySelectorAll('#ribbon rect')]
+      .filter(r => r.getAttribute('fill') === '#16302e')
+      .map(r => Math.round(r.getBoundingClientRect().top));
+    const hits = [...document.querySelectorAll('#riverhits button')]
+      .map(h => Math.round(h.getBoundingClientRect().top));
+    return 'bars at ' + bars.join(',') + ' · buttons at ' + hits.join(',');
+  }));
+
+/* THE PRESS LANDS ON THE ROW IT NAMES. Rows are stacked and adjacent, so an
+   off-by-one in the hit band would open the neighbour — and every label would
+   still be right. */
+for (const i of [0, 1, 2, 3]){
+  await page.evaluate(() => {
+    const s = document.getElementById('riverpick');
+    s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(700);
+  const shot = await page.evaluate((k) => {
+    const h = [...document.querySelectorAll('#riverhits button')][k];
+    const r = h.getBoundingClientRect();
+    return { x: r.x + r.width * 0.62, y: r.y + r.height / 2,
+             want: h.textContent };
+  }, i);
+  await page.mouse.click(shot.x, shot.y);
+  await page.waitForTimeout(700);
+  const opened = await page.evaluate(() => ({
+    id: state.riverId,
+    name: state.riverId ? byId(state.riverId).name : null,
+    picker: document.getElementById('riverpick').value }));
+  check('pressing row ' + i + ' opens the river it names',
+    !!opened.id && shot.want === 'Open the ' + opened.name && opened.picker === opened.id,
+    shot.want + ' → ' + JSON.stringify(opened));
+}
+
+/* The header picker is the other route to the same state, and the two must
+   not disagree — a row that opened a river while the menu still said "All
+   rivers" would be two answers to one question. */
+check('the header picker follows the row that was pressed',
+  await page.evaluate(() => document.getElementById('riverpick').value === state.riverId));
+
+/* PUT BACK WHAT THIS BLOCK FOUND. These checks drive the river picker, and
+   everything after here is written against the Sacramento — a suite that
+   leaves the app on a different river hands its own mess to the next check
+   and the failure surfaces somewhere unrelated. */
+await page.evaluate(() => {
+  const s = document.getElementById('riverpick');
+  s.value = 'sacramento'; s.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(1200);
+
+/* --- FOUR BARS THAT MEAN SOMETHING WHEN COMPARED ------------------------
+   Every bar used to be stretched to the same width whatever distance it
+   covered. Four stacked bars exist to be compared, so equal bars said the
+   four rivers were the same length. They are not. */
+const ribbon = await page.evaluate(() => {
+  const river = byId('sacramento');
+  const rows = ((state.gauges.sacramento || {}).rows) || [];
+  const sp = ribbonSpan(river, rows);
+  return { metres: Math.round(sp.metres), min: RIB_MIN_BAR,
+           hasEdge: !!sp.edge, lo: sp.lo, hi: sp.hi };
+});
+check('a bar knows how much river it covers, in metres',
+  ribbon.metres > 1000, JSON.stringify(ribbon));
+/* The floor exists only to keep a bar drawable. A floor wide enough to look
+   tidy overstates the length of every short river, which is the defect the
+   scale was added to fix. */
+check('the minimum bar is a floor for drawing, not a tidy-looking width',
+  ribbon.min <= 32, 'RIB_MIN_BAR is ' + ribbon.min);
+/* Proportionality itself, driven rather than eyeballed: two spans in a known
+   ratio must come out as bar widths in that ratio. */
+check('bar width follows the distance covered',
+  await page.evaluate(() => {
+    const a = { metres: 200000 }, b = { metres: 50000 };
+    const full = 800, x0 = 96, maxM = a.metres;
+    const w = (sp) => Math.max(RIB_MIN_BAR, Math.min(full, full * sp.metres / maxM));
+    return Math.abs(w(a) / w(b) - 4) < 0.01;
+  }));
+
+/* --- THE TIDAL REACH IS A REGION WITH AN END ----------------------------
+   It was a wash fading to nothing over a channel the colour of the page, so
+   it read as a gradient decorating the bar. The caption under it pointed at
+   nothing, and where it met the right-hand edge it anchored to the end of the
+   bar, where it read as naming the end of the RIVER. */
+const tidal = await page.evaluate(() => {
+  const rules = [...document.querySelectorAll('#ribbon line[stroke-dasharray]')];
+  const leaders = [...document.querySelectorAll('#ribbon path[stroke="#4E7C7A"]')];
+  const caption = [...document.querySelectorAll('#ribbon text')]
+    .map(t => t.textContent).filter(t => /tide/.test(t));
+  return { rules: rules.length, leaders: leaders.length, caption };
+});
+check('the tidal limit is marked, not merely faded to',
+  tidal.rules >= 1, JSON.stringify(tidal));
+check('and the caption is joined to that mark by a leader',
+  tidal.leaders >= 1, JSON.stringify(tidal));
+check('the caption points at the mark rather than describing the bar',
+  tidal.caption.every(c => /here/.test(c)), JSON.stringify(tidal.caption));
+
+/* --- A KEY THAT IS CLIPPED IS A KEY THAT DOES NOT EXIST -----------------
+   There WAS a swatch for the cyan wash. It was drawn 26px below a ramp that
+   already sits 26px above the bottom edge, which put it exactly on the
+   boundary of the viewBox — off the drawing, on every screen, since it was
+   written. Nobody had ever seen it, and its presence in the source answered
+   "have we explained this" for everybody afterwards. */
+check('every part of the key is inside the drawing',
+  await page.evaluate(() => {
+    const svgEl = document.getElementById('ribbon');
+    const h = +svgEl.getAttribute('height'), w = +svgEl.getAttribute('width');
+    return [...svgEl.querySelectorAll('rect, text, line')].every(el => {
+      const b = el.getBBox();
+      return b.y >= -0.5 && b.y + b.height <= h + 0.5 &&
+             b.x >= -0.5 && b.x + b.width <= w + 0.5;
+    });
+  }),
+  await page.evaluate(() => {
+    const svgEl = document.getElementById('ribbon');
+    const h = +svgEl.getAttribute('height'), w = +svgEl.getAttribute('width');
+    const bad = [...svgEl.querySelectorAll('rect, text, line')].filter(el => {
+      const b = el.getBBox();
+      return !(b.y >= -0.5 && b.y + b.height <= h + 0.5 &&
+               b.x >= -0.5 && b.x + b.width <= w + 0.5);
+    });
+    return bad.map(el => el.tagName + ':' + (el.textContent || '').slice(0, 24)).join(' | ') || 'none';
+  }));
+
 /* --- tide --- */
 check('tide curve drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
 check('high and low table populated', /High ·|Low ·/.test(water), water.slice(0, 300));
@@ -1003,6 +1202,67 @@ await page.waitForTimeout(400);
 const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
 check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
   Math.round(w0) + ' -> ' + Math.round(w1));
+/* --- a tap belongs on the water ----------------------------------------
+   A finger is not a precise instrument, and a tap that lands in an orchard
+   beside the Sacramento was being answered as a serious question about the
+   depth of an orchard. */
+await page.evaluate(() => loadRiverLines());
+await page.waitForTimeout(1200);
+const snap = await page.evaluate(() => {
+  const line = RIVER_LINES[state.riverId];
+  const mid = line[Math.floor(line.length / 2)];
+  const off = m => [mid[0] + m / 110540, mid[1]];          /* m north of the river */
+  return {
+    onIt:    snapToRiver(mid[0], mid[1]),
+    near:    snapToRiver(off(60)[0], off(60)[1]),
+    beside:  snapToRiver(off(600)[0], off(600)[1]),
+    faraway: snapToRiver(off(9000)[0], off(9000)[1]),
+    mid
+  };
+});
+check('a tap on the river is taken exactly as given',
+  snap.onIt.moved === 0 && !snap.onIt.tooFar, JSON.stringify(snap.onIt));
+check('a tap a few paces off is taken as given too, not nudged',
+  snap.near.moved === 0 && !snap.near.tooFar, JSON.stringify(snap.near));
+check('a tap on the bank is moved onto the water, and the distance recorded',
+  snap.beside.moved > 100 && !snap.beside.tooFar, JSON.stringify(snap.beside));
+/* And a tap in the middle of a county is not a question about the river. */
+check('a tap nowhere near the river is refused rather than answered',
+  snap.faraway.tooFar === true, JSON.stringify(snap.faraway));
+
+/* MOVING SOMEBODY'S QUESTION WITHOUT SAYING SO IS WORSE THAN REFUSING IT. */
+const said = await page.evaluate(() => {
+  const n = depthNode({ value: -18, exact: true, snapped: 240,
+    survey: { name: 'Bathy_TEST_SacramentoRvr' } }, 38.45, -121.6);
+  return { text: n.textContent,
+           spoken: depthSentence({ value: -18, exact: true, snapped: 240,
+             survey: { name: 'Bathy_TEST_SacramentoRvr' } }) };
+});
+check('a reading taken on the water says the tap was moved to get it',
+  /landed 240 m off the /.test(said.text), said.text.slice(0, 220));
+check('and says so aloud as well',
+  /240 metres off the river/.test(said.spoken), said.spoken.slice(0, 160));
+/* AND IT SAYS IT ON THE SCREEN FOR EVERY OUTCOME, NOT JUST FOR A NUMBER.
+   Written beside the reading it appeared only when there was a reading, so a
+   tap moved onto unsurveyed water read as the app failing at the spot the
+   reader picked — which is not the spot it looked at. */
+for (const none of ['nowhere', 'notmeasured', 'nocatalog']){
+  const seen = await page.evaluate((k) => {
+    const n = depthNode({ none: k, snapped: 300, covering: [{}] }, 38.45, -121.6);
+    return n.textContent;
+  }, none);
+  check('the moved tap is on screen for ' + none + ' too',
+    /landed 300 m off the /.test(seen), seen.slice(0, 200));
+}
+/* The snap is true of every outcome, so it prefixes them rather than
+   replacing them — written as its own branch it swallowed the others. */
+check('the snap does not swallow the outcome underneath it',
+  await page.evaluate(() => {
+    const t = depthSentence({ none: 'notmeasured', snapped: 300, covering: [{}] });
+    return /off the river/.test(t) && /nothing was measured within/.test(t);
+  }),
+  await page.evaluate(() => depthSentence({ none: 'notmeasured', snapped: 300, covering: [{}] })));
+
 /* --- every answer that is not a depth ----------------------------------
    "This tells a user nothing about what happened, what should have happened,
    what will happen, or how to do it, or if they did something wrong."
@@ -1187,6 +1447,142 @@ check('a public-land pin can be tapped and says what kind of place it is',
     const t = typeof n === 'string' ? n : n.textContent;
     return /km to the river/.test(t) && /not a boat ramp/.test(t);
   }));
+/* --- A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT --------------------------
+   Measured before the fix by walking out from each centre and asking the
+   document what was on top: 13 px across for an access site, 11 for an idle
+   tide station, 19 for the live one. The floor is 44.
+
+   And a miss was not inert. The map's own handler ran and answered a question
+   about the depth of the water under the miss — so pressing a circle marked
+   "places I can go" returned a depth, and the circles read as decoration.
+   These drive the geometry rather than the styling, because the styling was
+   never the thing that was wrong. */
+const pinAt = async (off) => {
+  await page.evaluate(() => { state.map.closePopup();
+    const s = ACCESS_LANDS.sacramento[0]; state.map.setView([s.lat, s.lon], 14); });
+  await page.waitForTimeout(500);
+  const pt = await page.evaluate(() => {
+    const p = state.map.latLngToContainerPoint(
+      [ACCESS_LANDS.sacramento[0].lat, ACCESS_LANDS.sacramento[0].lon]);
+    const b = state.map.getContainer().getBoundingClientRect();
+    return { x: b.x + p.x, y: b.y + p.y };
+  });
+  await page.mouse.click(pt.x + off, pt.y);
+  await page.waitForTimeout(700);
+  return page.evaluate(() => {
+    const pop = document.querySelector('.leaflet-popup-content');
+    if (!pop) return 'nothing';
+    return /Depth here|Not on the river/.test(pop.textContent) ? 'depth' : 'pin';
+  });
+};
+
+for (const off of [0, 10, 20]){
+  check('a press ' + off + ' px off a public-land pin reaches the pin',
+    await pinAt(off) === 'pin', 'got ' + await pinAt(off));
+}
+/* THE RESCUE HAS TO HAVE AN EDGE, or the map stops being able to answer the
+   question it is for. Past a finger's width the water gets the tap back. */
+check('a press well clear of every pin still asks the water',
+  await pinAt(45) === 'depth');
+
+/* The dense layer is deliberately outside the rescue: hundreds of soundings
+   three pixels apart would mean no tap ever reached the water again. */
+check('soundings are not in the rescue, so they cannot swallow the map',
+  await page.evaluate(() => pinLayers().every(p => p[0] !== state.soundingLayer)));
+check('and nothing without a popup can take a press',
+  await page.evaluate(() => {
+    state.map.setView([38.45, -121.6], 13);
+    return nearestPin({ lat: 0, lng: 0 }) === null;
+  }));
+
+/* --- AND THEY MUST NOT LOOK LIKE A TIDE STATION -------------------------
+   A green ring on a dark fill beside a teal ring on a dark fill, at five
+   pixels' radius, outdoors. Hue is the one cue a colour-blind reader does not
+   get and the one sunlight takes first, so the difference is a SHAPE. */
+check('a public-land pin is a square, not another small circle',
+  await page.evaluate(() => {
+    const pin = document.querySelector('.accesspin');
+    return !!pin && getComputedStyle(pin).borderRadius === '0px';
+  }),
+  await page.evaluate(() => { const p = document.querySelector('.accesspin');
+    return p ? getComputedStyle(p).borderRadius : 'no pin'; }));
+check('and the key carries the same shape, or it describes another map',
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#maplegend .keyrow')];
+    const r = rows.find(x => /Public land/.test(x.textContent));
+    return !!r && getComputedStyle(r.querySelector('i.sw')).borderRadius === '0px';
+  }));
+check('while a tide station stays round, so the two read apart',
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#maplegend .keyrow')];
+    const r = rows.find(x => /tide station/i.test(x.textContent));
+    return !!r && getComputedStyle(r.querySelector('i.sw')).borderRadius !== '0px';
+  }));
+
+await page.click('#tab-layers');
+await page.waitForTimeout(800);
+/* --- THE PANEL DOES BEFORE IT EXPLAINS ---------------------------------
+   Every section here was a heading, then two or three paragraphs of what the
+   thing is and where its data comes from, and only then the button that does
+   it. All true, none of it deletable — and stacked in front of the controls
+   it pushed the rest of the panel off the screen, so the reader who wanted
+   the second control never learnt there was one. Measured before the change,
+   on a 900px window: "Read the depth at the map centre" sat 733px down a
+   661px panel. */
+const panel = await page.evaluate(() => {
+  const p = document.getElementById('panel-layers');
+  /* Text a reader can actually see: not the inside of a closed fold. */
+  const visibleTextBefore = (el) => {
+    let n = 0;
+    const walk = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walk.nextNode())){
+      /* PRECEDING means "node comes before el" — count those and only those. */
+      if (!(el.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING)) continue;
+      if (node.parentElement.closest('details:not([open])')) continue;
+      n += node.textContent.trim().length;
+    }
+    return n;
+  };
+  const all = [...p.querySelectorAll('button, details.foldbox')];
+  const btn = (re) => [...p.querySelectorAll('button')].find(b => re.test(b.textContent));
+  const centre = btn(/Read the depth at the map centre/);
+  const folds = [...p.querySelectorAll('details.foldbox')];
+  return {
+    proseBeforeLastPrimary: centre ? visibleTextBefore(centre) : -1,
+    folds: folds.length,
+    /* every fold has a control ahead of it — the panel acts, then explains */
+    everyFoldFollowsAControl: folds.every(f => {
+      const i = all.indexOf(f);
+      return all.slice(0, i).some(e => e.tagName === 'BUTTON');
+    }),
+    closedByDefault: folds.every(f => !f.open),
+    everyFoldIsNamed: folds.every(f => (f.querySelector('summary')||{}).textContent.trim().length > 8),
+    text: p.textContent
+  };
+});
+check('the explanations are folded, not stacked in front of the controls',
+  panel.folds >= 5, panel.folds + ' fold(s)');
+check('every fold comes after something that does the thing',
+  panel.everyFoldFollowsAControl);
+check('and each one says what it holds before you open it',
+  panel.everyFoldIsNamed && panel.closedByDefault);
+/* The budget is the point: this is the number the reader was complaining
+   about, and a fixed pixel assertion would move with the font. */
+check('a reader reaches the last depth control without wading',
+  panel.proseBeforeLastPrimary > 0 && panel.proseBeforeLastPrimary < 450,
+  panel.proseBeforeLastPrimary + ' characters of visible prose before it');
+/* NOTHING WAS DELETED. Folding honesty out of the way is fine; losing it is
+   not, and a shorter panel achieved by dropping provenance would pass every
+   check above. */
+[ 'no coordinate down the middle of these rivers was invented here',
+  'THEY ARE NOT BOAT RAMPS',
+  'missing data, not flat bottom',
+  'the nearest place it did measure',
+  'middle of a property rather than a spot on the bank'
+].forEach(frag => check('still says: ' + frag.slice(0, 34),
+  panel.text.includes(frag)));
+
 const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
 await page.click('#panel-layers button:text-is("Show them on the map")');
 await page.waitForTimeout(600);
@@ -1289,11 +1685,67 @@ check('and it names which of the two it will go to', /Back to me|Back to my mark
 await page.evaluate(() => state.map.setView([40.5, -122.2], 9));
 await page.waitForTimeout(400);
 await page.click('#backbtn');
-await page.waitForTimeout(800);
+/* WAIT FOR THE MAP TO STOP, DO NOT BET ON A NUMBER OF MILLISECONDS. This
+   asserted the centre 800 ms after the press, which is a bet that a six-zoom
+   animated pan finishes in 800 ms on whatever machine is running. It caught
+   the map IN FLIGHT — a third of the way from where the test had parked it to
+   where the button was correctly taking it — and reported the button as
+   broken. The button was never broken; the clock was. */
+await page.waitForFunction(() => {
+  const c = state.map.getCenter();
+  return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+}, null, { timeout: 8000 }).catch(() => {});
 check('pressing it returns to your own position',
   await page.evaluate(() => {
     const c = state.map.getCenter();
     return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+
+/* --- AND IT STAYS THERE ---------------------------------------------------
+   This is the defect the check above found by failing. Pressing "Profile down
+   the river itself" starts a fetch; on a slow signal it lands seconds later
+   and fitted the map to the whole surveyed run, over the top of wherever the
+   reader had gone in the meantime. The map arrived at you and was then dragged
+   away to a stretch of river fifty miles off, with nothing saying why.
+   The view the reader asked for last is the one that holds. */
+check('a fit that arrives late does not drag the map off the reader',
+  await page.evaluate(async () => {
+    const claim = claimView();              /* as a press would take */
+    goBackToMine();                         /* the reader asks for somewhere */
+    await new Promise(r => setTimeout(r, 400));
+    /* now the earlier press's fetch comes back and tries to have its way */
+    mapView(L.latLngBounds([[40.4, -122.3], [40.6, -122.1]]), { animate: false }, claim);
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+/* AN OPEN POPUP USED TO TETHER THE MAP. Leaflet re-pans to keep a popup in
+   view whenever the view resets, so pressing a pin and then a go-there button
+   arrived and was hauled straight back to the pin. The button looked broken,
+   and the cause was a label two hundred miles away insisting on staying on
+   screen. This is the check that would have caught it: it failed for four
+   different wrong reasons before the real one, so it is worth having. */
+check('a pin popup does not drag the map back when you ask to go elsewhere',
+  await page.evaluate(async () => {
+    state.map.setView([40.5, -122.2], 9);
+    const pin = state.accessLayer.getLayers()[0] || state.tideLayer.getLayers()[0];
+    pin.openPopup();
+    await new Promise(r => setTimeout(r, 300));
+    goBackToMine();
+    await new Promise(r => setTimeout(r, 600));
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - state.here.lat) < 0.01 && Math.abs(c.lng - state.here.lon) < 0.01;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+
+/* ...but it is not simply ignored forever: a fit nobody has overruled applies. */
+check('and a fit nobody has overruled still moves the map',
+  await page.evaluate(() => {
+    const claim = claimView();
+    mapView(L.latLngBounds([[40.4, -122.3], [40.6, -122.1]]), { animate: false }, claim);
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - 40.5) < 0.2;
   }),
   await page.evaluate(() => JSON.stringify(state.map.getCenter())));
 

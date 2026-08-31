@@ -5,7 +5,11 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.1.0.
+- Version 1.6.0 on `staging`. **Production is 1.1.0** and stays there until a
+  promote — these are two numbers on purpose, and writing one of them here
+  covering both is how a handoff comes to name a build nobody can open.
+- Staged candidate: **1.6.0** at https://staging.cv-thalweg.pages.dev — the
+  ribbon's rows open their river, as real buttons laid over the drawing.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -80,6 +84,130 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **`role="img"` prunes everything inside it from the accessibility tree.** The
+  ribbon's rows were made pressable by putting focusable rects with
+  `role="button"` into the SVG — correct-looking markup that no screen reader
+  could ever reach, because the figure is a `role="img"` with a written
+  description and that role removes its subtree. axe reported it as
+  `nested-interactive`; the real cost was not untidiness but four controls that
+  did not exist for anyone not using a mouse. The controls are HTML buttons
+  laid over the drawing now, and the picture stays a picture.
+- **An SVG element has no `offsetTop`.** `offsetTop` and `offsetLeft` are
+  `HTMLElement` properties and are `undefined` on an SVG, so positioning the
+  overlay from them produced the string `"undefinedpx"`, which the browser
+  discarded silently — leaving four full-width buttons three hundred pixels
+  down the page, over the map. **Three of the four still opened a river when a
+  test clicked their own bounding boxes**, because a button in the wrong place
+  is still a button: driving an element by its own geometry can never tell you
+  the geometry is wrong. The check that catches it compares the button's box
+  against the BAR IT IS FOR, in the drawing.
+- **A test block that drives the river picker has to put the river back.** The
+  row-pressing checks left the app on the Mokelumne and the next unrelated
+  check, written against the Sacramento, failed with a null dereference forty
+  lines later. A suite that leaves state behind hands its mess to whatever runs
+  next, and the failure surfaces nowhere near the cause.
+
+- **A panel that explains itself before it does anything is one nobody reaches
+  the bottom of.** Every section of the Depth tab was a heading, then two or
+  three paragraphs of what the thing is and where its data came from, and only
+  then the control. Measured on a 900px window: 1,277 characters of prose stood
+  between the top of the panel and "Read the depth at the map centre", which
+  sat 733px down a 661px panel — off the screen. **Each paragraph was written
+  for a good reason and the sum of them was a defect**, which is why no single
+  review of any one section would ever have found it.
+  The fix is order, not deletion: control first, the one line that answers
+  "why is there nothing here" beside it, everything else behind a summary
+  saying what it holds. 1,277 characters became 265 and nothing was cut.
+  **The gate is a budget on VISIBLE prose before the last primary control** —
+  text inside a closed fold does not count — plus a check that every long
+  sentence is still somewhere in the panel, because a shorter panel achieved by
+  dropping provenance would pass a length budget perfectly.
+- **`compareDocumentPosition` returns PRECEDING for the argument, not the
+  receiver.** `el.compareDocumentPosition(node) & DOCUMENT_POSITION_PRECEDING`
+  is true when NODE comes before EL. Read the other way round it counts
+  everything after the element instead of before it, and the first version of
+  the budget check measured 2,280 characters where the honest answer was 265 —
+  a number that looked like a catastrophic failure and was a reversed test.
+
+- **Four stacked bars drawn to four different scales.** Each river's bar was
+  stretched to the full width whatever distance it spanned, so the Sacramento's
+  265 km and the American's thirty looked identical. **The reason bars are
+  stacked is to be compared**, and equal lengths are a claim — that the rivers
+  are the same length — made silently by the layout rather than by anything
+  anyone wrote. They share one distance scale now, and the caption says so.
+  The floor for a short bar is deliberately about what one dot needs and no
+  more: a minimum wide enough to look tidy overstates the length of every short
+  river, which is the defect being fixed.
+- **A key that is clipped is a key that does not exist, and is worse than
+  none.** The cyan tidal wash had a swatch. It was drawn 26 px below a
+  temperature ramp that already sits 26 px above the bottom edge, putting it
+  exactly on the viewBox boundary — off the drawing, on every screen, since the
+  day it was written. Nobody had ever seen it, and the reader's report was that
+  the colour band had no legend, which was exactly right. **Its presence in the
+  source answered "have we explained this" for every session afterwards.** Same
+  family as the skip link that was never reachable: built, correct, invisible.
+  Gated now by a check that walks every drawn element's bounding box and
+  requires it inside the picture.
+- **A caption with nothing to point at names nothing.** "tide is predicted
+  about this far up" sat under a fade with no mark, and when it ran up against
+  the right-hand edge it was anchored to the end of the bar — where it read as
+  labelling the end of the RIVER. A mark and a leader are what make a caption
+  refer to something; without them it is a sentence floating over a picture.
+  The fade was the second half of it: fading to nothing over a channel that is
+  nearly the page's own background reads as decoration rather than as a region
+  with an end.
+
+- **Every pin was 11 to 19 pixels wide, and a miss was not inert.** Measured by
+  walking out from each centre and asking the document what was on top: 13 px
+  for an access site, 11 for an idle tide station, 19 for the live one, against
+  a 44 px floor. That alone is fiddliness. What made it a report was that the
+  map's own handler ran on the miss and answered with a DEPTH — so pressing a
+  circle labelled "places I can go" produced a depth reading, and the circles
+  read as decoration. **A miss that produces a confident answer is worse than a
+  miss that produces nothing**, because nothing invites a second try and an
+  answer ends the question.
+  The fix is not a bigger circle: a 44 px transparent disc under sixty tide
+  stations and thirty access sites blankets a zoomed-out map and the depth tap
+  stops working. The tap is resolved in code — nearest pin within a finger's
+  width wins, and NEAREST is better than whichever transparent disc painted
+  last.
+- **Three separate things stopped the map going where it was told, and each
+  looked exactly like the last.** They were found one behind the other, by one
+  failing check, and each fix revealed the next.
+  An open popup tethers the map: Leaflet re-pans to keep it in view on any view
+  reset, so pressing a pin and then a go-there button arrived and was hauled
+  back to the pin. `animate: true` disables Leaflet's own refusal to animate a
+  pan longer than the window — its source says the tiles are lost and the map
+  lands wrong — so a long jump asked for a smooth pan of hundreds of thousands
+  of pixels and simply did not move. And a fetch started by an earlier press
+  fitted the map when it landed, over the top of wherever the reader had gone
+  since.
+  **The common shape: the view is not a variable, it is a conversation, and the
+  reader's last word has to win.** The claim counter is a counter and not a
+  clock on purpose — a time window has to guess how slow the signal is.
+- **Seven view changes bypassed the one function that guards them.** Every
+  go-there button called `state.map.setView` directly, so none of them got the
+  deferral guard for a hidden map or the animation guard above. A guard in a
+  helper protects only the callers that go through the helper, and nothing had
+  ever said they must.
+
+- **A finger is wider than the river.** Every depth this app has is measured on
+  the water, and a tap that lands twenty metres onto the bank is answered
+  correctly and uselessly: nothing was surveyed there, because nothing is
+  surveyed on dry land. The reader reads that as the app failing to find a
+  depth it should have. So a tap is now snapped to the nearest point on the
+  baked centreline before anything is queried, and **the displacement is said
+  out loud every time it is not zero** — otherwise the app is quietly answering
+  a different question from the one that was asked, which is the shape of
+  defect that is impossible to notice and impossible to trust once noticed.
+  Three bands: inside 120 m the tap is taken as given, out to 1,500 m it is
+  moved and the move is stated, and beyond that it is not a question about the
+  river at all and is refused with a way to get to the surveyed water.
+- **A snap message written as a branch swallows the outcome underneath it.**
+  The first version returned the displacement sentence *instead of* the reason
+  there was no reading, so a tap 300 m off unsurveyed water said only that it
+  had been moved. It is a prefix, not an outcome.
 
 - **A rejected ArcGIS rendering rule is not an error.** It is HTTP 200,
   `image/png`, and about a hundred bytes of empty picture. Any probe built
