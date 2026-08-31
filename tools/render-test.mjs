@@ -487,6 +487,72 @@ check('the declared station still has its NOAA name and a real position',
            Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
            st.lat > 37 && st.lat < 41;
   }));
+/* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
+   The map's key promised it; tapping a station opened a label naming the
+   station and offering nothing. So the one sentence in the app telling a
+   reader the station is a choice described something the map did not do.
+   It matters more than it looks: high water at Rio Vista and at Freeport are
+   hours apart, so a reader on the wrong station is wrong by hours. */
+const station = await page.evaluate(async () => {
+  const t = state.tides.sacramento;
+  const other = t.stations.find(s => s.id !== t.station && Number.isFinite(s.lat));
+  const live  = t.stations.find(s => s.id === t.station && Number.isFinite(s.lat));
+  const popupFor = async (st) => {
+    const m = state.tideLayer.getLayers().find(l =>
+      l.getLatLng && Math.abs(l.getLatLng().lat - st.lat) < 1e-9);
+    if (!m) return null;
+    m.openPopup();
+    await new Promise(r => setTimeout(r, 300));
+    const pop = document.querySelector('.leaflet-popup-content');
+    const btn = pop && [...pop.querySelectorAll('button')]
+      .find(b => /Read the tide here/.test(b.textContent));
+    return { text: pop ? pop.textContent : '', hasSwitch: !!btn };
+  };
+  const otherPop = await popupFor(other);
+  const livePop  = live ? await popupFor(live) : null;
+  return { was: t.station, other: other.id, otherPop: otherPop, livePop: livePop,
+           key: (document.getElementById('maplegend') || {}).textContent || '' };
+});
+check('another tide station offers to be read instead',
+  station.otherPop && station.otherPop.hasSwitch, JSON.stringify(station.otherPop));
+check('and says why it would matter',
+  /hours apart/.test((station.otherPop || {}).text || ''),
+  ((station.otherPop || {}).text || '').slice(0, 120));
+/* The one being read already is not offered as a switch to itself. */
+check('the station already being read offers no such thing',
+  station.livePop && !station.livePop.hasSwitch, JSON.stringify(station.livePop));
+/* THE KEY AND THE MAP MUST NOT DRIFT APART AGAIN: if the key claims a tap
+   switches, a tap has to switch. */
+check('the key only promises what the map does',
+  !/tap to switch/i.test(station.key) || station.otherPop.hasSwitch, station.key.slice(0, 160));
+
+const switched = await page.evaluate(async () => {
+  const t = state.tides.sacramento;
+  const other = t.stations.find(s => s.id !== t.station && Number.isFinite(s.lat));
+  const m = state.tideLayer.getLayers().find(l =>
+    l.getLatLng && Math.abs(l.getLatLng().lat - other.lat) < 1e-9);
+  m.openPopup();
+  await new Promise(r => setTimeout(r, 300));
+  const btn = [...document.querySelectorAll('.leaflet-popup-content button')]
+    .find(b => /Read the tide here/.test(b.textContent));
+  btn.click();
+  await new Promise(r => setTimeout(r, 2500));
+  const sel = document.querySelector('select[id^=tidestation]');
+  return { want: other.id, now: (state.tides.sacramento || {}).station,
+           picker: sel ? sel.value : null };
+});
+check('pressing it reads the tide there', switched.now === switched.want,
+  JSON.stringify(switched));
+/* The panel and the map are two views of one choice and must agree — a map
+   drawn as "the one you are using" over a panel reading another station is
+   two answers to one question. */
+check('and the panel agrees about which station that is',
+  switched.picker === null || switched.picker === switched.now,
+  JSON.stringify(switched));
+/* Put it back, so what follows reads the station the rest of the suite does. */
+await page.evaluate((id) => switchTideStation(byId('sacramento'), id), station.was);
+await page.waitForTimeout(2000);
+
 /* And asking for the others is a deliberate act that then works. */
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('#panel-water button')]
