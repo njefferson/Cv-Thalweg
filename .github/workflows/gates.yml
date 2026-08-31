@@ -87,6 +87,14 @@ jobs:
       - name: The baked river centrelines
         run: node tools/fetch-centrelines.mjs --check
 
+      # CDFW's lands are generated too. This asks CDFW nothing: it reads what
+      # was committed and refuses a site with no name, no position or no kind,
+      # a file that does not say where it came from, one filed under a river it
+      # is nowhere near, or an empty result — which would be a failure wearing
+      # the shape of an answer.
+      - name: The baked access lands
+        run: node tools/fetch-access.mjs --check
+
       # playwright-core, not playwright: this repo depends on the core package
       # and `npx playwright install` therefore had nothing to run, which
       # --no-install correctly refused rather than fetching a package at run

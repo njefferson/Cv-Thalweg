@@ -583,6 +583,10 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      NOAA's two-megabyte index on a phone. Its absence is survivable: the app
      falls back to the declared stations and the button still works. -->
 <script src="tide-stations.js"></script>
+<!-- CDFW's own lands within 12 km of each river's course, baked by
+     tools/fetch-access.mjs. Places the department says the public may go —
+     NOT boat ramps, and nothing in this app calls them that. -->
+<script src="access-lands.js"></script>
 <!-- river-lines.js is NOT loaded here. It is each river's main stem from USGS,
      baked by tools/fetch-centrelines.mjs, and at 39 KB it was being fetched and
      parsed on every open for a reader who might never profile anything. It is
@@ -606,7 +610,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.12.0';
+var VERSION = '0.13.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1837,6 +1841,7 @@ function loadCatalog(force){
     state.catalog = cat;
     /* The moment the app knows where the surveys are, the map should say so. */
     drawSurveyBoxes();
+  drawAccessSites();
     sput('_shared', 'catalog', cat);
     return cat;
   });
@@ -2302,6 +2307,12 @@ function initMap(){
   m.createPane('surveypane');
   m.getPane('surveypane').style.zIndex = 370;
   state.surveyLayer = L.layerGroup().addTo(m);
+
+  /* Above the survey outlines and below the tide stations: a place you can
+     stand is worth tapping, and a reading still wins over it. */
+  m.createPane('accesspane');
+  m.getPane('accesspane').style.zIndex = 375;
+  state.accessLayer = L.layerGroup().addTo(m);
 
   m.createPane('herepane');
   m.getPane('herepane').style.zIndex = 385;
@@ -3402,6 +3413,55 @@ function renderLayers(){
   p.appendChild(el('p',{class:'note',
     text:'Single beam data are points along the boat’s track. The water between two tracks was never measured and is not drawn.'}));
 
+  /* GETTING TO THE WATER. Depth is no use from a road you cannot stop on. */
+  var sites = accessSites(river);
+  p.appendChild(el('h2',{class:'sec',text:'Getting to the water'}));
+  if (!sites.length){
+    p.appendChild(el('p',{class:'note',
+      text:'CDFW publishes no land of its own within twelve kilometres of the ' +
+        river.name + '. That is not the same as there being nowhere to fish from \u2014 it means the state does not own it.'}));
+  } else {
+    p.appendChild(el('p',{class:'note',
+      text:'These are CDFW\u2019s own lands within twelve kilometres of this river \u2014 places the department says the public may go, in its words, with a link to its page where it has one. THEY ARE NOT BOAT RAMPS: no published list of ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.'}));
+    var accRow = el('div',{class:'rowline'});
+    var accBtn = el('button',{type:'button',
+      'aria-pressed': state.showAccess === false ? 'false' : 'true',
+      text:'Show them on the map'});
+    accBtn.addEventListener('click', function(){
+      state.showAccess = state.showAccess === false;
+      drawAccessSites(); updateLegend(); renderLayers();
+      announce(state.showAccess === false ? 'Public land hidden.' : 'Public land shown.');
+    });
+    accRow.appendChild(accBtn);
+    p.appendChild(accRow);
+
+    var ul = el('ul',{class:'tight'});
+    sites.slice(0, 12).forEach(function(site){
+      var li = el('li',{});
+      li.appendChild(el('b',{text:site.name}));
+      li.appendChild(document.createTextNode(' — ' + site.type + ', ' +
+        site.km + ' km from the river. ' + (site.access || '')));
+      var go = el('button',{class:'gobtn',type:'button',
+        'aria-label':'Show ' + site.name + ' on the map', text:'Map'});
+      go.addEventListener('click', function(){
+        if (tabNames().indexOf('map') !== -1) selectTab('map');
+        state.map.setView([site.lat, site.lon], 13, { animate:!reduceMotion });
+        announce('Map centred on ' + site.name + '.');
+      });
+      li.appendChild(go);
+      if (site.link){
+        li.appendChild(document.createTextNode(' '));
+        li.appendChild(el('a',{href:site.link, rel:'noopener', target:'_blank',
+          text:'CDFW page'}));
+      }
+      ul.appendChild(li);
+    });
+    p.appendChild(ul);
+    if (sites.length > 12)
+      p.appendChild(el('p',{class:'note',
+        text:'The twelve closest to the river, of ' + sites.length + '. The rest are on the map.'}));
+  }
+
   /* The basemap chooser, last, because it is a preference and this panel is
      about the bottom. */
   appendBasemap(p);
@@ -3646,6 +3706,9 @@ function updateLegend(){
   if (state.hereLayer && state.hereLayer.getLayers().length)
     rows.push(keyRow(swatch(7, 3, '#E76F9F', '#0D1A19'),
       'You — the ring is how sure your device is'));
+  if (state.accessLayer && state.accessLayer.getLayers().length)
+    rows.push(keyRow(swatch(5, 2, '#9BD98C', '#0D1A19'),
+      'Public land — CDFW says you may go'));
   if (state.surveyLayer && state.surveyLayer.getLayers().length){
     var sq = el('i',{class:'sw',
       style:'width:14px;height:10px;border-radius:0;border:1px dashed #7BD5D9;background:rgba(123,213,217,.08)'});
@@ -4163,6 +4226,7 @@ function selectRiver(id){
   var home = $('#homebtn');
   if (home) home.hidden = !state.riverId;
   drawSurveyBoxes();
+  drawAccessSites();
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -5459,6 +5523,44 @@ function surveyedRun(line){
   return { pts: line.slice(a, b), of: line.length, from: a, to: b };
 }
 
+/* =====================================================================
+   WHERE YOU ARE ALLOWED TO BE.
+
+   NOT BOAT RAMPS. No published boat-ramp dataset for these rivers could be
+   reached — the state's one "public access points" service is coastal beaches
+   with none on this water — and this app does not invent one. What CDFW does
+   publish is its own lands: places the department owns or operates and says
+   the public may go. That answers a different question, and it is the question
+   this data can answer honestly.
+
+   EACH PIN IS THE MIDDLE OF A PROPERTY, not a spot on the bank, so the
+   distance to the river travels with it and is shown. A wildlife area whose
+   centre is eight kilometres from the water is a different proposition from
+   one on the bank, and a dot alone cannot tell them apart.
+   ===================================================================== */
+function accessSites(river){
+  var a = (typeof ACCESS_LANDS === 'object' && ACCESS_LANDS) || {};
+  return (a[river.id] || []);
+}
+
+function drawAccessSites(){
+  if (!state.accessLayer) return;
+  state.accessLayer.clearLayers();
+  if (!state.riverId || state.showAccess === false) return;
+  var river = byId(state.riverId);
+  accessSites(river).forEach(function(s){
+    L.circleMarker([s.lat, s.lon], {
+      pane:'accesspane', radius:5, weight:2,
+      color:'#9BD98C', fillColor:'#0D1A19', fillOpacity:.9
+    }).bindPopup(labelNode(s.name,
+      [[String(s.km), 'km to the river']],
+      s.type + '. ' + (s.access || 'CDFW does not say what the access is.') +
+      ' This pin is the middle of the property, not a place on the bank \u2014 and it is not a boat ramp; ' +
+      'no published list of those exists for this river.'
+    ), LABEL).addTo(state.accessLayer);
+  });
+}
+
 /* WHERE THE DEPTH ACTUALLY IS.
    The surveys are a handful of reaches on hundreds of kilometres of river, and
    the app opened on the whole basin with nothing marking them — so "I cannot
@@ -5508,6 +5610,7 @@ function goToDepth(river){
   if (tabNames().indexOf('map') !== -1) selectTab('map');
   state.map.fitBounds(b.pad(0.08), { animate:!reduceMotion });
   drawSurveyBoxes();
+  drawAccessSites();
   announce('Showing the reaches of the ' + river.name + ' the state has surveyed.');
 }
 
@@ -5739,6 +5842,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.13.0', date:'2026-08-30', changes:[
+      'Public land is on the map. These are CDFW\u2019s own lands within twelve kilometres of each river \u2014 places the department says you may go, in its own words, with a link to its page where it has one. Forty-six of them across the four rivers, on the map from the first load with no signal and nothing to download, and listed in Layers under Getting to the water with the closest to the river first.',
+      'They are NOT boat ramps, and the app does not call them that. There is no published list of ramps for these rivers that this build could find \u2014 the state\u2019s one public access dataset is coastal beaches, with none on this water \u2014 and rather than invent one, this answers the question the data can actually answer: where you are allowed to be.',
+      'Each pin is the middle of a property rather than a spot on the bank, so every one carries how far it is from the river. A wildlife area whose centre is eight kilometres from the water is a different proposition from one on the bank, and a dot on its own cannot tell you which you are looking at.',
+  ] },
   { v:'0.12.0', date:'2026-08-30', changes:[
       'The Layers panel leads with depth now. It used to open with three radio buttons for which picture to draw the water on \u2014 a preference \u2014 and two orange warning boxes, so anybody looking for the bottom met all of that first. The basemap chooser is still there, at the end, where a preference belongs.',
       'The strip at the top could say two things that cannot both be true: readings "seconds old" and "network did not answer". A reply that arrives carrying nothing still counts as having arrived, so the app was quoting the age of the attempt rather than of any reading. When nothing has answered it now says so and quotes no age.',

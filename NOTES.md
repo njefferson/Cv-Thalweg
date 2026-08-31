@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.12.0.
+- Version 0.13.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,24 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
+  not invent one. The state's open-data portal returns nothing for boating
+  facilities, boat launch ramps or DBW; the one "Public Access Points" service
+  is coastal beaches — 1,500 across the coastal counties and ZERO inside any of
+  the four river boxes, which was checked rather than assumed. What CDFW does
+  publish is its own lands, and `tools/fetch-access.mjs` bakes those.
+- **A BOUNDING BOX CANNOT SAY WHICH RIVER A PLACE IS ON.** Every one of these
+  boxes is hundreds of kilometres across, so a property only has to clip a
+  corner to be listed — which filed the Yolo Bypass Wildlife Area under the
+  AMERICAN and two Yuba County properties under the Feather. The centreline was
+  already baked in, so the question is asked properly now: distance from that
+  river's own course, 12 km, and the distance travels with each site because it
+  is worth showing. 93 sites became 46, and the 47 dropped were right to drop.
+  The generator REFUSES to run without `public/river-lines.js` rather than
+  falling back to the box.
+- **A CENTROID IS THE MIDDLE OF A PROPERTY, NOT A PLACE ON THE BANK.** That is
+  what these positions are, so the app says so in the popup and in the panel,
+  and shows the distance to the water beside every one.
 - **THE WALK ITSELF WAS BROKEN AND PHOTOGRAPHED A BLANK PAGE.**
   `--proxy-bypass-list=<-loopback>` does the OPPOSITE of what it reads like:
   Chromium already bypasses loopback, and that token TURNS THAT OFF, so the
