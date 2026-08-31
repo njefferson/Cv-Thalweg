@@ -825,6 +825,53 @@ lets Playwright resolve its own download when it is not.
 USGS, NOAA and DWR; when a public agency is having a bad morning that must not
 read as this repo being broken. It is reported, not enforced.
 
+## The tide ALONG the river: what is published and what is not
+
+Researched 2026-08-31, against the live services, because the question "what
+shows the tide's effect along the whole river" kept having to be re-asked.
+
+**NOAA's tidal CURRENT predictions do not reach the fishable water.** That is
+the standard convention for this question — slack water and maximum flood and
+ebb, tabulated per station — and NOAA publishes 4,430 such stations, 48 of them
+in the Delta box. Every one of them is in the WESTERN Delta. The furthest
+upstream on this river is `SFB1332`, "Sacramento River Light 14", at 38.077 N,
+which is **below Rio Vista** (38.153). Above that point there is no published
+prediction of which way the water will be running, at any time, from anybody.
+
+**USGS measures it instead, and the app already asks for it.** Parameter 72255,
+mean water velocity, signed. Read live on 2026-08-31 across the ten declared
+Sacramento gauges: **six report velocity and all six are at or below Freeport**
+(38.456). Verona, Wilkins Slough, Colusa and Bend Bridge report none at all —
+the instrument network exists in the tidal reach and stops where the tide does,
+which is itself an answer rather than a gap.
+
+**A day of it is one request and about 47 KB** for six sites, roughly 94
+readings each at fifteen minutes. Two days returned nothing on the same URL
+shape and was not chased.
+
+**What that day showed**, and it is the picture the app cannot currently draw:
+Rio Vista reversed four times (13:00, 18:45, 01:30, 06:45) and Georgiana Slough
+four times (15:00, 19:30, 03:45, 07:15) — consistently an hour and three
+quarters to two hours later, which is the tidal wave travelling up. Freeport and
+the Delta Cross Channel did not reverse at all in that day.
+
+**Freeport not reversing is a fact about that week, not about Freeport.**
+Discharge was 18,500 cfs; in low autumn flows the reversal reaches further up.
+Anything built on this must say "has not turned in the last 24 hours" and never
+"does not turn here".
+
+**And a trap for whoever builds it: counting sign changes over-counts.** Walnut
+Grove showed six turns in the day, three of them at 06:00, 06:15 and 06:30 —
+that is the velocity hovering at zero through slack and flickering sign, not the
+tide turning three times in half an hour. A turn needs a threshold and
+hysteresis, not `sign(a) !== sign(b)`.
+
+**What the app has now**, and why it is not this: the Water panel carries one
+sentence, "running both ways — 3 of 6 gauges read upstream, measured now". That
+is the holistic statement and it has no geography in it; it never says WHERE the
+divide between tide and river is, though the app knows the position of every
+gauge it counted.
+
 ## Fish counts: what exists and what it is worth
 
 **Settled 2026-08-28 by fetching, not recalling.** SacPAS is reachable and has a
