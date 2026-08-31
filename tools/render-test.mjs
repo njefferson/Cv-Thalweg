@@ -1051,6 +1051,62 @@ await page.waitForTimeout(1000);
 check('pressing it moves the map there',
   await page.evaluate(() => JSON.stringify(state.map.getCenter())) !== wasCentre);
 
+/* --- getting to the water ----------------------------------------------
+   NOT BOAT RAMPS, and the app must never call them that: no published ramp
+   dataset for these rivers could be reached, and the one candidate is coastal
+   beaches with none on this water. What CDFW publishes is its own lands. */
+await page.click('#tab-layers');
+await page.waitForTimeout(1000);
+const acc = await page.evaluate(() => {
+  const t = document.getElementById('panel-layers').textContent;
+  return {
+    heading: /Getting to the water/.test(t),
+    saysNotRamps: /THEY ARE NOT BOAT RAMPS/.test(t),
+    saysCentroid: /middle of a property rather than a spot on the bank/.test(t),
+    onMap: state.accessLayer ? state.accessLayer.getLayers().length : -1,
+    baked: (ACCESS_LANDS.sacramento || []).length,
+    source: /wildlife\.ca\.gov|arcgis/.test(ACCESS_META.source)
+  };
+});
+check('the panel offers a way to the water', acc.heading, JSON.stringify(acc));
+check('and never calls it a boat ramp', acc.saysNotRamps, JSON.stringify(acc));
+check('it says the pin is the middle of a property, not the bank',
+  acc.saysCentroid, JSON.stringify(acc));
+check('the sites are baked in and say where they came from',
+  acc.baked > 10 && acc.source, JSON.stringify(acc));
+check('and they are drawn on the map', acc.onMap === acc.baked, JSON.stringify(acc));
+/* EVERY SITE IS ON THE RIVER IT IS FILED UNDER. A bounding box put the Yolo
+   Bypass under the American; the centreline answers it properly. */
+check('no site is filed under a river it is nowhere near',
+  await page.evaluate(() => Object.keys(ACCESS_LANDS).every(k =>
+    ACCESS_LANDS[k].every(s => typeof s.km === 'number' && s.km <= 12.5))),
+  await page.evaluate(() => {
+    const bad = [];
+    Object.keys(ACCESS_LANDS).forEach(k => ACCESS_LANDS[k]
+      .filter(s => !(s.km <= 12.5)).forEach(s => bad.push(k + ':' + s.name)));
+    return bad.join(', ') || 'none';
+  }));
+/* Context, and reachable: a place you can stand is worth tapping, but the
+   reading still wins where they overlap. */
+check('a public-land pin can be tapped and says what kind of place it is',
+  await page.evaluate(() => {
+    const m = state.accessLayer.getLayers()[0];
+    if (!m) return false;
+    const n = m.getPopup().getContent();
+    const t = typeof n === 'string' ? n : n.textContent;
+    return /km to the river/.test(t) && /not a boat ramp/.test(t);
+  }));
+const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
+await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.waitForTimeout(600);
+check('they can be turned off',
+  await page.evaluate(() => state.accessLayer.getLayers().length) === 0,
+  'was ' + accBefore);
+await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.waitForTimeout(600);
+check('and back on',
+  await page.evaluate(() => state.accessLayer.getLayers().length) === accBefore);
+
 /* --- the river's own line -----------------------------------------------
    A profile "of the river" means the river's line, not one somebody drew down
    the middle by eye. USGS publishes it; tools/fetch-centrelines.mjs bakes it
