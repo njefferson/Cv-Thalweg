@@ -38,10 +38,15 @@ mkdirSync(OUT, { recursive: true });
    app full of "did not answer", which is a finding about the container. */
 const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || '';
 /* The page can come from a local server while the DATA still goes out through
-   this container's egress — loopback is bypassed, everything else proxied. A
-   walk whose services all failed would describe an app full of "did not
-   answer", which is a finding about the container and not about the app. */
-const args = proxy ? ['--proxy-server=' + proxy, '--proxy-bypass-list=<-loopback>'] : [];
+   this container's egress. A walk whose services all failed would describe an
+   app full of "did not answer", which is a finding about the container and not
+   about the app.
+   NO BYPASS LIST. Chromium already bypasses loopback, and `<-loopback>` is the
+   token that TURNS THAT OFF — it sends localhost through the proxy, which is
+   the exact opposite of what is wanted here. With it, the local server was
+   never reached and the walk photographed a blank page: no title, no header,
+   no error. It looked like the app had failed to boot. */
+const args = proxy ? ['--proxy-server=' + proxy] : [];
 if (!proxy) console.log('!! no HTTPS_PROXY — live data will not reach this walk');
 const browser = await chromium.launch({ ...chromiumLaunch({ args }) });
 const ctx = await browser.newContext(WIDE
@@ -87,6 +92,16 @@ async function screen(title, note) {
 
 await page.goto(BASE + '/', { waitUntil: 'load' });
 await page.waitForTimeout(3500);
+/* A WALK OF A BLANK PAGE IS WORSE THAN NO WALK. It produces screenshots and
+   prose and every one of them is about nothing, and the first version did
+   exactly that for a whole run before anybody noticed the header was missing. */
+const booted = await page.evaluate(() => !!document.getElementById('riverpick'));
+if (!booted) {
+  console.log('\n!! The app did not boot at ' + BASE + ' — no river picker on the page.');
+  console.log('   Nothing below this line would be about the app. Stopping.');
+  await browser.close();
+  process.exit(1);
+}
 await screen('first run', 'the very first thing anybody sees');
 
 await page.evaluate(() => { const d = document.getElementById('welcome');

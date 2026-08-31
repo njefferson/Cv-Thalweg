@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.11.0.
+- Version 0.12.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,27 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE WALK ITSELF WAS BROKEN AND PHOTOGRAPHED A BLANK PAGE.**
+  `--proxy-bypass-list=<-loopback>` does the OPPOSITE of what it reads like:
+  Chromium already bypasses loopback, and that token TURNS THAT OFF, so the
+  local server was never reached. The walk produced screenshots and prose for a
+  page with no title and no header, and reported no error. It refuses to walk
+  now if the river picker is not on the page — a walk of a blank page is worse
+  than no walk, because it looks like findings.
+- **DEPTH WAS BELOW A PREFERENCE.** The Layers panel opened with three basemap
+  radio buttons and two orange warning boxes, so somebody looking for the bottom
+  met all of that first. Depth leads; the basemap chooser is appended last, from
+  one function called at each of the panel's three exits.
+- **"seconds old — network did not answer" is two claims that cannot both be
+  true.** A reply that arrives carrying no readings still stamps `fetchedAt`
+  with the moment it arrived, so the header was quoting the age of the ATTEMPT
+  next to a statement that nothing had answered. An age is only printed when
+  there is a reading to be that old.
+- **"tide to SACRAMENTO, SACRAMENTO RIVER"** — a station's name is a place and a
+  river with a comma in it, so bolting it onto "tide to" produced a caption that
+  parses as nowhere. The mark says how far up the tide is predicted to reach;
+  the station's name belongs in the tide panel where there is room to say whose
+  it is.
 - **"I DO NOT SEE WHERE THE DEPTH IS AT" WAS A CORRECT READING OF THE MAP.**
   The surveys are a few reaches of hundreds of kilometres, the app opens on the
   whole basin, and nothing marked them. They are drawn as dashed outlines in a
