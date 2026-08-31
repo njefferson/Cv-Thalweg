@@ -623,7 +623,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.1.0';
+var VERSION = '1.2.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4364,6 +4364,10 @@ function selectRiver(id){
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
     mapView([river.center, river.zoom]);
+    /* The centreline is what lets a tap be understood as a question about the
+       river, so it is fetched when a river is chosen rather than on the first
+       tap — the landing still never pays for it. */
+    loadRiverLines().catch(function(){});
     loadMarks(river.id);
   } else {
     state.markLayer.clearLayers(); state.marks = [];
@@ -5968,13 +5972,69 @@ function runProfile(pts){
   });
 }
 
+/* =====================================================================
+   A TAP BELONGS ON THE WATER.
+
+   Depth is a property of a river, and a finger on a phone is not a precise
+   instrument — so a tap that lands in an orchard beside the Sacramento was
+   being answered as a serious question about the depth of an orchard. It is
+   not one, and the honest answer to it is not a paragraph about weed.
+
+   The centreline is already baked in, so the app can do what a person would:
+   take a tap near the river as meaning the river, and a tap nowhere near it as
+   not being about the river at all.
+
+   THE SNAP IS ALWAYS SAID OUT LOUD. Moving somebody's question without telling
+   them is worse than refusing it — they asked about one place and would be
+   reading the answer for another. */
+var SNAP_TAKE_M = 120;    /* inside this, the tap is taken as given */
+var SNAP_MAX_M  = 1500;   /* beyond this, it is not a question about the river */
+
+function snapToRiver(lat, lon){
+  if (!state.riverId) return { at:[lat, lon], moved:0 };
+  var line = riverLineFor(state.riverId);
+  /* Without the centreline loaded there is nothing to snap to, and guessing
+     would be worse than leaving the tap where it fell. */
+  if (!line || line.length < 2) return { at:[lat, lon], moved:0 };
+  var n = nearestOnLine(line, lat, lon);
+  if (!n) return { at:[lat, lon], moved:0 };
+  if (n.off > SNAP_MAX_M) return { tooFar:true, away:n.off, at:[lat, lon] };
+  if (n.off <= SNAP_TAKE_M) return { at:[lat, lon], moved:0 };
+  return { at:line[n.i], moved:n.off };
+}
+
 /* The reading, as a label on the map where the finger is. */
 function showDepthAt(lat, lon){
   if (!state.map) return;
-  var pop = L.popup(LABEL).setLatLng([lat, lon])
-    .setContent(depthNode({ loading:true }, lat, lon)).openOn(state.map);
-  depthAt(lat, lon).then(function(res){
-    pop.setContent(depthNode(res, lat, lon));
+  var snap = snapToRiver(lat, lon);
+
+  if (snap.tooFar){
+    var away = L.popup(LABEL).setLatLng([lat, lon]).openOn(state.map);
+    var box = el('div',{});
+    box.appendChild(el('span',{class:'pop-name',text:'Not on the river'}));
+    box.appendChild(el('p',{class:'note',
+      text:'That is ' + kmText(snap.away) + ' from the ' + byId(state.riverId).name +
+        '. Depth belongs to the river, so there is nothing to read there \u2014 and this app did not ask, rather than asking a question about a field.'}));
+    box.appendChild(el('p',{class:'note',
+      text:'Nothing you did wrong. Tap on the water and it will read the survey; a tap near the bank is taken as meaning the river.'}));
+    var r = el('div',{class:'rowline'});
+    var b2 = el('button',{type:'button',text:'Take me to the surveyed water'});
+    b2.addEventListener('click', function(){
+      state.map.closePopup(); goToDepth(byId(state.riverId));
+    });
+    r.appendChild(b2);
+    box.appendChild(r);
+    away.setContent(box);
+    announce('That is ' + kmText(snap.away) + ' from the river, so there is no depth to read there. Tap on the water.');
+    return;
+  }
+
+  var at = snap.at;
+  var pop = L.popup(LABEL).setLatLng(at)
+    .setContent(depthNode({ loading:true }, at[0], at[1])).openOn(state.map);
+  depthAt(at[0], at[1]).then(function(res){
+    res.snapped = snap.moved || 0;
+    pop.setContent(depthNode(res, at[0], at[1]));
     pop.update();
     announce(depthSentence(res));
   });
@@ -5985,13 +6045,19 @@ function showDepthAt(lat, lon){
    ear gets this sentence and nothing else. */
 function depthSentence(res){
   if (res.loading) return 'Asking the survey how deep it is here.';
-  if (res.failed)  return 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
-  if (res.none === 'nocatalog') return 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
-  if (res.none === 'nowhere') return 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
+  /* THE SNAP IS A PREFIX, NOT A BRANCH. It happened before the question was
+     asked, so it is true of every answer that follows — and written as its own
+     branch it swallowed the ones underneath it. */
+  var moved = res.snapped
+    ? 'Your tap was ' + fmt(res.snapped, 0) + ' metres off the river, so it was read on the water. '
+    : '';
+  if (res.failed)  return moved + 'The depth service did not answer. Nothing you did; it needs a signal. Tap again when you have one.';
+  if (res.none === 'nocatalog') return moved + 'The list of surveys has not arrived yet, so there was nothing to ask. Nothing you did. It comes down on its own; try the same spot again in a moment.';
+  if (res.none === 'nowhere') return moved + 'You tapped water the state has never surveyed, so there is no depth here. Nothing you did wrong. The dashed outlines on the map are the surveyed reaches; tap inside one.';
   if (res.none === 'notmeasured')
-    return 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
+    return moved + 'This is inside a published survey, but nothing was measured within ' + DEPTH_SPAN_M +
       ' metres of it. Nothing you did wrong. A spot nearer the middle of the channel usually has a reading.';
-  return fmt(Math.abs(res.value), 1) + ' feet ' +
+  return moved + fmt(Math.abs(res.value), 1) + ' feet ' +
     (res.value <= 0 ? 'deep' : 'ABOVE the survey datum — bank, not bottom') +
     (res.exact ? ' here' : ', ' + fmt(res.away, 0) + ' metres away') + '.';
 }
@@ -5999,6 +6065,17 @@ function depthSentence(res){
 function depthNode(res, lat, lon){
   var box = el('div',{});
   box.appendChild(el('span',{class:'pop-name',text:'Depth here'}));
+
+  /* MOVING SOMEBODY'S QUESTION WITHOUT SAYING SO IS WORSE THAN REFUSING IT —
+     and it is said HERE, above every branch, rather than beside the number.
+     Written down there it appeared only when there was a depth to show, so a
+     tap that was moved onto unsurveyed water read as the app failing at the
+     spot the reader picked, which is not where it looked. */
+  if (res.snapped)
+    box.appendChild(el('p',{class:'note',
+      text:'Your tap landed ' + fmt(res.snapped, 0) + ' m off the ' +
+        (state.riverId ? byId(state.riverId).name : 'river') +
+        ', so it was read on the water rather than on the bank.'}));
 
   /* EVERY ANSWER THAT IS NOT A DEPTH SAYS FOUR THINGS: what happened, whether
      the reader did anything wrong, what would have happened, and what to do
@@ -6101,6 +6178,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.2.0', date:'2026-08-31', changes:[
+      'A tap near the river is read on the river. Fingers are wide and rivers are narrow, so a tap that landed on the bank used to be answered honestly and uselessly \u2014 no survey there, because there is no survey on dry land. A tap within a mile and a half of the river now moves to the nearest point on the water and the app says how far it moved, so you can see it was your tap that was adjusted and not the depth.',
+      'A tap that is nowhere near the river is no longer treated as a question about the river. It says so, and offers to take you to the surveyed water rather than sending you a reading from open country.',
+  ] },
   { v:'1.1.0', date:'2026-08-30', changes:[
       'When tapping the map does not give you a depth, it now tells you what happened, whether you did anything wrong, and what to do about it. Before, it named the outcome and stopped \u2014 so tapping water the state has never surveyed produced a sentence about weed and no way to tell whether you had made a mistake, whether it would ever work, or where to tap instead. Tapping outside the surveyed reaches now says so plainly and offers to take you to water where it does work.',
       'You can trace the depth profile. Drag a finger along it and a mark moves along the line on the map, showing you where that deep bit actually is, with the depth the survey measured there. Where the survey measured nothing it says so rather than reading a number off the line.',

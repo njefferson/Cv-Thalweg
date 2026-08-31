@@ -1003,6 +1003,67 @@ await page.waitForTimeout(400);
 const w1 = await page.evaluate(() => document.getElementById('profsvg').getBoundingClientRect().width);
 check('stretching the profile makes it wider so it can be scrolled', w1 > w0 * 1.3,
   Math.round(w0) + ' -> ' + Math.round(w1));
+/* --- a tap belongs on the water ----------------------------------------
+   A finger is not a precise instrument, and a tap that lands in an orchard
+   beside the Sacramento was being answered as a serious question about the
+   depth of an orchard. */
+await page.evaluate(() => loadRiverLines());
+await page.waitForTimeout(1200);
+const snap = await page.evaluate(() => {
+  const line = RIVER_LINES[state.riverId];
+  const mid = line[Math.floor(line.length / 2)];
+  const off = m => [mid[0] + m / 110540, mid[1]];          /* m north of the river */
+  return {
+    onIt:    snapToRiver(mid[0], mid[1]),
+    near:    snapToRiver(off(60)[0], off(60)[1]),
+    beside:  snapToRiver(off(600)[0], off(600)[1]),
+    faraway: snapToRiver(off(9000)[0], off(9000)[1]),
+    mid
+  };
+});
+check('a tap on the river is taken exactly as given',
+  snap.onIt.moved === 0 && !snap.onIt.tooFar, JSON.stringify(snap.onIt));
+check('a tap a few paces off is taken as given too, not nudged',
+  snap.near.moved === 0 && !snap.near.tooFar, JSON.stringify(snap.near));
+check('a tap on the bank is moved onto the water, and the distance recorded',
+  snap.beside.moved > 100 && !snap.beside.tooFar, JSON.stringify(snap.beside));
+/* And a tap in the middle of a county is not a question about the river. */
+check('a tap nowhere near the river is refused rather than answered',
+  snap.faraway.tooFar === true, JSON.stringify(snap.faraway));
+
+/* MOVING SOMEBODY'S QUESTION WITHOUT SAYING SO IS WORSE THAN REFUSING IT. */
+const said = await page.evaluate(() => {
+  const n = depthNode({ value: -18, exact: true, snapped: 240,
+    survey: { name: 'Bathy_TEST_SacramentoRvr' } }, 38.45, -121.6);
+  return { text: n.textContent,
+           spoken: depthSentence({ value: -18, exact: true, snapped: 240,
+             survey: { name: 'Bathy_TEST_SacramentoRvr' } }) };
+});
+check('a reading taken on the water says the tap was moved to get it',
+  /landed 240 m off the /.test(said.text), said.text.slice(0, 220));
+check('and says so aloud as well',
+  /240 metres off the river/.test(said.spoken), said.spoken.slice(0, 160));
+/* AND IT SAYS IT ON THE SCREEN FOR EVERY OUTCOME, NOT JUST FOR A NUMBER.
+   Written beside the reading it appeared only when there was a reading, so a
+   tap moved onto unsurveyed water read as the app failing at the spot the
+   reader picked — which is not the spot it looked at. */
+for (const none of ['nowhere', 'notmeasured', 'nocatalog']){
+  const seen = await page.evaluate((k) => {
+    const n = depthNode({ none: k, snapped: 300, covering: [{}] }, 38.45, -121.6);
+    return n.textContent;
+  }, none);
+  check('the moved tap is on screen for ' + none + ' too',
+    /landed 300 m off the /.test(seen), seen.slice(0, 200));
+}
+/* The snap is true of every outcome, so it prefixes them rather than
+   replacing them — written as its own branch it swallowed the others. */
+check('the snap does not swallow the outcome underneath it',
+  await page.evaluate(() => {
+    const t = depthSentence({ none: 'notmeasured', snapped: 300, covering: [{}] });
+    return /off the river/.test(t) && /nothing was measured within/.test(t);
+  }),
+  await page.evaluate(() => depthSentence({ none: 'notmeasured', snapped: 300, covering: [{}] })));
+
 /* --- every answer that is not a depth ----------------------------------
    "This tells a user nothing about what happened, what should have happened,
    what will happen, or how to do it, or if they did something wrong."

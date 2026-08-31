@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.1.0.
+- Version 1.2.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -80,6 +80,23 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **A finger is wider than the river.** Every depth this app has is measured on
+  the water, and a tap that lands twenty metres onto the bank is answered
+  correctly and uselessly: nothing was surveyed there, because nothing is
+  surveyed on dry land. The reader reads that as the app failing to find a
+  depth it should have. So a tap is now snapped to the nearest point on the
+  baked centreline before anything is queried, and **the displacement is said
+  out loud every time it is not zero** — otherwise the app is quietly answering
+  a different question from the one that was asked, which is the shape of
+  defect that is impossible to notice and impossible to trust once noticed.
+  Three bands: inside 120 m the tap is taken as given, out to 1,500 m it is
+  moved and the move is stated, and beyond that it is not a question about the
+  river at all and is refused with a way to get to the surveyed water.
+- **A snap message written as a branch swallows the outcome underneath it.**
+  The first version returned the displacement sentence *instead of* the reason
+  there was no reading, so a tap 300 m off unsurveyed water said only that it
+  had been moved. It is a prefix, not an outcome.
 
 - **A rejected ArcGIS rendering rule is not an error.** It is HTTP 200,
   `image/png`, and about a hundred bytes of empty picture. Any probe built
