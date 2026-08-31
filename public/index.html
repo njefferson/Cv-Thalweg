@@ -641,7 +641,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '1.6.0';
+var VERSION = '1.7.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4906,14 +4906,24 @@ function drawTideMarkers(){
   t.stations.forEach(function(s){
     if (!isNum(s.lat) || !isNum(s.lon)) return;
     var live = s.id === t.station;
-    L.circleMarker([s.lat, s.lon], {
+    var m = L.circleMarker([s.lat, s.lon], {
       pane: 'tidepane',
       radius: live ? 8 : 5,
       weight: live ? 3 : 1,
       color: live ? '#7BD5D9' : '#3C6E6B',
       fillColor: '#0D1A19',
       fillOpacity: live ? 1 : .8,
-    }).bindPopup(labelNode(
+    });
+    /* THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH.
+       It opened a label naming the station and nothing else — so the one
+       sentence in the app that told a reader the station is a choice was
+       describing something the map did not do. Which station the tide is read
+       at matters more than it looks: high water at Rio Vista and high water at
+       Freeport are hours apart, so a reader on the wrong one is wrong by
+       hours. The panel has had a picker and a "nearest to you" button for
+       several releases; the map promised the same thing and delivered a
+       caption. It does it now. */
+    var pop = labelNode(
       s.name || s.id,
       /* NO READING ROW. A tide station is a place, not a measurement — the
          numbers live in the tide panel. The first version of this put prose
@@ -4925,7 +4935,21 @@ function drawTideMarkers(){
           ? ' · ' + Math.round(metresBetween(river.center[0], river.center[1], s.lat, s.lon) / 1000) +
             ' km from the middle of this reach'
           : '')
-    ), LABEL).addTo(state.tideLayer);
+    );
+    if (!live){
+      var srow = el('div',{class:'rowline'});
+      var sbtn = el('button',{type:'button',text:'Read the tide here instead'});
+      sbtn.addEventListener('click', function(){
+        if (state.map) state.map.closePopup();
+        switchTideStation(river, s.id);
+        announce('Tide now predicted at ' + (s.name || s.id) + '.');
+      });
+      srow.appendChild(sbtn);
+      pop.appendChild(srow);
+      pop.appendChild(el('span',{class:'pop-sub',
+        text:'The tide turns at different times along the river — hours apart between the top of this reach and the bottom.'}));
+    }
+    m.bindPopup(pop, LABEL).addTo(state.tideLayer);
   });
   updateLegend();
 }
@@ -6554,6 +6578,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'1.7.0', date:'2026-08-31', changes:[
+      'Tapping another tide station on the map now offers to read the tide there, which the key has been saying it would. It said "tap to switch" and tapping only opened a label with the station\u2019s name \u2014 so the one sentence in the app telling you the station is a choice was describing something the map did not do. This matters more than it looks: high water at Rio Vista and high water at Freeport are hours apart, so reading the wrong station puts you out by hours, and the popup now says that too.',
+      'The station you are already reading does not offer to switch you to itself.',
+  ] },
   { v:'1.6.0', date:'2026-08-31', changes:[
       'Press a river\u2019s bar at the top of the page and it opens that river. The four bars are the most prominent thing on the landing screen and pressing one did nothing \u2014 the ways in were the menu in the header and a card further down. The whole row is the target, not just the bar, so it is a comfortable press with a thumb, and the names are cyan with a \u203a after them so it is clear they do something. The line underneath says so as well.',
       'The gauge dots and the river names still say what they are; the row underneath them is what opens the river.',

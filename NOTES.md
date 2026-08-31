@@ -5,11 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.6.0 on `staging`. **Production is 1.1.0** and stays there until a
+- Version 1.7.0 on `staging`. **Production is 1.6.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.6.0** at https://staging.cv-thalweg.pages.dev — the
-  ribbon's rows open their river, as real buttons laid over the drawing.
+- Staged candidate: **1.7.0** at https://staging.cv-thalweg.pages.dev — tapping
+  another tide station offers to read the tide there, which the key had been
+  promising for several releases.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -84,6 +85,18 @@ network that can reach them and the answer will be in the output.
 ## Things found by running it that would not have been found by reading it
 
 Worth carrying to LESSONS in the hub; each cost real time here.
+
+- **The key promised something the map did not do.** It read "Other tide
+  station — tap to switch"; tapping opened a label with the station's name and
+  offered nothing. So the ONE sentence in the app that told a reader the tide
+  station is a choice was describing behaviour that did not exist — and the
+  choice matters by hours, because high water at Rio Vista and at Freeport are
+  not the same event. The panel had carried a picker and a nearest-to-you
+  button for several releases, which is probably why nobody looked at the map's
+  claim: the feature was real, just not where the key said it was.
+  **A legend is a promise about behaviour, not only a decoder for colours**, so
+  the check now asserts the two cannot drift: if the key says a tap switches,
+  the popup must carry the control.
 
 - **`role="img"` prunes everything inside it from the accessibility tree.** The
   ribbon's rows were made pressable by putting focusable rects with
