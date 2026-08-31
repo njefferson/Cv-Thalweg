@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.0.0 on `staging`. **Production is 1.7.0** and stays there until a
+- Version 2.1.0 on `staging`. **Production is 2.0.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.0.0** at https://staging.cv-thalweg.pages.dev — version
-  two: the tide along the river, on top of a release run that made the app
-  usable by a finger.
+- Staged candidate: **2.1.0** at https://staging.cv-thalweg.pages.dev — the
+  profile holds the point you let go of, and the map's gauge rings say which way
+  the water is running.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -856,6 +856,44 @@ repo; assume it every time, rather than rediscovering it.
 
 **And the figure has a key**, because a picture that says two things in colour
 and neither in words is a defect this app has now shipped twice.
+
+## The Delta, and where the state actually surveys
+
+Read off the live DWR service directory on 2026-08-31, converted from State
+Plane California zones II and III (US feet) — the wkid is absent on most of
+them and the zone has to come out of the WKT's own name, which is the same trap
+as the two UNIT declarations.
+
+**Every published survey is 2023 or later.** Six from 2023, twelve from 2024,
+two from 2025. The assumption that a bathymetry survey is old enough to be
+useless against a moving sandbar is simply wrong here, and it was the
+assumption this app was about to reason from.
+
+**Eleven of the twenty land inside NO declared river**: Old River at Doughty
+Cut, at Sugar Cut, at Paradise Cut; Grant Line and Fabian Canal, twice; Middle
+River at Undine; Indian Slough; Sugar Cut; two reservoirs; and Grizzly Bay.
+The app fetches all of them on every cold open and can show them to nobody.
+**Grizzly Bay's conversion came out in the Pacific** and is not counted in any
+claim here — its extent is very likely published in metres under a feet WKT,
+which is the same defect wearing its other face, and it wants checking before
+anything is built on that record.
+
+**Nine land inside MORE THAN ONE**, every one of them matching both the
+Sacramento and the Mokelumne, because those two bounding boxes overlap across
+the whole lower Delta. Among the nine: `SanJoaquinRvr_at_StocktonPort`,
+`SanJoaquinRiver` and `OldRiver`. **A San Joaquin survey is being offered as
+Sacramento depth**, which is not a coverage gap but a wrong answer.
+
+**Not one survey lands on exactly one river.**
+
+The fix for the filing is the one already used for public land: distance to
+that river's baked centreline, not a bounding box. It is the same defect that
+put the Yolo Bypass under the American, in a place nobody went back to look.
+
+**And there are repeat surveys of the same water at different dates** — Grant
+Line and Fabian Canal in June 2023 and May 2024; Sugar Cut in April 2023 and
+August 2025. Two measurements of one bottom, years apart, is the only honest
+material for saying where the bed has moved.
 
 ## The tide ALONG the river: what is published and what is not
 

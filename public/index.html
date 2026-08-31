@@ -556,6 +556,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
       <div class="profwrap" id="profwrap"><svg id="profsvg" role="img"
         aria-labelledby="profsvgtitle"><title id="profsvgtitle"></title></svg></div>
       <p class="note" id="profnote"></p>
+      <div id="profheld"></div>
     </section>
   </div>
   <div id="rail">
@@ -641,7 +642,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.0.0';
+var VERSION = '2.1.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4125,9 +4126,21 @@ function updateLegend(){
   d.innerHTML = '';
 
   var rows = [];
-  if (state.gaugeLayer && state.gaugeLayer.getLayers().length)
+  if (state.gaugeLayer && state.gaugeLayer.getLayers().length){
     rows.push(keyRow(swatch(7, 2, '#0A1214', tempColour(60)),
       'River gauge — fill is water temperature'));
+    /* THE RING IS A SECOND FACT AND SO NEEDS A SECOND ROW. A colour that means
+       something needs saying, and this app has now shipped two that did not. */
+    var anyVel = (state.gauges[state.riverId] || {}).rows &&
+      state.gauges[state.riverId].rows.some(function(r){
+        var v = velReading(r); return v && !v.conflict; });
+    if (anyVel){
+      rows.push(keyRow(swatch(7, 3, FLOOD, tempColour(60)),
+        'Ring cyan — the tide is pushing this gauge upstream'));
+      rows.push(keyRow(swatch(7, 3, EBB, tempColour(60)),
+        'Ring green — the water there is running downstream'));
+    }
+  }
   if (state.tideLayer && state.tideLayer.getLayers().length){
     rows.push(keyRow(swatch(8, 3, '#7BD5D9', '#0D1A19'),
       'Tide station being read here'));
@@ -4971,8 +4984,17 @@ function drawGaugeMarkers(){
     payload.rows.forEach(function(r){
       if (!isNum(r.lat) || !isNum(r.lon)) return;
       var f = isNum(r.tempF) ? r.tempF : null;
+      /* THE RING SAYS WHICH WAY THE WATER IS GOING, the fill still says how
+         warm it is. Two facts, two channels, and neither has to give up the
+         other — a gauge that measures velocity gets a coloured ring, and one
+         that does not keeps the dark ring it always had. A gauge whose
+         velocity and discharge disagree is left dark too: the app refuses to
+         choose between them everywhere else and must not quietly choose here. */
+      var vr2 = velReading(r);
+      var ring = (vr2 && !vr2.conflict) ? (vr2.down ? EBB : FLOOD) : '#0A1214';
       L.circleMarker([r.lat, r.lon], {
-        radius:7, weight:2, color:'#0A1214', fillColor:tempColour(f), fillOpacity:.95
+        radius:7, weight: ring === '#0A1214' ? 2 : 3,
+        color:ring, fillColor:tempColour(f), fillOpacity:.95
       }).bindPopup(labelNode(
         r.name || r.id,
         [[fmt(r.flow,0), 'cfs'], [fmt(r.stage,2), 'ft'],
@@ -5266,6 +5288,22 @@ function velConflicts(river){
 var FLOOD = '#7BD5D9';   /* the tide pushing in  */
 var EBB   = '#9BD98C';   /* the river running out */
 
+function loadVelocityDay(river, gs){
+  if (state.velLoading) return;
+  state.velLoading = true; state.velFailed = null;
+  renderWater();
+  usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
+    state.velHistory = state.velHistory || {};
+    state.velHistory[river.id] = out;
+    state.velLoading = false; renderWater();
+    announce('The last day of velocity is drawn.');
+  }, function(e){
+    state.velLoading = false;
+    state.velFailed = String(e && e.message || e);
+    renderWater();
+  });
+}
+
 function tideAlongRiver(river){
   var box = el('div', {});
   var gs = velGauges(river);
@@ -5285,6 +5323,10 @@ function tideAlongRiver(river){
           ' and the river is winning at the rest. The change happens between them.'}));
 
   var hist = (state.velHistory || {})[river.id];
+  /* Agreed to once, so it is fetched without asking again — and only once per
+     visit, because the guard is the fetch already being in flight. */
+  if (!hist && !state.velLoading && !state.velFailed && sget(river.id, 'velday'))
+    loadVelocityDay(river, gs);
   box.appendChild(tideAlongFigure(river, gs, hist));
 
   /* Dropped from the drawing, not from the account of it. */
@@ -5304,17 +5346,12 @@ function tideAlongRiver(river){
       text: state.velLoading ? 'Reading the last day…' : 'Show the last day'});
     b.disabled = !!state.velLoading;
     b.addEventListener('click', function(){
-      state.velLoading = true; renderWater();
-      usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
-        state.velHistory = state.velHistory || {};
-        state.velHistory[river.id] = out;
-        state.velLoading = false; renderWater();
-        announce('The last day of velocity is drawn.');
-      }, function(e){
-        state.velLoading = false;
-        state.velFailed = String(e && e.message || e);
-        renderWater();
-      });
+      /* CONSENT IS REMEMBERED, THE DATA IS NOT. Asking again on every visit
+         for something already agreed to is the app forgetting a decision the
+         reader made; caching the readings themselves would be worse, because
+         a day of velocity is only useful while it is today. */
+      sput(river.id, 'velday', true);
+      loadVelocityDay(river, gs);
     });
     row.appendChild(b);
     box.appendChild(row);
@@ -6330,18 +6367,147 @@ function renderProfile(){
     read.textContent = best && Math.abs(best.d - along) < (m.length / 20)
       ? fmt(Math.abs(best.v), 1) + ' ft'
       : 'not measured here';
-    markTrace(best && Math.abs(best.d - along) < (m.length / 20) ? best : null, along);
+    var sample = best && Math.abs(best.d - along) < (m.length / 20) ? best : null;
+    markTrace(sample, along);
+    var at = sample && isNum(sample.lat) ? [sample.lat, sample.lon] : pointAlong(m.pts, along);
+    /* A sample carries a position and a value; the SURVEY it came from belongs
+       to the band, not to the point inside it. */
+    state.traceAt = at ? { at:at, along:along, v: sample ? sample.v : null,
+                           survey: (sample && band && band.survey) ? band.survey.name : null } : null;
   }
-  function untrace(){
-    head.setAttribute('opacity', 0);
-    read.setAttribute('opacity', 0);
-    markTrace(null, null);
+  /* LIFTING THE FINGER USED TO THROW THE POINT AWAY.
+
+     The whole reason to drag along a profile is to find the deep bit — and the
+     moment you found it and let go, the mark on the map vanished, so you had
+     seen that a deep bit exists and learnt nothing about WHERE. The point is
+     now held: the line stays on the picture, the mark stays on the map, and
+     the panel underneath says which bank it is on, how far off the middle, and
+     the nearest place the state says you may stand. */
+  function release(){
+    if (state.traceAt) renderHeld(state.traceAt);
   }
   hit.addEventListener('pointerdown', function(e){ hit.setPointerCapture(e.pointerId); trace(e); });
   hit.addEventListener('pointermove', function(e){ if (e.buttons || e.pointerType === 'touch') trace(e); });
-  hit.addEventListener('pointerup', untrace);
-  hit.addEventListener('pointercancel', untrace);
-  hit.addEventListener('pointerleave', function(e){ if (!e.buttons) untrace(); });
+  hit.addEventListener('pointerup', release);
+  hit.addEventListener('pointercancel', release);
+}
+
+/* WHICH BANK, AND HOW SURE THE APP IS ABOUT SAYING SO.
+
+   The baked centreline runs MOUTH FIRST — pathlength is measured to the outlet
+   and the segments are sorted ascending — so index 0 is downstream and the
+   downstream direction at a point is line[i] back towards line[i-1]. Getting
+   that backwards would swap every left for a right, silently and
+   convincingly, which is why it is written down here rather than inferred at
+   the call site.
+
+   The sign of the cross product of the downstream vector with the offset says
+   which side. Longitude degrees are shorter than latitude ones at this
+   latitude, but scaling one axis by a positive constant cannot flip a sign, so
+   the test survives working in raw degrees. */
+function bankOf(river, lat, lon){
+  var line = riverLineFor(river.id);
+  if (!line || line.length < 2) return null;
+  var n = nearestOnLine(line, lat, lon);
+  if (!n) return null;
+  var i = n.i > 0 ? n.i : 1;
+  var here = line[i], down = line[i - 1];
+  var dx = down[1] - here[1], dy = down[0] - here[0];
+  var px = lon - here[1],   py = lat - here[0];
+  var cross = dx * py - dy * px;
+  /* Within a few metres of the middle there is no meaningful side, and
+     claiming one would be precision the geometry does not have. */
+  if (n.off < 8) return { side:null, off:n.off };
+  return { side: cross > 0 ? 'left' : 'right', off:n.off };
+}
+
+/* The nearest place the state says the public may go. Not a route and not a
+   ramp — this app has neither — but it is the difference between a depth you
+   can reach and one you can only look at. */
+function nearestAccess(river, lat, lon){
+  var best = null;
+  accessSites(river).forEach(function(s){
+    if (!isNum(s.lat) || !isNum(s.lon)) return;
+    var d = metresBetween(lat, lon, s.lat, s.lon);
+    if (!best || d < best.d) best = { d:d, site:s };
+  });
+  return best;
+}
+
+/* What the held point is, said in words, under the picture the finger is on. */
+function renderHeld(held){
+  var box = document.getElementById('profheld');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!held || !held.at) return;
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (!river) return;
+  var lat = held.at[0], lon = held.at[1];
+
+  var line = el('p',{class:'note'});
+  line.appendChild(el('b',{ text: isNum(held.v)
+    ? fmt(Math.abs(held.v), 1) + ' ft here'
+    : 'Not measured here' }));
+  box.appendChild(line);
+
+  var b = bankOf(river, lat, lon);
+  if (b)
+    box.appendChild(el('p',{class:'note',
+      text: b.side === null
+        ? 'It is within ' + fmt(b.off, 0) + ' m of the middle of the channel, so neither bank is nearer.'
+        : 'It is ' + fmt(b.off, 0) + ' m off the middle of the channel, towards the ' +
+          b.side + ' bank \u2014 left and right as the river runs, looking downstream.'}));
+
+  var na = nearestAccess(river, lat, lon);
+  if (na){
+    box.appendChild(el('p',{class:'note',
+      text:'Nearest public land: ' + na.site.name + ', ' + kmText(na.d) + ' away. ' +
+        'That is the middle of a property rather than a spot on the bank, and it is not a boat ramp.'}));
+  } else {
+    box.appendChild(el('p',{class:'note',
+      text:'CDFW publishes no land of its own near here, which is not the same as there being nowhere to fish from.'}));
+  }
+
+  var row = el('div',{class:'rowline'});
+  var go = el('button',{type:'button',text:'Show me this point'});
+  go.addEventListener('click', function(){
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    mapView([[lat, lon], 15], { animate:!reduceMotion });
+    announce('Map centred on the held point.');
+  });
+  row.appendChild(go);
+  if (na){
+    var goa = el('button',{type:'button',text:'And the land nearest it'});
+    goa.addEventListener('click', function(){
+      if (tabNames().indexOf('map') !== -1) selectTab('map');
+      mapView(L.latLngBounds([[lat, lon], [na.site.lat, na.site.lon]]).pad(0.35),
+        { animate:!reduceMotion });
+      announce('Showing the point and the nearest public land together.');
+    });
+    row.appendChild(goa);
+  }
+  var keep = el('button',{type:'button',text:'Keep it as a mark'});
+  keep.addEventListener('click', function(){
+    /* The depth travels with the mark, and so does the survey it came from,
+       because a mark outlives the survey it was read from. */
+    addMark(lat, lon, isNum(held.v) ? {
+      depth: held.v,
+      depthFrom: held.survey ? surveyLabel(held.survey) : 'a published survey',
+      depthDate: held.survey ? surveyDate(held.survey) : null,
+      depthAway: 0
+    } : null);
+  });
+  row.appendChild(keep);
+  var clr = el('button',{type:'button',text:'Let it go'});
+  clr.addEventListener('click', function(){
+    state.traceAt = null;
+    markTrace(null, null);
+    renderHeld(null);
+    renderProfile();
+    announce('The held point is cleared.');
+  });
+  row.appendChild(clr);
+  box.appendChild(row);
 }
 
 /* A survey's name as a reader can use it. */
@@ -6399,6 +6565,9 @@ function cancelProfile(){
 }
 function clearProfile(){
   state.profile = null; state.profArm = null; state.profWhole = null; state.profCross = null;
+  /* The held point belongs to the line it was found on. */
+  state.traceAt = null;
+  renderHeld(null);
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   renderProfile(); renderLayers(); updateLegend();
@@ -6651,6 +6820,10 @@ function profileRiverNow(river, claim){
 }
 
 function runProfile(pts, claim){
+  /* A held point is a place on the LAST line. Drawing a new one makes it a
+     claim about a line it was never on. */
+  state.traceAt = null;
+  renderHeld(null);
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
@@ -6950,6 +7123,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.1.0', date:'2026-08-31', changes:[
+      'The depth profile holds the point you let go of. Dragging along the profile is how you find the deep bit \u2014 and the moment you found it and lifted your finger, the mark on the map vanished, so you had learnt that a deep bit exists and nothing about where it was. It stays now, and the panel underneath says which bank it is on and how far off the middle of the channel, names the nearest public land and how far that is, and offers to show you the point, show you both together, keep it as a mark, or let it go.',
+      'Left and right are as the river runs, looking downstream \u2014 not left and right of the screen.',
+      'The gauge dots on the map now have a coloured ring saying which way the water is going there: cyan for the tide pushing upstream, green for running down. The middle of the dot still shows the temperature, so one pin carries both, and the key says so. A gauge that does not measure direction keeps a dark ring, and so does one whose two instruments disagree.',
+      'Once you have asked for the last day of velocity on a river, it stops asking. The agreement is remembered; the readings are not, because a day of velocity is only useful while it is today.',
+  ] },
   { v:'2.0.0', date:'2026-08-31', changes:[
       'Version two. Version one could tell you where the deep water is. This one can be USED \u2014 with a finger, one-handed, on a riverbank, which is the only place it was ever going to be read. Nearly everything between the two came from somebody opening it on a phone and finding that the thing they pressed did nothing: pins eleven pixels wide, a map that would not go where it was told, a panel whose controls were buried under four paragraphs, four river bars that looked like a chart and were meant to be pressed. What is still not right is listed below, as it has been in every release.',
       'And the tide stopped being a number for one place. It is a thing that happens ALONG the river now \u2014 you can see it pushing in at the bottom, the river winning at the top, and where the two meet.',

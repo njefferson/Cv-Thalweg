@@ -596,6 +596,55 @@ check('and it is named rather than silently dropped',
 check('the day of readings is asked for, not fetched for everybody',
   along.askedForDay, 'no button offering the last day');
 
+/* --- THE MAP SHOWS DIRECTION TOO, AND SAYS SO ---------------------------
+   The ring carries which way the water is going; the fill still carries how
+   warm it is. Two facts on one pin, and a key row for the new one, because
+   this app has now shipped two colours that meant something and said nothing. */
+const rings = await page.evaluate(() => {
+  const rows = ((state.gauges.sacramento || {}).rows) || [];
+  const out = { drawn: [], conflictedDark: true };
+  state.gaugeLayer.eachLayer(l => {
+    if (!l.getLatLng) return;
+    const ll = l.getLatLng();
+    const row = rows.find(r => Math.abs(r.lat - ll.lat) < 1e-9);
+    if (!row) return;
+    const vr = velReading(row);
+    out.drawn.push({ id: row.id, ring: l.options.color,
+      wanted: (vr && !vr.conflict) ? (vr.down ? 'ebb' : 'flood') : 'dark' });
+    if (vr && vr.conflict && l.options.color !== '#0A1214') out.conflictedDark = false;
+  });
+  return out;
+});
+check('a gauge that measures direction gets a coloured ring',
+  rings.drawn.some(d => d.wanted !== 'dark' && d.ring !== '#0A1214'),
+  JSON.stringify(rings.drawn));
+check('a gauge that does not measure it keeps a dark one',
+  rings.drawn.every(d => d.wanted !== 'dark' || d.ring === '#0A1214'),
+  JSON.stringify(rings.drawn));
+/* Same rule as the figure: two instruments disagreeing is not a direction. */
+check('and a gauge arguing with itself is not given one either',
+  rings.conflictedDark, JSON.stringify(rings.drawn));
+check('the key explains the ring as well as the fill',
+  await page.evaluate(() => {
+    const t = (document.getElementById('maplegend') || {}).textContent || '';
+    return /Ring cyan/.test(t) && /Ring green/.test(t) && /fill is water temperature/.test(t);
+  }),
+  await page.evaluate(() => (document.getElementById('maplegend') || {}).textContent || ''));
+
+/* CONSENT IS REMEMBERED, THE READINGS ARE NOT. Asking again every visit for
+   something already agreed is the app forgetting a decision; caching a day of
+   velocity would be worse, because it is only useful while it is today. */
+check('agreeing to the day is remembered, and the readings are not cached',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    sput(river.id, 'velday', true);
+    const remembered = !!sget(river.id, 'velday');
+    const cached = !!(state.velHistory || {})[river.id] &&
+                   JSON.stringify(Store).indexOf('72255') !== -1;
+    sput(river.id, 'velday', false);
+    return remembered && !cached;
+  }));
+
 /* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
    The map's key promised it; tapping a station opened a label naming the
    station and offering nothing. So the one sentence in the app telling a
@@ -1844,9 +1893,79 @@ check('the mark follows the finger along the line',
               Math.abs(moved.lng - traced.at.lng) > 1e-6),
   JSON.stringify({ first: traced.at, then: moved }));
 await page.mouse.up();
-await page.waitForTimeout(250);
-check('letting go takes the mark off again',
-  await page.evaluate(() => state.traceLayer.getLayers().length) === 0);
+await page.waitForTimeout(400);
+/* LIFTING THE FINGER USED TO THROW THE POINT AWAY, which is the opposite of
+   what dragging along a profile is for: you found the deep bit and the moment
+   you found it the mark vanished, so you had learnt that a deep bit exists and
+   nothing about where. It is held now. */
+check('letting go keeps the mark, it does not discard it',
+  await page.evaluate(() => state.traceLayer.getLayers().length) > 0,
+  await page.evaluate(() => JSON.stringify(state.traceAt)));
+const held = await page.evaluate(() => {
+  const b = document.getElementById('profheld');
+  return { text: b ? b.textContent : '',
+           buttons: b ? [...b.querySelectorAll('button')].map(x => x.textContent) : [] };
+});
+check('and says which bank it is on, as the river runs',
+  /bank|middle of the channel/.test(held.text), held.text.slice(0, 200));
+check('and how far off the middle of the channel',
+  /\d+ m off the middle|within \d+ m of the middle/.test(held.text), held.text.slice(0, 200));
+check('and how to get to it',
+  /Nearest public land|publishes no land of its own/.test(held.text), held.text.slice(0, 260));
+check('and offers to show it, keep it, or let it go',
+  held.buttons.some(b => /Show me this point/.test(b)) &&
+  held.buttons.some(b => /Keep it as a mark/.test(b)) &&
+  held.buttons.some(b => /Let it go/.test(b)), JSON.stringify(held.buttons));
+
+/* LEFT AND RIGHT ARE AS THE RIVER RUNS, and the baked centreline is stored
+   MOUTH FIRST — so downstream at a point is back towards the previous index.
+   Getting that backwards swaps every left for a right, silently and
+   convincingly, so it is driven rather than trusted. */
+check('left and right are taken from the downstream direction, not the array order',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    if (!line || line.length < 3) return 'noline';
+    /* A point a short way to the WEST of a north-flowing-to-the-south reach.
+       Work it out from the geometry rather than asserting a compass answer:
+       step off the line perpendicular to the downstream vector, on the side a
+       positive cross product should call "left", and require that name back. */
+    const i = Math.floor(line.length / 2);
+    const here = line[i], down = line[i - 1];
+    const dx = down[1] - here[1], dy = down[0] - here[0];
+    const len = Math.hypot(dx, dy) || 1;
+    /* left of the downstream vector is (-dy, dx) normalised */
+    const off = 0.004;
+    const lat = here[0] + (dx / len) * off, lon = here[1] - (dy / len) * off;
+    const b = bankOf(river, lat, lon);
+    return b && b.side;
+  }) === 'left',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    const i = Math.floor(line.length / 2);
+    const here = line[i], down = line[i - 1];
+    const dx = down[1] - here[1], dy = down[0] - here[0];
+    const len = Math.hypot(dx, dy) || 1;
+    const lat = here[0] + (dx / len) * 0.004, lon = here[1] - (dy / len) * 0.004;
+    return JSON.stringify(bankOf(river, lat, lon));
+  }));
+check('and the middle of the channel is called neither bank',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    const b = bankOf(river, line[5][0], line[5][1]);
+    return b && b.side === null;
+  }));
+/* A held point belongs to the line it was found on. */
+check('drawing a new line lets the old point go',
+  await page.evaluate(async () => {
+    const before = !!state.traceAt;
+    runProfile(state.profile.pts.slice());
+    await new Promise(r => setTimeout(r, 300));
+    return before && !state.traceAt &&
+      document.getElementById('profheld').textContent === '';
+  }));
 
 /* --- getting back ------------------------------------------------------- */
 const back = await page.evaluate(() => {
