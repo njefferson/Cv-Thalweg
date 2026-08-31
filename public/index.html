@@ -373,6 +373,12 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .installbox{border:1px solid var(--teal-line); background:var(--panel-2);
   border-radius:3px; padding:.6rem .7rem; margin:1rem 0 .2rem}
 .installbox h3{color:var(--cyan); font-size:.9rem; margin:0 0 .3rem}
+/* A link, sized for a thumb, and deliberately not styled as a bright call to
+   action — it is an offer, not a demand. */
+.tiplink{display:inline-block; min-height:44px; line-height:1.9; padding:.2rem .8rem;
+  border:1px solid var(--teal-line); border-radius:3px; color:var(--ink);
+  text-decoration:none}
+.tiplink:hover{background:#16302e; text-decoration:underline}
 /* Shut by default, and it has to LOOK shut-and-openable rather than like a
    heading somebody forgot to fill in. */
 .foldbox{border:1px solid var(--teal-line); border-radius:3px; margin:.8rem 0 .2rem;
@@ -610,7 +616,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.13.0';
+var VERSION = '0.14.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -5842,6 +5848,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.14.0', date:'2026-08-30', changes:[
+      'There is a way to buy me a coffee, under the (i) button. It is a link and nothing else \u2014 no counter, no total, no thank-you tier, and nothing about the app changes whether you use it or not. There is no version you are missing.',
+      'It is only in the (i) panel and it is never going to appear anywhere you are actually reading the water.',
+  ] },
   { v:'0.13.0', date:'2026-08-30', changes:[
       'Public land is on the map. These are CDFW\u2019s own lands within twelve kilometres of each river \u2014 places the department says you may go, in its own words, with a link to its page where it has one. Forty-six of them across the four rivers, on the map from the first load with no signal and nothing to download, and listed in Layers under Getting to the water with the closest to the river first.',
       'They are NOT boat ramps, and the app does not call them that. There is no published list of ramps for these rivers that this build could find \u2014 the state\u2019s one public access dataset is coastal beaches, with none on this water \u2014 and rather than invent one, this answers the question the data can actually answer: where you are allowed to be.',
@@ -6111,6 +6121,20 @@ function renderAbout(){
   hubRow.appendChild(el('a',{href:'https://noahjefferson.pages.dev/accessibility',
     rel:'noopener noreferrer', target:'_blank', text:'Accessibility statement'}));
   b.appendChild(hubRow);
+
+  /* A TIP JAR, AND NOTHING THAT NAGS. It lives here, in the panel somebody
+     opens when they want to know about the app, and nowhere on the working
+     surface — a prompt for money has no business competing with reading the
+     water on a riverbank. No counter, no total, no thank-you tier, nothing
+     that changes if you give and nothing that changes if you do not. */
+  h('If it was useful');
+  para('Thalweg is free, has no account, shows no advertising and collects nothing about you, and that is not going to change. It also costs nothing to run beyond the time it takes to build, so there is no bill to help with. If you have got some use out of it and feel like buying a coffee, there is a link below. If you do not, nothing about the app is different \u2014 there is no version you are missing.');
+  var tipRow = el('div',{class:'rowline'});
+  tipRow.appendChild(el('a',{ href:'https://paypal.me/WishUponGames',
+    rel:'noopener noreferrer', target:'_blank', class:'tiplink',
+    text:'Buy a coffee, via PayPal' }));
+  b.appendChild(tipRow);
+  para('That link goes to PayPal and this app is not involved in it: nothing about a payment comes back here, and Thalweg does not know and cannot know whether anybody used it.', 'note');
 
   h('Licence');
   para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');

@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.13.0.
+- Version 0.14.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,18 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE TIP LINK IS IN THE (i) AND NOWHERE ELSE, ON PURPOSE.** A prompt for
+  money has no business competing with reading the water on a riverbank, so it
+  lives in the panel somebody opens when they want to know about the app. It is
+  a link and nothing else: no counter, no total, no tier, no thank-you, and the
+  copy says outright that nothing about the app differs whether you use it or
+  not. `tools/a11y.mjs` asserts all of that — that it is in the (i), that it is
+  not on the working surface, that it is 44px through, that a `target=_blank`
+  carries `noopener`, and that the section contains no supporter count, goal,
+  total or plea.
+  The address is a paypal.me handle rather than an email: an email in a public
+  repo under the owner's name gets scraped, and a handle takes payments without
+  publishing one. A Venmo handle would go here too; it has not been given.
 - **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
   not invent one. The state's open-data portal returns nothing for boating
   facilities, boat launch ramps or DBW; the one "Public Access Points" service

@@ -458,6 +458,42 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     }),
     await page.evaluate(() => [...document.querySelectorAll('#aboutbody a')]
       .map(a => a.getAttribute('href')).filter(h => /noahjefferson/.test(h)).join(' | ')));
+  /* THE TIP LINK LIVES IN THE (i) AND NOWHERE ELSE. A prompt for money has no
+     business competing with reading the water, so it must be here and must not
+     be on the working surface — and it must be a real target for a thumb. */
+  const tip = await page.evaluate(() => {
+    const a = document.querySelector('#aboutbody a.tiplink');
+    if (!a) return { there: false };
+    const r = a.getBoundingClientRect();
+    return { there: true, href: a.getAttribute('href'),
+             rel: a.getAttribute('rel') || '', target: a.getAttribute('target') || '',
+             h: Math.round(r.height), text: a.textContent.trim(),
+             onSurface: !!document.querySelector('header a.tiplink, #rail a.tiplink, #panel-map a.tiplink') };
+  });
+  check(`${name}: the tip link is in the (i) panel`,
+    tip.there && !tip.onSurface, JSON.stringify(tip));
+  check(`${name}: it is big enough for a thumb`, tip.h >= 44, JSON.stringify(tip));
+  /* An outbound link that opens a new tab hands the opener to the other site
+     unless it is told not to. */
+  check(`${name}: it does not hand this page to the site it opens`,
+    tip.target !== '_blank' || /noopener/.test(tip.rel), JSON.stringify(tip));
+  /* NOTHING THAT NAGS. No counter, no total, no tier, no praise, and nothing
+     that implies a reader who does not pay is missing something. */
+  check(`${name}: the tip section asks for nothing and counts nothing`,
+    await page.evaluate(() => {
+      const t = document.getElementById('aboutbody').textContent;
+      const i = t.indexOf('If it was useful');
+      const seg = i === -1 ? '' : t.slice(i, i + 700);
+      return i !== -1 &&
+        !/supporters?|backers?|donors?|thank you|goal|so far|raised|tier|please|help us|support the/i.test(seg) &&
+        /nothing about the app is different/.test(seg);
+    }),
+    await page.evaluate(() => {
+      const t = document.getElementById('aboutbody').textContent;
+      const i = t.indexOf('If it was useful');
+      return i === -1 ? '(section missing)' : t.slice(i, i + 220);
+    }));
+
   check(`${name}: the About panel opens at the top of itself`,
     await page.evaluate(() => document.getElementById('aboutbody').scrollTop === 0 &&
       document.activeElement.id === 'abouttitle'),
