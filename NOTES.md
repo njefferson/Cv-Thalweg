@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 1.7.0 on `staging`. **Production is 1.6.0** and stays there until a
+- Version 1.8.0 on `staging`. **Production is 1.7.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **1.7.0** at https://staging.cv-thalweg.pages.dev — tapping
-  another tide station offers to read the tide there, which the key had been
-  promising for several releases.
+- Staged candidate: **1.8.0** at https://staging.cv-thalweg.pages.dev — the tide
+  along the river: which way the water is running at every gauge that measures
+  it, in river order, with a day of it behind one press.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -824,6 +824,38 @@ lets Playwright resolve its own download when it is not.
 **The live suite is its own job and does not gate the merge.** It talks to
 USGS, NOAA and DWR; when a public agency is having a bad morning that must not
 read as this repo being broken. It is reported, not enforced.
+
+## The tide along the river, as built (1.8.0)
+
+**Where it lives:** the Water panel, under the tide section, because the two
+answer different questions — that one predicts the water LEVEL at one station,
+this one shows which way the water is actually RUNNING at every gauge in river
+order.
+
+**Two halves, split by cost.** The arrows are free: velocity is already in the
+readings the panel fetched. The day of bands is 47 KB and this is the landing
+panel, so it is behind a press.
+
+**`velocityRuns` is the load-bearing part.** It turns a series into runs of
+CONFIRMED direction, ignoring anything inside `VEL_SLACK` (0.15 ft/s). Without
+the band, Walnut Grove reported three turns in half an hour; with it, one. The
+test drives the real flicker pattern and also a real reversal, so the threshold
+cannot be widened until it eats genuine turns.
+
+**A gauge arguing with itself is dropped from the drawing and named underneath.**
+Where velocity and discharge sign differently the app already refuses to choose,
+and the first version of this figure drew an arrow anyway — **the pre-existing
+conflict test caught it**, which is the second time this week an old check has
+caught a new feature quietly breaking a rule the app had already settled.
+
+**The accessibility trap, again.** Everything drawn is inside a `role="img"`,
+which prunes its subtree, so the per-gauge facts existed for nobody who could
+not see the picture. The figure carries an `aria-describedby` list saying the
+same things in sentences. This is the third time that role has bitten in this
+repo; assume it every time, rather than rediscovering it.
+
+**And the figure has a key**, because a picture that says two things in colour
+and neither in words is a defect this app has now shipped twice.
 
 ## The tide ALONG the river: what is published and what is not
 
