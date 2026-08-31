@@ -983,6 +983,15 @@ const order = await page.evaluate(() => {
            hasWhere: /Bathymetry — where the depth is/.test(t) };
 });
 check('the panel leads with where the depth is', order.hasWhere, JSON.stringify(order));
+/* THE PROFILE IS WHAT GETS HUNTED FOR, so it comes before depth-at-a-point. */
+check('the profile is above the single-point reading',
+  await page.evaluate(() => {
+    const t = document.getElementById('panel-layers').textContent;
+    return t.indexOf('Depth along a line') > -1 &&
+           t.indexOf('Depth along a line') < t.indexOf('Depth at a point');
+  }));
+check('and its heading says the word people are looking for',
+  /Depth along a line — the profile/.test(await page.textContent('#panel-layers')));
 check('and the basemap chooser is below it, not above',
   order.where > -1 && order.base > order.where, JSON.stringify(order));
 check('the surveyed reaches are drawn on the map',

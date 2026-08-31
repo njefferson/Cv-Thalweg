@@ -543,7 +543,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <div role="tablist" aria-label="Panels">
       <button role="tab" id="tab-water"  aria-controls="panel-water"  aria-selected="true"  tabindex="0">Water</button>
       <button role="tab" id="tab-map"    aria-controls="panel-map"    aria-selected="false" tabindex="-1">Map</button>
-      <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Layers</button>
+      <!-- "Depth", not "Layers". Asked four times where the depth profiles are,
+           and each time the answer was three sections down inside a tab whose
+           name is a mapping term. Everything in this panel is the bottom —
+           where it has been surveyed, the depth at a point, the profile along a
+           line — with a basemap chooser at the foot. The panel was never the
+           problem; the word on the door was. -->
+      <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Depth</button>
       <button role="tab" id="tab-marks"  aria-controls="panel-marks"  aria-selected="false" tabindex="-1">Marks</button>
       <button role="tab" id="tab-brief"  aria-controls="panel-brief"  aria-selected="false" tabindex="-1">Brief</button>
     </div>
@@ -616,7 +622,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '0.14.0';
+var VERSION = '0.15.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -3274,24 +3280,7 @@ function renderLayers(){
         ', and nothing else. Their outlines are drawn on the map in dashed cyan so you can see what is covered before you go looking for a depth that was never measured.'
       : 'No published multibeam survey has arrived for the ' + river.name + ' yet. That is not the same as there being none \u2014 it means nothing has answered.'}));
 
-  p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
-  p.appendChild(el('p',{class:'note',
-    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
-  var centreRow = el('div',{class:'rowline'});
-  var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
-  centreBtn.addEventListener('click', function(){
-    var c = state.map.getCenter();
-    if (tabNames().indexOf('map') !== -1) selectTab('map');
-    showDepthAt(c.lat, c.lng);
-  });
-  centreRow.appendChild(centreBtn);
-  p.appendChild(centreRow);
-
-  /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
-     ONE. A point answers "how deep is it here"; a line answers where the
-     channel runs, which side of it you are on, and how fast it drops away —
-     which is the question somebody standing on a bank actually has. */
-  p.appendChild(el('h2',{class:'sec',text:'Depth along a line'}));
+  p.appendChild(el('h2',{class:'sec',text:'Depth along a line — the profile'}));
   p.appendChild(el('p',{class:'note',
     text:'This reads the published survey along a line and draws the bottom underneath the map. Down the middle of the river it is a long profile; from one bank to the other it is a cross-section showing which side the channel is on.'}));
   p.appendChild(el('p',{class:'note',
@@ -3343,6 +3332,24 @@ function renderLayers(){
     }
   }
   p.appendChild(profRow);
+
+  p.appendChild(el('h2',{class:'sec',text:'Depth at a point'}));
+  p.appendChild(el('p',{class:'note',
+    text:'Tap anywhere on the map and it asks the published survey how deep it is there, and offers to keep the point as a mark. Where the survey has no reading at that exact spot it gives you the nearest place it did measure and how far away that was.'}));
+  var centreRow = el('div',{class:'rowline'});
+  var centreBtn = el('button',{type:'button',text:'Read the depth at the map centre'});
+  centreBtn.addEventListener('click', function(){
+    var c = state.map.getCenter();
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    showDepthAt(c.lat, c.lng);
+  });
+  centreRow.appendChild(centreBtn);
+  p.appendChild(centreRow);
+
+  /* THE APP IS NAMED AFTER THE DEEPEST LINE IN A CHANNEL AND COULD NOT DRAW
+     ONE. A point answers "how deep is it here"; a line answers where the
+     channel runs, which side of it you are on, and how fast it drops away —
+     which is the question somebody standing on a bank actually has. */
 
   if (state.catalog.rasterError)
     p.appendChild(el('div',{class:'warnbox',
@@ -5350,7 +5357,7 @@ function renderProfile(){
     var why = m.none === 'nocatalog'
       ? 'The survey directory has not arrived, so this cannot be answered yet \u2014 which is not the same as there being no survey here.'
       : m.none === 'nowhere'
-        ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Layers panel lists which reaches those are.'
+        ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Depth panel lists which reaches those are.'
         : 'The survey covers this line but measured nothing along it. That is missing data, not flat bottom \u2014 dense weed defeats the sounder and those cells are dropped.';
     note.textContent = why;
     name('No depth along this line. ' + why);
@@ -5848,6 +5855,11 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'0.15.0', date:'2026-08-30', changes:[
+      'The tab called Layers is called Depth. That is what is behind it \u2014 where the state has surveyed, the depth at a point, and the profile along a line \u2014 and \u201cLayers\u201d is a mapping word that told you nothing about what you would find. If you have been looking for the depth profiles and not finding them, that is why, and it was the app\u2019s fault rather than yours.',
+      'Inside that tab, the profile now comes before the single-point reading, and its heading says the word: Depth along a line \u2014 the profile.',
+      'You can now buy a coffee by Venmo as well as PayPal, under the (i). Same coffee, whichever is less trouble.',
+  ] },
   { v:'0.14.0', date:'2026-08-30', changes:[
       'There is a way to buy me a coffee, under the (i) button. It is a link and nothing else \u2014 no counter, no total, no thank-you tier, and nothing about the app changes whether you use it or not. There is no version you are missing.',
       'It is only in the (i) panel and it is never going to appear anywhere you are actually reading the water.',
@@ -6107,10 +6119,10 @@ function renderAbout(){
   h('Reading depth honestly');
   para('Weed beats a depth sounder. Where the growth is thick the survey boat gets no return from the bottom, and those patches are dropped — so a blank space beside a tule edge is water nobody measured, not flat ground. In weedy water a reading may be the top of the weed rather than the bed.');
   para('The single beam surveys are lines, not sheets: dots along the track the boat drove. Between two tracks nothing was measured, and nothing is drawn. And every survey is a photograph of one day — sand moves.');
-  para('Where a reach has no published survey at all, the Layers panel says so in words instead of offering you a switch that turns nothing on.');
+  para('Where a reach has no published survey at all, the Depth panel says so in words instead of offering you a switch that turns nothing on.');
 
   h('Getting around it without a pointer');
-  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Layers panel asks the survey the same question a tap on the map asks. Where I am sits on the map itself and is a real button, so it takes a thumb and the keyboard equally; it is 44px through on both axes, which the map\u2019s own zoom controls are not.');
+  para('Every control takes the keyboard, with a visible focus ring, and the panels are a proper tab list you can walk with the arrow keys. The map pans with the arrow keys and zooms with plus and minus once it has focus. Two things that look like they need a finger do not: Add at map centre in the Marks panel drops a mark, and Read the depth at the map centre in the Depth panel asks the survey the same question a tap on the map asks. Where I am sits on the map itself and is a real button, so it takes a thumb and the keyboard equally; it is 44px through on both axes, which the map\u2019s own zoom controls are not.');
   para('Colour is never the only thing carrying a fact: every temperature dot has its figure beside it and every provenance flag is a word. Reduced motion is honoured. If anything here is unusable for you that is a fault worth reporting, and the button above is how.');
 
   h('Where this came from');
@@ -6130,11 +6142,16 @@ function renderAbout(){
   h('If it was useful');
   para('Thalweg is free, has no account, shows no advertising and collects nothing about you, and that is not going to change. It also costs nothing to run beyond the time it takes to build, so there is no bill to help with. If you have got some use out of it and feel like buying a coffee, there is a link below. If you do not, nothing about the app is different \u2014 there is no version you are missing.');
   var tipRow = el('div',{class:'rowline'});
+  /* Two, because one of them is probably already on your phone. Not a menu of
+     tiers — the same coffee, by whichever route is less trouble. */
   tipRow.appendChild(el('a',{ href:'https://paypal.me/WishUponGames',
     rel:'noopener noreferrer', target:'_blank', class:'tiplink',
     text:'Buy a coffee, via PayPal' }));
+  tipRow.appendChild(el('a',{ href:'https://venmo.com/u/NoahJefferson',
+    rel:'noopener noreferrer', target:'_blank', class:'tiplink',
+    text:'or via Venmo' }));
   b.appendChild(tipRow);
-  para('That link goes to PayPal and this app is not involved in it: nothing about a payment comes back here, and Thalweg does not know and cannot know whether anybody used it.', 'note');
+  para('Those links go to PayPal and Venmo, and this app is not involved in either: nothing about a payment comes back here, and Thalweg does not know and cannot know whether anybody used them.', 'note');
 
   h('Licence');
   para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');

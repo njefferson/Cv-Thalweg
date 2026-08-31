@@ -241,6 +241,12 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await page.waitForTimeout(1500);
     check('phone: picking a river adds a Map tab',
       await page.evaluate(() => document.getElementById('tab-map').getBoundingClientRect().height > 0));
+    /* THE DOOR WAS LABELLED WRONG. Four separate askings of "where is the
+       depth" all ended at a tab called Layers — a mapping term for a panel
+       that is entirely about the bottom. */
+    check('phone: the depth tab is called what is behind it',
+      await page.evaluate(() => document.getElementById('tab-layers').textContent.trim()) === 'Depth',
+      await page.evaluate(() => document.getElementById('tab-layers').textContent.trim()));
     await page.click('#tab-map');
     await page.waitForTimeout(900);
     const mapBox = await page.evaluate(() => ({
@@ -462,21 +468,22 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      business competing with reading the water, so it must be here and must not
      be on the working surface — and it must be a real target for a thumb. */
   const tip = await page.evaluate(() => {
-    const a = document.querySelector('#aboutbody a.tiplink');
-    if (!a) return { there: false };
-    const r = a.getBoundingClientRect();
-    return { there: true, href: a.getAttribute('href'),
-             rel: a.getAttribute('rel') || '', target: a.getAttribute('target') || '',
-             h: Math.round(r.height), text: a.textContent.trim(),
+    const as = [...document.querySelectorAll('#aboutbody a.tiplink')];
+    return { n: as.length,
+             links: as.map(a => ({ href: a.getAttribute('href'),
+               rel: a.getAttribute('rel') || '', target: a.getAttribute('target') || '',
+               h: Math.round(a.getBoundingClientRect().height) })),
              onSurface: !!document.querySelector('header a.tiplink, #rail a.tiplink, #panel-map a.tiplink') };
   });
-  check(`${name}: the tip link is in the (i) panel`,
-    tip.there && !tip.onSurface, JSON.stringify(tip));
-  check(`${name}: it is big enough for a thumb`, tip.h >= 44, JSON.stringify(tip));
+  check(`${name}: the tip links are in the (i) panel`,
+    tip.n > 0 && !tip.onSurface, JSON.stringify(tip));
+  check(`${name}: every one is big enough for a thumb`,
+    tip.links.every(l => l.h >= 44), JSON.stringify(tip));
   /* An outbound link that opens a new tab hands the opener to the other site
      unless it is told not to. */
-  check(`${name}: it does not hand this page to the site it opens`,
-    tip.target !== '_blank' || /noopener/.test(tip.rel), JSON.stringify(tip));
+  check(`${name}: none of them hands this page to the site it opens`,
+    tip.links.every(l => l.target !== '_blank' || /noopener/.test(l.rel)),
+    JSON.stringify(tip));
   /* NOTHING THAT NAGS. No counter, no total, no tier, no praise, and nothing
      that implies a reader who does not pay is missing something. */
   check(`${name}: the tip section asks for nothing and counts nothing`,

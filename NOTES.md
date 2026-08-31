@@ -5,7 +5,7 @@ session needs before it touches anything.
 
 ## State
 
-- Version 0.14.0.
+- Version 0.15.0.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -258,6 +258,19 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   tidal river, or carrying a station with no position. Fetching and checking are
   separate on purpose: a gate that reached NOAA would put a public agency's
   uptime inside this repo's verdict.
+- **THE DOOR WAS LABELLED WRONG, AND FOUR ROUNDS WERE SPENT REARRANGING THE
+  ROOM.** "Where is the depth", "I do not see where the depth is at", "not of
+  the whole river", "where do I find depth profiles" — each time the fix was
+  inside `panel-layers`: outlines drawn, a go-to button, depth moved above the
+  basemap, the profile given a heading. All of them were improvements and none
+  of them was the cause. The tab was called **Layers**, which is a mapping term
+  for a panel that is entirely about the bottom. It is called **Depth** now.
+  The general form, and it is worth carrying to the other apps: when somebody
+  cannot find a feature, check the WORD ON THE CONTROL THAT LEADS TO IT before
+  touching what is behind it. A panel can be reorganised indefinitely without
+  ever fixing a label. Four rounds is the measurement.
+  The ids stay `tab-layers`/`panel-layers` — they are internal, and renaming
+  them would have churned the suites for nothing a reader can see.
 - **THE TIP LINK IS IN THE (i) AND NOWHERE ELSE, ON PURPOSE.** A prompt for
   money has no business competing with reading the water on a riverbank, so it
   lives in the panel somebody opens when they want to know about the app. It is
@@ -269,7 +282,7 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   total or plea.
   The address is a paypal.me handle rather than an email: an email in a public
   repo under the owner's name gets scraped, and a handle takes payments without
-  publishing one. A Venmo handle would go here too; it has not been given.
+  publishing one. Venmo sits beside it — same coffee, whichever route is less trouble.
 - **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
   not invent one. The state's open-data portal returns nothing for boating
   facilities, boat launch ramps or DBW; the one "Public Access Points" service
