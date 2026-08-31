@@ -857,6 +857,33 @@ repo; assume it every time, rather than rediscovering it.
 **And the figure has a key**, because a picture that says two things in colour
 and neither in words is a defect this app has now shipped twice.
 
+## Two gates that only run in CI, and what they caught
+
+Both of 2.2.0's first-push failures were checks this container does not run,
+and both were real.
+
+**`fetch-stations.mjs --check`: "delta declares tides and has no baked
+stations."** The Delta was declared tidal with five stations and `tide-stations.js`
+had never heard of it, so the Delta's tide would have been empty offline on a
+first load. Re-baking gave 94 stations across three rivers. The tool ALSO had
+no `NODE_USE_ENV_PROXY` re-exec, so running it here printed **"NOAA answered
+403"** — the proxy's allowlist reply wearing NOAA's name. That is LESSONS §173
+for the third time in this repo; the re-exec is now in `fetch-stations.mjs` and
+`fetch-delta.mjs` as well as `check-deploy.mjs`.
+
+**`live-test.mjs`: "the tidal reach is drawn to a named station."** It searched
+the ribbon for `tide predicted to `, a string the app has not produced since the
+station's name was taken out of that caption — it read "tide to SACRAMENTO,
+SACRAMENTO RIVER" and parsed as nowhere. **The phrase existed in the test and
+nowhere else in the repo.** A check that keys on copy pins the copy (§180), and
+a check that only runs in one place goes stale where nobody is looking. It asks
+whether the tidal limit is MARKED now — a dashed rule, and words that mention
+the tide — which is the thing the caption was ever for.
+
+`tools/fetch-delta.mjs --check` is wired into `gates.yml` beside the centrelines
+and the access lands, because a baked artefact nothing checks is one that goes
+stale in the tree.
+
 ## The Delta as built (2.2.0), and the three things it turned on
 
 **`tools/fetch-delta.mjs` bakes it.** DWR's Legal Delta Boundary — whose own

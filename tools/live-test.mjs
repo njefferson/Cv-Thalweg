@@ -90,9 +90,19 @@ await page.waitForTimeout(3000);
 
 /* ---- the landing: one card per river, no map ---- */
 let water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
-const cards = await page.evaluate(() => [...document.querySelectorAll('.rivercard')]
+/* THE FOUR RIVERS, AND THE DELTA SEPARATELY. The Delta is an entry but not a
+   river — it is where the four arrive — so it has its own card outside the
+   grid, and holding it to "a temperature and a flow" would be asking a place
+   to answer like a reach. Its own checks are below. */
+const cards = await page.evaluate(() => [...document.querySelectorAll('.rivercard:not(.networkcard)')]
+  .map(c => c.textContent.replace(/\s+/g, ' ').trim()));
+const deltaCards = await page.evaluate(() => [...document.querySelectorAll('.networkcard')]
   .map(c => c.textContent.replace(/\s+/g, ' ').trim()));
 check('a card for every river', cards.length === 4, JSON.stringify(cards.length));
+check('and one for the Delta, which is not one of them', deltaCards.length === 1,
+  JSON.stringify(deltaCards.length));
+check('the Delta card names itself', /Delta/.test(deltaCards[0] || ''),
+  (deltaCards[0] || '').slice(0, 120));
 check('every card carries a temperature and a reading',
   cards.every(c => /\d+F/.test(c) && /(moving|workable|holding deep|stressed)/.test(c)),
   JSON.stringify(cards));
@@ -127,9 +137,24 @@ check('no site errored', !/request failed|no data returned/.test(water), water.s
 const note = await page.textContent('#ribbonnote');
 check('the ribbon plotted the gauges', /[1-9]\d* gauges plotted/.test(note), note);
 check('every gauge got a position', !/not plotted/.test(note), note);
-check('the tidal reach is drawn to a named station',
-  await page.evaluate(() => [...document.querySelectorAll('#ribbon text')]
-    .some(t => /tide predicted to /.test(t.textContent))));
+/* THE MARK, NOT THE WORDING. This asked for the string "tide predicted to ",
+   which the app has not produced since the station's name was taken out of
+   that caption — it read "tide to SACRAMENTO, SACRAMENTO RIVER" and parsed as
+   nowhere. The check kept passing in the only place it runs and then failed
+   here for a change that had nothing to do with it. A gate that keys on copy
+   pins the copy; this asks whether the tidal limit is MARKED, which is the
+   thing the caption exists to point at. */
+check('the tidal limit is marked on the ribbon, with words pointing at the mark',
+  await page.evaluate(() => {
+    const rules = document.querySelectorAll('#ribbon line[stroke-dasharray]').length;
+    const said = [...document.querySelectorAll('#ribbon text')]
+      .some(t => /tide/i.test(t.textContent));
+    return rules >= 1 && said;
+  }),
+  await page.evaluate(() => JSON.stringify({
+    rules: document.querySelectorAll('#ribbon line[stroke-dasharray]').length,
+    texts: [...document.querySelectorAll('#ribbon text')]
+      .map(t => t.textContent).filter(t => /tide/i.test(t)) })));
 
 /* ---- tide ---- */
 check('gauges are marked on the map',

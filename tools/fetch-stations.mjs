@@ -29,6 +29,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+/* Node's own fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, and it
+   reads it at STARTUP. Without it this prints "NOAA answered 403" — which is
+   the proxy's allowlist reply wearing NOAA's name, and reads exactly like the
+   service refusing us. (Hub LESSONS §173.) */
+if (!process.env.NODE_USE_ENV_PROXY &&
+    (process.env.HTTPS_PROXY || process.env.https_proxy)) {
+  const r = spawnSync(process.execPath, [import.meta.filename, ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+  process.exit(r.status === null ? 1 : r.status);
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const appSource = () => readFileSync(join(ROOT, 'public', 'index.html'), 'utf8');
