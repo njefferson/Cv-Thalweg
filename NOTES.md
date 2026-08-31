@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.0.0 on `staging`. **Production is 1.7.0** and stays there until a
+- Version 2.2.0 on `staging`. **Production is 2.0.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.0.0** at https://staging.cv-thalweg.pages.dev — version
-  two: the tide along the river, on top of a release run that made the app
-  usable by a finger.
+- Staged candidate: **2.2.0** at https://staging.cv-thalweg.pages.dev — the
+  Delta as its own entry, surveys filed by the water they sit on, and the bottom
+  change between two surveys of one bed.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -856,6 +856,167 @@ repo; assume it every time, rather than rediscovering it.
 
 **And the figure has a key**, because a picture that says two things in colour
 and neither in words is a defect this app has now shipped twice.
+
+## The Delta broke three baked artefacts, each in its own way
+
+Adding an entry that is not a river found every place the tooling assumed one.
+
+**`fetch-centrelines.mjs --check` demanded a course from it.** The Delta has 97
+channels and no main stem — the thing that entry exists to say. It skips
+`network:true` now.
+
+**`fetch-access.mjs` gave it no public land**, because it measures distance to
+`river-lines.js` and the Delta is not in there. The consequence was not a blank
+section: the app would have said CDFW publishes no land of its own within twelve
+kilometres of the Delta, **which is false — there are sixteen sites**. A missing
+input turned into a confident wrong sentence, which is the worst shape a gap can
+take. The tool reads the Delta's channels as one line for that measurement now.
+
+**`fetch-stations.mjs --check` caught the tides** — see below.
+
+**And a fourth tool needed the §173 three lines**, printing "CDFW answered HTTP
+403" for what was the proxy's own allowlist reply. `check-deploy`,
+`fetch-delta`, `fetch-stations` and `fetch-access` all re-exec now. **Any new
+tool in this repo that fetches needs them; assume it rather than rediscovering
+it.**
+
+**The lesson for next time: run every `--check` before pushing, not the suites
+alone.** All three suites were green while three baked artefacts were wrong,
+because the suites test the app and the checks test the files it ships.
+
+## Two gates that only run in CI, and what they caught
+
+Both of 2.2.0's first-push failures were checks this container does not run,
+and both were real.
+
+**`fetch-stations.mjs --check`: "delta declares tides and has no baked
+stations."** The Delta was declared tidal with five stations and `tide-stations.js`
+had never heard of it, so the Delta's tide would have been empty offline on a
+first load. Re-baking gave 94 stations across three rivers. The tool ALSO had
+no `NODE_USE_ENV_PROXY` re-exec, so running it here printed **"NOAA answered
+403"** — the proxy's allowlist reply wearing NOAA's name. That is LESSONS §173
+for the third time in this repo; the re-exec is now in `fetch-stations.mjs` and
+`fetch-delta.mjs` as well as `check-deploy.mjs`.
+
+**`live-test.mjs`: "the tidal reach is drawn to a named station."** It searched
+the ribbon for `tide predicted to `, a string the app has not produced since the
+station's name was taken out of that caption — it read "tide to SACRAMENTO,
+SACRAMENTO RIVER" and parsed as nowhere. **The phrase existed in the test and
+nowhere else in the repo.** A check that keys on copy pins the copy (§180), and
+a check that only runs in one place goes stale where nobody is looking. It asks
+whether the tidal limit is MARKED now — a dashed rule, and words that mention
+the tide — which is the thing the caption was ever for.
+
+`tools/fetch-delta.mjs --check` is wired into `gates.yml` beside the centrelines
+and the access lands, because a baked artefact nothing checks is one that goes
+stale in the tree.
+
+## The Delta as built (2.2.0), and the three things it turned on
+
+**`tools/fetch-delta.mjs` bakes it.** DWR's Legal Delta Boundary — whose own
+attribution names the Delta Protection Act, section 12220 of the Water Code —
+is the extent, thinned from 2,131 points to 278. Inside it, 97 named channels
+from USGS national hydrography, kept only where most of a segment falls in the
+polygon, at the same 400 m spacing as the river centrelines. 64 KB, lazy, in
+`public/delta.js`. **Attributes are dropped apart from the citation**: the DWR
+record carries the name of the person who last edited it, and republishing
+somebody's name because a dataset included it is not something this repo does.
+
+**The boundary fetch 403'd first**, from Node's own fetch, exactly as LESSONS
+§173 describes — it reads NODE_USE_ENV_PROXY at startup, so the tool re-execs
+itself the way `check-deploy.mjs` does. It looked precisely like the state
+refusing us while curl returned 200 in the same shell.
+
+**The channel query pages at 2,000 and says so.** Taking page one would have
+shipped half a network with nothing to show it was half.
+
+**`network:true` is what stops the Delta pretending.** No profile down its own
+course, because it has 97 channels and no main stem; the cross-section and the
+tap-snap take the NEAREST channel instead, which is the only sense in which
+"the river" exists there. `linesFor` and `nearestOnAny` are where every
+"which water is this" question goes now.
+
+**It is not a fifth card in the river grid.** Five cards leave an orphan row at
+every phone width — the a11y walk's own rule, added after auto-fit stranded a
+fourth river on an iPad. It has its own dashed full-width card below the four,
+which is truer anyway: it is where they arrive, not another of them.
+
+**No reaches, and the app says why.** Title 14's Delta provisions were not
+confirmed against the regulation, and the existing empty-reaches branch already
+said the right thing.
+
+## Filing by water instead of by box
+
+`surveyRiverId` takes the survey extent's centre and finds the nearest channel
+within `SURVEY_NEAR_M` (4,000 m), **with the four named rivers taking
+precedence over the Delta** — the legal Delta reaches past Freeport and its
+channel list includes the Sacramento itself, so without precedence a Sacramento
+survey would be filed under the Delta and be missing from the river a reader
+picked by name.
+
+Measured against the real catalogue, the threshold separates cleanly: 16 of 18
+convertible surveys land within a few hundred metres of a channel, and the two
+that do not are **Dyer Reservoir and Lake Del Valle**, which are reservoirs.
+They go to nobody, which is correct.
+
+The render-test fixture had to move: its synthetic Sacramento survey floated
+nine kilometres off the channel, which is data the state does not publish.
+
+## The bottom change, and the datum that stops it
+
+Where the same water is surveyed twice there is a measured answer to "has the
+sandbar moved" — Grant Line and Fabian Canal in June 2023 and May 2024, Sugar
+Cut in April 2023 and August 2025.
+
+**But a depth is a height measured from something, and these services do not
+all say from what.** Read live on 2026-08-31: the 2024 Grant Line survey
+declares `NAVD88_height_(ftUS)`; the 2023 survey of the same canal declares no
+vertical coordinate system at all. Their value ranges are within a foot of each
+other, which is exactly the trap — subtracting them yields a plausible number
+resting on an assumption nobody published.
+
+So `bedChange` compares only when both surveys NAME a datum and name the same
+one, and prints the reason when it will not. `vertcsOf` reads it out of the
+WKT. **The real pair in the catalogue is the refusing case**, which is why the
+refusal path is the one that had to be right.
+
+## The Delta, and where the state actually surveys
+
+Read off the live DWR service directory on 2026-08-31, converted from State
+Plane California zones II and III (US feet) — the wkid is absent on most of
+them and the zone has to come out of the WKT's own name, which is the same trap
+as the two UNIT declarations.
+
+**Every published survey is 2023 or later.** Six from 2023, twelve from 2024,
+two from 2025. The assumption that a bathymetry survey is old enough to be
+useless against a moving sandbar is simply wrong here, and it was the
+assumption this app was about to reason from.
+
+**Eleven of the twenty land inside NO declared river**: Old River at Doughty
+Cut, at Sugar Cut, at Paradise Cut; Grant Line and Fabian Canal, twice; Middle
+River at Undine; Indian Slough; Sugar Cut; two reservoirs; and Grizzly Bay.
+The app fetches all of them on every cold open and can show them to nobody.
+**Grizzly Bay's conversion came out in the Pacific** and is not counted in any
+claim here — its extent is very likely published in metres under a feet WKT,
+which is the same defect wearing its other face, and it wants checking before
+anything is built on that record.
+
+**Nine land inside MORE THAN ONE**, every one of them matching both the
+Sacramento and the Mokelumne, because those two bounding boxes overlap across
+the whole lower Delta. Among the nine: `SanJoaquinRvr_at_StocktonPort`,
+`SanJoaquinRiver` and `OldRiver`. **A San Joaquin survey is being offered as
+Sacramento depth**, which is not a coverage gap but a wrong answer.
+
+**Not one survey lands on exactly one river.**
+
+The fix for the filing is the one already used for public land: distance to
+that river's baked centreline, not a bounding box. It is the same defect that
+put the Yolo Bypass under the American, in a place nobody went back to look.
+
+**And there are repeat surveys of the same water at different dates** — Grant
+Line and Fabian Canal in June 2023 and May 2024; Sugar Cut in April 2023 and
+August 2025. Two measurements of one bottom, years apart, is the only honest
+material for saying where the bed has moved.
 
 ## The tide ALONG the river: what is published and what is not
 

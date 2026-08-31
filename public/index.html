@@ -250,6 +250,9 @@ h2.sec:first-child{margin-top:0}
   padding:.6rem .65rem; border:1px solid var(--teal-line); border-radius:3px;
   background:var(--panel-2); cursor:pointer}
 .rivercard:hover{background:#16302e}
+/* The Delta's card, marked as a different kind of thing rather than a wider
+   one: the four rivers are a set and this is where they arrive. */
+.networkcard{border-style:dashed}
 .rivercard .rc-top{display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap}
 .rivercard .rc-name{font-size:1rem; font-weight:600; letter-spacing:.02em}
 .rivercard .rc-season{font-size:.66rem; letter-spacing:.07em; text-transform:uppercase;
@@ -556,6 +559,8 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
       <div class="profwrap" id="profwrap"><svg id="profsvg" role="img"
         aria-labelledby="profsvgtitle"><title id="profsvgtitle"></title></svg></div>
       <p class="note" id="profnote"></p>
+      <div id="profchange"></div>
+      <div id="profheld"></div>
     </section>
   </div>
   <div id="rail">
@@ -641,7 +646,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.0.0';
+var VERSION = '2.2.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -818,6 +823,78 @@ var RIVERS = [
       b:'This reach is subsection 7.40(b)(4)(C), one of the four subsections amended on 6 May 2026. Before that amendment its text read "July 16 through December 31. No take or possession of Chinook Salmon." The amendment is what removed that sentence.',
       resolution:'The listing appears to be the reach’s pre-2026 rule. Read against the amended section it is out of date, not a second opinion. The printed regulations are still the authority — check them before you fish it.' }
   ]
+},
+{
+  /* =====================================================================
+     THE DELTA, WHICH IS NOT A RIVER.
+
+     It is here because the state's depth surveying mostly IS here: of the
+     twenty published bathymetry surveys, eleven land inside none of the four
+     rivers — Old River at three cuts, Grant Line and Fabian Canal, Middle
+     River, Indian Slough — and this app fetched every one of them on every
+     cold open and could show them to nobody.
+
+     WHAT COUNTS AS THE DELTA IS NOT THIS APP'S OPINION. DWR publishes the
+     Legal Delta Boundary and its own attribution names the Delta Protection
+     Act, section 12220 of the Water Code. That polygon is baked in
+     `delta.js`, and every channel, gauge and survey here is in because it
+     falls inside it.
+
+     IT HAS NO COURSE, AND THE APP DOES NOT PRETEND OTHERWISE. `network:true`
+     turns off the one thing that needs a main stem — the profile down the
+     river itself — because ninety-seven named channels meet and part and
+     choosing one would be this app inventing a route. Everything that works
+     on a single channel still works: a cross-section is taken across the
+     nearest one, a tap snaps to the nearest one, and a line drawn by hand is
+     a line drawn by hand.
+
+     THERE ARE NO REACHES AND NO SEASON HERE. Title 14 section 7.40's Delta
+     provisions were not confirmed against the regulation when this build was
+     made, and a season nobody checked is worse than no season, so the app
+     says it has none. The printed regulations are the authority.
+
+     Every gauge identifier below was requested from the live USGS service on
+     2026-08-31 and answered with the name shown; every station identifier is
+     NOAA's own, already in `tide-stations.js`. */
+  id:'delta', name:'The Delta', short:'Delta',
+  center:[38.08,-121.57], zoom:10,
+  bbox:[-121.9405,37.6250,-121.1967,38.5892],
+  /* A PROXY, AND SAID TO BE ONE. There is no upstream here, so there is no
+     honest river-distance to lay gauges along. The sea is west, and the tide
+     arrives from the west, so longitude orders the ribbon by roughly how far
+     from the sea a place is — which is what the tide follows even where the
+     water does not. */
+  axis:'lon', axisLabel:'longitude — the sea is west, on the left; the Delta has no upstream',
+  network:true,
+  tidal:true,
+  noLiveGauges:false,
+  gauges:[
+    { id:'11455420', status:PROV.VERIFIED, hint:'Sacramento River at Rio Vista' },
+    { id:'11455385', status:PROV.VERIFIED, hint:'Cache Slough above Ryer Island Ferry' },
+    { id:'11337080', status:PROV.VERIFIED, hint:'Threemile Slough' },
+    { id:'11337190', status:PROV.VERIFIED, hint:'San Joaquin River at Jersey Point' },
+    { id:'11313440', status:PROV.VERIFIED, hint:'False River near Oakley' },
+    { id:'11313433', status:PROV.VERIFIED, hint:'Dutch Slough below Jersey Island Road' },
+    { id:'11336930', status:PROV.VERIFIED, hint:'Mokelumne River at Andrus Island' },
+    { id:'11336790', status:PROV.VERIFIED, hint:'Little Potato Slough at Terminous' },
+    { id:'11313460', status:PROV.VERIFIED, hint:'San Joaquin River at Prisoners Point' },
+    { id:'11313452', status:PROV.VERIFIED, hint:'Old River at Franks Tract' },
+    { id:'11313405', status:PROV.VERIFIED, hint:'Old River at Bacon Island' },
+    { id:'11312685', status:PROV.VERIFIED, hint:'Middle River near Holt' },
+    { id:'11312676', status:PROV.VERIFIED, hint:'Middle River at Middle River' },
+    { id:'11304810', status:PROV.VERIFIED, hint:'San Joaquin River below Garwood Bridge' },
+    { id:'11313315', status:PROV.VERIFIED, hint:'Old River near Byron' },
+    { id:'11313240', status:PROV.VERIFIED, hint:'Grant Line Canal near Tracy' }
+  ],
+  tideStations:[
+    { id:'9415316', status:PROV.VERIFIED, hint:'Rio Vista' },
+    { id:'9415064', status:PROV.VERIFIED, hint:'Antioch, San Joaquin River' },
+    { id:'9415149', status:PROV.VERIFIED, hint:'Prisoners Point, San Joaquin River' },
+    { id:'9415257', status:PROV.VERIFIED, hint:'Terminous, Mokelumne River' },
+    { id:'9414883', status:PROV.VERIFIED, hint:'Stockton, San Joaquin River' }
+  ],
+  tideDiscover:true,
+  reaches:[]
 },
 {
   id:'mokelumne', name:'Mokelumne River', short:'Mokelumne',
@@ -1691,6 +1768,14 @@ var EsriImg = L.TileLayer.extend({
    So both are converted here rather than guessed at: an extent placed in
    the wrong projection puts a survey in the wrong river, which is the
    class of mistake this whole app is arranged to refuse. */
+/* The vertical coordinate system named in a WKT, or null when it names none.
+   A missing VERTCS is not a datum of zero; it is silence. */
+function vertcsOf(sr){
+  var w = (sr && sr.wkt) || '';
+  var m = w.match(/VERTCS\["([^"]+)"/);
+  return m ? m[1] : null;
+}
+
 function extentToLatLng(ext){
   if (!ext || !isNum(ext.xmin) || !isNum(ext.ymin) ||
       !isNum(ext.xmax) || !isNum(ext.ymax)) return null;
@@ -1831,6 +1916,14 @@ function loadCatalog(force){
           title: String(m.name || s.name).replace(/^Bathymetry\//, ''),
           description: plainText(m.description || m.serviceDescription).slice(0, 400),
           pixel: (m.pixelSizeX && m.pixelSizeY) ? [m.pixelSizeX, m.pixelSizeY] : null,
+          /* WHAT THE HEIGHTS ARE MEASURED FROM, if the service says. Two
+             surveys of one place can only be subtracted from each other when
+             they share a vertical datum, and they do not all declare one:
+             measured on 2026-08-31, Grant Line 2024 declares
+             NAVD88_height_(ftUS) and Grant Line 2023 declares nothing at all.
+             Kept here so the app can refuse the comparison out loud instead of
+             printing a difference that assumes an answer nobody gave. */
+          vertcs: vertcsOf(m.spatialReference),
           box: extentToLatLng(m.extent)
         };
       });
@@ -3177,9 +3270,22 @@ function renderWater(){
     p.appendChild(el('h2',{class:'sec',text:'Which river'}));
     /* A container so the four can sit side by side on a wide screen. On a
        phone it is a plain block and the cards stack exactly as before. */
+    /* THE DELTA IS NOT A FIFTH RIVER AND IS NOT PUT IN THE ROW OF THEM.
+       Four cards make rows that divide evenly; a fifth leaves an orphan on
+       every phone width, which is a layout defect this repo already went and
+       fixed once. But the real reason is not the arithmetic: it is where the
+       four rivers END, not another of them, and a card sitting in line with
+       the Sacramento would say otherwise. It gets its own full-width card
+       underneath, which is also room to say what it is. */
     var grid = el('div',{class:'rivergrid'});
-    RIVERS.forEach(function(river){ grid.appendChild(riverCard(river)); });
+    RIVERS.filter(function(r){ return !r.network; })
+      .forEach(function(river){ grid.appendChild(riverCard(river)); });
     p.appendChild(grid);
+    RIVERS.filter(function(r){ return r.network; }).forEach(function(river){
+      var c = riverCard(river);
+      c.classList.add('networkcard');
+      p.appendChild(c);
+    });
     /* This read RIVERS[0] and said "these" about all four, so one river's
        bad minute captioned three rivers of live readings. */
     var old = RIVERS.filter(function(r){ return looksOld(state.gauges[r.id]); });
@@ -3678,6 +3784,15 @@ function renderLayers(){
      reaches of hundreds of kilometres, the app opens on the whole basin, and
      nothing marked where they were — so "I cannot see where the depth is" was
      a correct reading of the map rather than a reader missing something. */
+  /* THE FILING NEEDS THE CHANNELS. Which river a survey belongs to is decided
+     by distance to that river's water, so the panel that shows surveys is the
+     panel that pays for the geometry — and it loads BOTH files, because a
+     survey can only be given to the Delta if the Delta's channels are there
+     to give it to. */
+  if (!haveAnyLines() && !state.linesAsked){
+    state.linesAsked = true;
+    loadRiverLines().then(function(){ renderLayers(); drawSurveyBoxes(); }, function(){});
+  }
   p.appendChild(el('h2',{class:'sec',text:'Bathymetry — where the depth is'}));
   var whereRow = el('div',{class:'rowline'});
   var whereBtn = el('button',{type:'button',text:'Take me to the surveyed water'});
@@ -3713,8 +3828,12 @@ function renderLayers(){
        without waiting for the file — pressing one loads it. Deciding from
        whether it happens to be loaded yet would hide them on a cold open and
        show them on a warm one, which is a control that comes and goes. */
-    var haveLine = true;
-    if (haveLine){
+    /* THE DELTA IS NOT OFFERED A COURSE IT DOES NOT HAVE. Every river in this
+       build ships a main stem, so the control appears without waiting for the
+       file; the Delta ships ninety-seven channels and no main stem, and a
+       button that could only pick one and not say so is worse than its
+       absence. Its absence is explained rather than left to be noticed. */
+    if (!river.network){
       var down = el('button',{type:'button',text:'Profile down the river itself'});
       down.addEventListener('click', function(){ profileRiverLine(river); });
       profRow.appendChild(down);
@@ -3730,8 +3849,12 @@ function renderLayers(){
        centreline baked in it can cut across the river properly, at the point
        on the river nearest the middle of the map. It is also the pointerless
        route: two taps on a map is a finger's job. */
-    if (haveLine){
-      var xs = el('button',{type:'button',text:'Cross-section across the river here'});
+    /* The cross-section works on a network too: it takes the nearest channel,
+       which is the one a reader standing on a bank is asking about. */
+    if (true){
+      var xs = el('button',{type:'button',
+        text: river.network ? 'Cross-section across the nearest channel'
+                            : 'Cross-section across the river here'});
       xs.addEventListener('click', function(){
         var c = state.map.getCenter();
         crossSectionAt(river, c.lat, c.lng, 300);
@@ -4125,9 +4248,21 @@ function updateLegend(){
   d.innerHTML = '';
 
   var rows = [];
-  if (state.gaugeLayer && state.gaugeLayer.getLayers().length)
+  if (state.gaugeLayer && state.gaugeLayer.getLayers().length){
     rows.push(keyRow(swatch(7, 2, '#0A1214', tempColour(60)),
       'River gauge — fill is water temperature'));
+    /* THE RING IS A SECOND FACT AND SO NEEDS A SECOND ROW. A colour that means
+       something needs saying, and this app has now shipped two that did not. */
+    var anyVel = (state.gauges[state.riverId] || {}).rows &&
+      state.gauges[state.riverId].rows.some(function(r){
+        var v = velReading(r); return v && !v.conflict; });
+    if (anyVel){
+      rows.push(keyRow(swatch(7, 3, FLOOD, tempColour(60)),
+        'Ring cyan — the tide is pushing this gauge upstream'));
+      rows.push(keyRow(swatch(7, 3, EBB, tempColour(60)),
+        'Ring green — the water there is running downstream'));
+    }
+  }
   if (state.tideLayer && state.tideLayer.getLayers().length){
     rows.push(keyRow(swatch(8, 3, '#7BD5D9', '#0D1A19'),
       'Tide station being read here'));
@@ -4475,7 +4610,9 @@ function renderBrief(){
       box.appendChild(el('p',{class:'note',text:rc.bounds}));
       p.appendChild(box);
     });
-    river.conflicts.forEach(function(c){
+    /* Not every entry has a conflicts list — the Delta has no reaches to
+       conflict about, and an absent list is not an empty one. */
+    (river.conflicts || []).forEach(function(c){
       var box = el('div',{class:'magbox'});
       box.appendChild(el('div',{style:'font-weight:600',
         text:(c.status === 'resolved' ? 'Resolved: ' : 'Unresolved: ') + c.subject}));
@@ -4681,7 +4818,7 @@ function selectRiver(id){
     /* The centreline is what lets a tap be understood as a question about the
        river, so it is fetched when a river is chosen rather than on the first
        tap — the landing still never pays for it. */
-    loadRiverLines().catch(function(){});
+    loadRiverLines(river).catch(function(){});
     loadMarks(river.id);
   } else {
     state.markLayer.clearLayers(); state.marks = [];
@@ -4971,8 +5108,17 @@ function drawGaugeMarkers(){
     payload.rows.forEach(function(r){
       if (!isNum(r.lat) || !isNum(r.lon)) return;
       var f = isNum(r.tempF) ? r.tempF : null;
+      /* THE RING SAYS WHICH WAY THE WATER IS GOING, the fill still says how
+         warm it is. Two facts, two channels, and neither has to give up the
+         other — a gauge that measures velocity gets a coloured ring, and one
+         that does not keeps the dark ring it always had. A gauge whose
+         velocity and discharge disagree is left dark too: the app refuses to
+         choose between them everywhere else and must not quietly choose here. */
+      var vr2 = velReading(r);
+      var ring = (vr2 && !vr2.conflict) ? (vr2.down ? EBB : FLOOD) : '#0A1214';
       L.circleMarker([r.lat, r.lon], {
-        radius:7, weight:2, color:'#0A1214', fillColor:tempColour(f), fillOpacity:.95
+        radius:7, weight: ring === '#0A1214' ? 2 : 3,
+        color:ring, fillColor:tempColour(f), fillOpacity:.95
       }).bindPopup(labelNode(
         r.name || r.id,
         [[fmt(r.flow,0), 'cfs'], [fmt(r.stage,2), 'ft'],
@@ -5266,6 +5412,22 @@ function velConflicts(river){
 var FLOOD = '#7BD5D9';   /* the tide pushing in  */
 var EBB   = '#9BD98C';   /* the river running out */
 
+function loadVelocityDay(river, gs){
+  if (state.velLoading) return;
+  state.velLoading = true; state.velFailed = null;
+  renderWater();
+  usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
+    state.velHistory = state.velHistory || {};
+    state.velHistory[river.id] = out;
+    state.velLoading = false; renderWater();
+    announce('The last day of velocity is drawn.');
+  }, function(e){
+    state.velLoading = false;
+    state.velFailed = String(e && e.message || e);
+    renderWater();
+  });
+}
+
 function tideAlongRiver(river){
   var box = el('div', {});
   var gs = velGauges(river);
@@ -5285,6 +5447,10 @@ function tideAlongRiver(river){
           ' and the river is winning at the rest. The change happens between them.'}));
 
   var hist = (state.velHistory || {})[river.id];
+  /* Agreed to once, so it is fetched without asking again — and only once per
+     visit, because the guard is the fetch already being in flight. */
+  if (!hist && !state.velLoading && !state.velFailed && sget(river.id, 'velday'))
+    loadVelocityDay(river, gs);
   box.appendChild(tideAlongFigure(river, gs, hist));
 
   /* Dropped from the drawing, not from the account of it. */
@@ -5304,17 +5470,12 @@ function tideAlongRiver(river){
       text: state.velLoading ? 'Reading the last day…' : 'Show the last day'});
     b.disabled = !!state.velLoading;
     b.addEventListener('click', function(){
-      state.velLoading = true; renderWater();
-      usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
-        state.velHistory = state.velHistory || {};
-        state.velHistory[river.id] = out;
-        state.velLoading = false; renderWater();
-        announce('The last day of velocity is drawn.');
-      }, function(e){
-        state.velLoading = false;
-        state.velFailed = String(e && e.message || e);
-        renderWater();
-      });
+      /* CONSENT IS REMEMBERED, THE DATA IS NOT. Asking again on every visit
+         for something already agreed to is the app forgetting a decision the
+         reader made; caching the readings themselves would be worse, because
+         a day of velocity is only useful while it is today. */
+      sput(river.id, 'velday', true);
+      loadVelocityDay(river, gs);
     });
     row.appendChild(b);
     box.appendChild(row);
@@ -6142,6 +6303,116 @@ function buildProfile(pts){
   });
 }
 
+/* HAS THE BOTTOM MOVED? — and the two ways to answer it wrongly.
+
+   Sandbars in the Delta move, and where the state has surveyed the same water
+   twice there is a measured answer: Grant Line and Fabian Canal in June 2023
+   and again in May 2024, Sugar Cut in April 2023 and August 2025. Two
+   soundings of one bed, years apart, is the only honest material for saying
+   the bed has shifted.
+
+   THE FIRST WRONG ANSWER IS TO SUBTRACT HEIGHTS THAT ARE NOT MEASURED FROM THE
+   SAME PLACE. A depth is an elevation against a vertical datum, and these
+   services do not all declare one — read from the live catalogue, the 2024
+   Grant Line survey declares NAVD88 in feet and the 2023 survey of the same
+   canal declares nothing whatever. Their ranges look alike, which is exactly
+   the trap: subtracting them would produce a plausible number resting on an
+   assumption nobody published. So the comparison only runs when both surveys
+   NAME a vertical datum and name the same one, and says why when it will not.
+
+   THE SECOND IS TO CALL IT NAVIGATION. It is not, and this app says so
+   everywhere. A difference between two surveys says the bed moved between two
+   dates; it says nothing about today, and nothing about whether a boat will
+   float. */
+function renderBedChange(model){
+  var box = document.getElementById('profchange');
+  if (!box) return;
+  box.innerHTML = '';
+  var c = model ? bedChange(model) : null;
+  if (!c) return;
+
+  var head = 'The state surveyed this water twice: ' +
+    surveyLabel(c.a.name) + ' on ' + c.from + ', and ' +
+    surveyLabel(c.b.name) + ' on ' + c.to + '.';
+
+  if (c.refused){
+    box.appendChild(foldNote('Both surveys are drawn — why they are not subtracted', [
+      head,
+      'Both are drawn above, one band each, so you can look at them together. The app will not tell you how much the bed moved, because ' + c.refused + '. A depth is a height measured from something, and subtracting two heights measured from different things — or from something one of them never named — gives a number that looks like an answer and is not one.',
+      'This is not a shortcoming of the surveys. It is the app refusing to invent the part nobody published.'
+    ]));
+    return;
+  }
+  if (c.thin !== undefined){
+    box.appendChild(foldNote('Two surveys here, too little overlap to compare', [
+      head,
+      'They only measured the same ' + c.thin + ' place' + (c.thin === 1 ? '' : 's') +
+        ' along this line, which is too few to say anything about the bed as a whole. Draw a line that crosses more of both.'
+    ]));
+    return;
+  }
+
+  var deeper = c.mean < 0;
+  var line = el('p',{class:'note'});
+  line.appendChild(el('b',{ text:'The bottom moved ' + fmt(Math.abs(c.mean), 1) +
+    ' ft on average, ' + (deeper ? 'deeper' : 'shallower') + ', between ' + c.from + ' and ' + c.to + '.' }));
+  box.appendChild(line);
+  box.appendChild(el('p',{class:'note',
+    text:'Most it moved anywhere along this line: ' + fmt(Math.abs(c.max), 1) + ' ft ' +
+      (c.max < 0 ? 'deeper' : 'shallower') + '. Compared at ' + c.n +
+      ' places where both surveys measured, both against ' + c.datum + '.'}));
+  box.appendChild(foldNote('What this is, and what it is not', [
+    head,
+    'This is the difference between two measurements of one bed, and nothing else. It is not a forecast, it is not a reading of today, and it is NOT a depth to take a boat through: the newer of these surveys is from ' + c.to + ' and the bed has had every tide since to move again.',
+    'It is compared only where both surveys measured, and only because both name ' + c.datum + ' as what their heights are measured from. Where a pair does not agree on that, or one of them says nothing, this app draws both and refuses to subtract them.'
+  ]));
+}
+
+function bedChange(model){
+  var bands = (model && model.bands || []).filter(function(b){
+    return b.measured && b.survey && surveyDate(b.survey.name);
+  });
+  if (bands.length < 2) return null;
+  bands.sort(function(a, b){
+    return surveyDate(a.survey.name) < surveyDate(b.survey.name) ? -1 : 1; });
+  var a = bands[0], b = bands[bands.length - 1];
+  if (surveyDate(a.survey.name) === surveyDate(b.survey.name)) return null;
+
+  var out = { a:a.survey, b:b.survey,
+              from:surveyDate(a.survey.name), to:surveyDate(b.survey.name) };
+  if (!a.survey.vertcs || !b.survey.vertcs){
+    out.refused = 'one of these two surveys does not say what its heights are measured from';
+    return out;
+  }
+  if (a.survey.vertcs !== b.survey.vertcs){
+    out.refused = 'these two surveys measure their heights from different things (' +
+      a.survey.vertcs + ' and ' + b.survey.vertcs + ')';
+    return out;
+  }
+  out.datum = a.survey.vertcs;
+
+  /* Paired by position along the line, and only where BOTH measured — a gap
+     in one survey is not a change in the bed. */
+  var tol = Math.max(20, (model.length || 0) / 200), diffs = [];
+  a.pts.forEach(function(pa){
+    if (!isNum(pa.v)) return;
+    var best = null;
+    b.pts.forEach(function(pb){
+      if (!isNum(pb.v)) return;
+      var d = Math.abs(pb.d - pa.d);
+      if (d <= tol && (!best || d < Math.abs(best.d - pa.d))) best = pb;
+    });
+    if (best) diffs.push(best.v - pa.v);
+  });
+  if (diffs.length < 8){ out.thin = diffs.length; return out; }
+  var sum = 0, max = 0;
+  diffs.forEach(function(d){ sum += d; if (Math.abs(d) > Math.abs(max)) max = d; });
+  out.n = diffs.length;
+  out.mean = sum / diffs.length;
+  out.max = max;
+  return out;
+}
+
 /* ---- drawing it -------------------------------------------------------
    Depth DOWN is the whole point, so the surface is the top edge and deeper is
    further down — the shape a fisherman already has in their head. The vertical
@@ -6152,8 +6423,9 @@ function buildProfile(pts){
 function renderProfile(){
   var m = state.profile;
   var sec = $('#profile'), svg = $('#profsvg'), note = $('#profnote');
-  if (!m){ sec.hidden = true; svg.innerHTML = ''; return; }
+  if (!m){ sec.hidden = true; svg.innerHTML = ''; renderBedChange(null); return; }
   sec.hidden = false;
+  renderBedChange(m);
 
   var wrap = $('#profwrap');
   var H = Math.max(90, wrap.clientHeight || 150);
@@ -6330,18 +6602,146 @@ function renderProfile(){
     read.textContent = best && Math.abs(best.d - along) < (m.length / 20)
       ? fmt(Math.abs(best.v), 1) + ' ft'
       : 'not measured here';
-    markTrace(best && Math.abs(best.d - along) < (m.length / 20) ? best : null, along);
+    var sample = best && Math.abs(best.d - along) < (m.length / 20) ? best : null;
+    markTrace(sample, along);
+    var at = sample && isNum(sample.lat) ? [sample.lat, sample.lon] : pointAlong(m.pts, along);
+    /* A sample carries a position and a value; the SURVEY it came from belongs
+       to the band, not to the point inside it. */
+    state.traceAt = at ? { at:at, along:along, v: sample ? sample.v : null,
+                           survey: (sample && band && band.survey) ? band.survey.name : null } : null;
   }
-  function untrace(){
-    head.setAttribute('opacity', 0);
-    read.setAttribute('opacity', 0);
-    markTrace(null, null);
+  /* LIFTING THE FINGER USED TO THROW THE POINT AWAY.
+
+     The whole reason to drag along a profile is to find the deep bit — and the
+     moment you found it and let go, the mark on the map vanished, so you had
+     seen that a deep bit exists and learnt nothing about WHERE. The point is
+     now held: the line stays on the picture, the mark stays on the map, and
+     the panel underneath says which bank it is on, how far off the middle, and
+     the nearest place the state says you may stand. */
+  function release(){
+    if (state.traceAt) renderHeld(state.traceAt);
   }
   hit.addEventListener('pointerdown', function(e){ hit.setPointerCapture(e.pointerId); trace(e); });
   hit.addEventListener('pointermove', function(e){ if (e.buttons || e.pointerType === 'touch') trace(e); });
-  hit.addEventListener('pointerup', untrace);
-  hit.addEventListener('pointercancel', untrace);
-  hit.addEventListener('pointerleave', function(e){ if (!e.buttons) untrace(); });
+  hit.addEventListener('pointerup', release);
+  hit.addEventListener('pointercancel', release);
+}
+
+/* WHICH BANK, AND HOW SURE THE APP IS ABOUT SAYING SO.
+
+   The baked centreline runs MOUTH FIRST — pathlength is measured to the outlet
+   and the segments are sorted ascending — so index 0 is downstream and the
+   downstream direction at a point is line[i] back towards line[i-1]. Getting
+   that backwards would swap every left for a right, silently and
+   convincingly, which is why it is written down here rather than inferred at
+   the call site.
+
+   The sign of the cross product of the downstream vector with the offset says
+   which side. Longitude degrees are shorter than latitude ones at this
+   latitude, but scaling one axis by a positive constant cannot flip a sign, so
+   the test survives working in raw degrees. */
+function bankOf(river, lat, lon){
+  var n = nearestOnAny(river, lat, lon);
+  if (!n || n.line.length < 2) return null;
+  var line = n.line;
+  var i = n.i > 0 ? n.i : 1;
+  var here = line[i], down = line[i - 1];
+  var dx = down[1] - here[1], dy = down[0] - here[0];
+  var px = lon - here[1],   py = lat - here[0];
+  var cross = dx * py - dy * px;
+  /* Within a few metres of the middle there is no meaningful side, and
+     claiming one would be precision the geometry does not have. */
+  if (n.off < 8) return { side:null, off:n.off };
+  return { side: cross > 0 ? 'left' : 'right', off:n.off };
+}
+
+/* The nearest place the state says the public may go. Not a route and not a
+   ramp — this app has neither — but it is the difference between a depth you
+   can reach and one you can only look at. */
+function nearestAccess(river, lat, lon){
+  var best = null;
+  accessSites(river).forEach(function(s){
+    if (!isNum(s.lat) || !isNum(s.lon)) return;
+    var d = metresBetween(lat, lon, s.lat, s.lon);
+    if (!best || d < best.d) best = { d:d, site:s };
+  });
+  return best;
+}
+
+/* What the held point is, said in words, under the picture the finger is on. */
+function renderHeld(held){
+  var box = document.getElementById('profheld');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!held || !held.at) return;
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (!river) return;
+  var lat = held.at[0], lon = held.at[1];
+
+  var line = el('p',{class:'note'});
+  line.appendChild(el('b',{ text: isNum(held.v)
+    ? fmt(Math.abs(held.v), 1) + ' ft here'
+    : 'Not measured here' }));
+  box.appendChild(line);
+
+  var b = bankOf(river, lat, lon);
+  if (b)
+    box.appendChild(el('p',{class:'note',
+      text: b.side === null
+        ? 'It is within ' + fmt(b.off, 0) + ' m of the middle of the channel, so neither bank is nearer.'
+        : 'It is ' + fmt(b.off, 0) + ' m off the middle of the channel, towards the ' +
+          b.side + ' bank \u2014 left and right as the river runs, looking downstream.'}));
+
+  var na = nearestAccess(river, lat, lon);
+  if (na){
+    box.appendChild(el('p',{class:'note',
+      text:'Nearest public land: ' + na.site.name + ', ' + kmText(na.d) + ' away. ' +
+        'That is the middle of a property rather than a spot on the bank, and it is not a boat ramp.'}));
+  } else {
+    box.appendChild(el('p',{class:'note',
+      text:'CDFW publishes no land of its own near here, which is not the same as there being nowhere to fish from.'}));
+  }
+
+  var row = el('div',{class:'rowline'});
+  var go = el('button',{type:'button',text:'Show me this point'});
+  go.addEventListener('click', function(){
+    if (tabNames().indexOf('map') !== -1) selectTab('map');
+    mapView([[lat, lon], 15], { animate:!reduceMotion });
+    announce('Map centred on the held point.');
+  });
+  row.appendChild(go);
+  if (na){
+    var goa = el('button',{type:'button',text:'And the land nearest it'});
+    goa.addEventListener('click', function(){
+      if (tabNames().indexOf('map') !== -1) selectTab('map');
+      mapView(L.latLngBounds([[lat, lon], [na.site.lat, na.site.lon]]).pad(0.35),
+        { animate:!reduceMotion });
+      announce('Showing the point and the nearest public land together.');
+    });
+    row.appendChild(goa);
+  }
+  var keep = el('button',{type:'button',text:'Keep it as a mark'});
+  keep.addEventListener('click', function(){
+    /* The depth travels with the mark, and so does the survey it came from,
+       because a mark outlives the survey it was read from. */
+    addMark(lat, lon, isNum(held.v) ? {
+      depth: held.v,
+      depthFrom: held.survey ? surveyLabel(held.survey) : 'a published survey',
+      depthDate: held.survey ? surveyDate(held.survey) : null,
+      depthAway: 0
+    } : null);
+  });
+  row.appendChild(keep);
+  var clr = el('button',{type:'button',text:'Let it go'});
+  clr.addEventListener('click', function(){
+    state.traceAt = null;
+    markTrace(null, null);
+    renderHeld(null);
+    renderProfile();
+    announce('The held point is cleared.');
+  });
+  row.appendChild(clr);
+  box.appendChild(row);
 }
 
 /* A survey's name as a reader can use it. */
@@ -6399,6 +6799,9 @@ function cancelProfile(){
 }
 function clearProfile(){
   state.profile = null; state.profArm = null; state.profWhole = null; state.profCross = null;
+  /* The held point belongs to the line it was found on. */
+  state.traceAt = null;
+  renderHeld(null);
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   renderProfile(); renderLayers(); updateLegend();
@@ -6517,10 +6920,68 @@ function drawSurveyBoxes(){
   });
 }
 
+/* A survey further than this from any of a river's channels is not that
+   river's survey, whatever box it happens to fall in. */
+var SURVEY_NEAR_M = 4000;
+
+/* WHICH RIVER A SURVEY BELONGS TO, DECIDED BY THE WATER AND NOT BY A BOX.
+
+   The boxes overlap. Measured against the live catalogue on 2026-08-31, not
+   one of the twenty published surveys landed on exactly one river: nine landed
+   on both the Sacramento and the Mokelumne — among them two San Joaquin
+   surveys and one of Old River, offered as Sacramento depth — and eleven
+   landed on no river at all, which is why the Delta now exists.
+
+   The rule is the one already used for public land, and for the same reason:
+   distance to that river's own channels. It needs the geometry, so until the
+   geometry is loaded the old box test stands rather than the panel going
+   blank — and asking for the depth panel is what loads it. */
+function surveyRiverId(row){
+  if (!row.box || row.box.unknownWkid) return null;
+  var lat = (row.box.n + row.box.s) / 2, lon = (row.box.e + row.box.w) / 2;
+  /* A NAMED RIVER GETS ITS OWN WATER FIRST. The legal Delta reaches up past
+     Freeport, and the Delta's channel list includes the Sacramento itself, so
+     without this a Sacramento survey inside the Delta boundary would be filed
+     under the Delta and be missing from the river a reader picked by name.
+     The Delta entry exists for the water that is NOT one of the four. */
+  var best = null;
+  RIVERS.forEach(function(r){
+    if (r.network || !linesFor(r).length) return;
+    var n = nearestOnAny(r, lat, lon);
+    if (n && (!best || n.off < best.off)) best = { id:r.id, off:n.off };
+  });
+  if (best && best.off <= SURVEY_NEAR_M) return best.id;
+
+  var net = null;
+  RIVERS.forEach(function(r){
+    if (!r.network || !linesFor(r).length) return;
+    var n = nearestOnAny(r, lat, lon);
+    if (n && (!net || n.off < net.off)) net = { id:r.id, off:n.off };
+  });
+  return (net && net.off <= SURVEY_NEAR_M) ? net.id : null;
+}
+
+function haveAnyLines(){
+  return RIVERS.some(function(r){ return linesFor(r).length > 0; });
+}
+
 function surveysForRiver(river){
   if (!state.catalog || !state.catalog.raster) return [];
+  var geometryReady = haveAnyLines();
   return state.catalog.raster.filter(function(row){
-    return row.box && !row.box.unknownWkid && boxesIntersect(row.box, river.bbox);
+    if (!row.box || row.box.unknownWkid) return false;
+    if (!geometryReady) return boxesIntersect(row.box, river.bbox);
+    return surveyRiverId(row) === river.id;
+  });
+}
+
+/* Surveys the geometry could not give to anybody — too far from every
+   channel this build carries. Named rather than dropped in silence, because a
+   survey nobody can see is exactly what the Delta was built to fix. */
+function surveysHomeless(){
+  if (!state.catalog || !state.catalog.raster || !haveAnyLines()) return [];
+  return state.catalog.raster.filter(function(row){
+    return row.box && !row.box.unknownWkid && surveyRiverId(row) === null;
   });
 }
 
@@ -6558,27 +7019,65 @@ function goToDepth(river){
    before the map appeared. Precached, so this is a read from the device rather
    than the network, and it works with no signal. */
 var riverLinesReady = null;
-function loadRiverLines(){
-  if (typeof RIVER_LINES === 'object' && RIVER_LINES) return Promise.resolve(RIVER_LINES);
-  if (riverLinesReady) return riverLinesReady;
-  riverLinesReady = new Promise(function(res, rej){
+/* One loader, two files: the four rivers each have a main stem, and the Delta
+   has a network of ninety-seven named channels instead. Both are baked, both
+   are lazy, and neither is paid for on a landing that does not need it. */
+function loadScriptOnce(src, label, has){
+  if (has()) return Promise.resolve(true);
+  loadScriptOnce._p = loadScriptOnce._p || {};
+  if (loadScriptOnce._p[src]) return loadScriptOnce._p[src];
+  loadScriptOnce._p[src] = new Promise(function(res, rej){
     var sc = document.createElement('script');
-    sc.src = 'river-lines.js';
-    sc.onload = function(){
-      logNet('river centrelines', 'river-lines.js', true, 'loaded on demand');
-      res(typeof RIVER_LINES === 'object' ? RIVER_LINES : null);
-    };
+    sc.src = src;
+    sc.onload = function(){ logNet(label, src, true, 'loaded on demand'); res(true); };
     sc.onerror = function(){
-      riverLinesReady = null;
-      logNet('river centrelines', 'river-lines.js', false, 'did not load');
-      rej(new Error('the river centrelines did not load'));
+      loadScriptOnce._p[src] = null;
+      logNet(label, src, false, 'did not load');
+      rej(new Error(label + ' did not load'));
     };
     document.head.appendChild(sc);
   });
-  return riverLinesReady;
+  return loadScriptOnce._p[src];
 }
+
+function loadRiverLines(river){
+  var wantDelta = river && river.network;
+  var jobs = [];
+  if (!wantDelta || river === undefined)
+    jobs.push(loadScriptOnce('river-lines.js', 'river centrelines',
+      function(){ return typeof RIVER_LINES === 'object' && RIVER_LINES; }));
+  if (wantDelta || river === undefined)
+    jobs.push(loadScriptOnce('delta.js', 'Delta channels',
+      function(){ return typeof DELTA === 'object' && DELTA; }));
+  return Promise.all(jobs).then(function(){ return true; });
+}
+
 function riverLineFor(id){
   return (typeof RIVER_LINES === 'object' && RIVER_LINES && RIVER_LINES[id]) || null;
+}
+
+/* EVERY LINE THIS RIVER IS. A river has one; the Delta has ninety-seven, and
+   the difference is the whole reason the Delta could not simply be a fifth
+   river. Anything that asks "where is the water nearest this point" goes
+   through here rather than assuming a single course. */
+function linesFor(river){
+  if (!river) return [];
+  if (river.network)
+    return (typeof DELTA === 'object' && DELTA && DELTA.channels)
+      ? DELTA.channels.map(function(c){ return c.pts; }) : [];
+  var one = riverLineFor(river.id);
+  return one ? [one] : [];
+}
+
+/* The nearest point across every line, and WHICH line it was on — a bank or a
+   cross-section is meaningless without knowing which channel it belongs to. */
+function nearestOnAny(river, lat, lon){
+  var best = null;
+  linesFor(river).forEach(function(line, li){
+    var n = nearestOnLine(line, lat, lon);
+    if (n && (!best || n.off < best.off)) best = { line:line, li:li, i:n.i, off:n.off };
+  });
+  return best;
 }
 
 function nearestOnLine(line, lat, lon){
@@ -6592,16 +7091,19 @@ function nearestOnLine(line, lat, lon){
 
 function crossSectionAt(river, lat, lon, halfWidthM){
   announce('Reading across the river…');
-  loadRiverLines().then(function(){ crossSectionNow(river, lat, lon, halfWidthM); },
+  loadRiverLines(river).then(function(){ crossSectionNow(river, lat, lon, halfWidthM); },
     function(){ announce('The river centrelines did not load, so the app cannot tell which way across is.'); });
 }
 function crossSectionNow(river, lat, lon, halfWidthM){
-  var line = riverLineFor(river.id);
-  if (!line || line.length < 3){
-    announce('This build carries no centreline for the ' + river.name + ', so it cannot tell which way across is.');
+  /* A cross-section is across ONE channel, and in the Delta the one it is
+     across is whichever is nearest — which is exactly the question a reader
+     standing on a bank is asking. */
+  var n = nearestOnAny(river, lat, lon);
+  if (!n || n.line.length < 3){
+    announce('This build carries no channel geometry for the ' + river.name + ', so it cannot tell which way across is.');
     return;
   }
-  var n = nearestOnLine(line, lat, lon);
+  var line = n.line;
   var a = line[Math.max(0, n.i - 1)], b = line[Math.min(line.length - 1, n.i + 1)];
   var mid = line[n.i];
   /* Local bearing of the river, then a quarter turn. Longitude is squeezed by
@@ -6624,10 +7126,20 @@ function profileRiverLine(river){
   announce('Reading down the river…');
   /* Taken NOW, at the press, and carried to the other side of the fetch. */
   var claim = claimView();
-  loadRiverLines().then(function(){ profileRiverNow(river, claim); },
+  loadRiverLines(river).then(function(){ profileRiverNow(river, claim); },
     function(){ announce('The river centrelines did not load, so the app cannot follow the river.'); });
 }
 function profileRiverNow(river, claim){
+  /* THE DELTA HAS NO COURSE TO FOLLOW, and saying so is the honest answer
+     rather than picking a channel and calling it the river. Ninety-seven named
+     channels meet and part; there is no single line from a top to a mouth, and
+     a profile "down the Delta" would be this app choosing a route and not
+     saying it had. Everything that works on one channel — the cross-section, a
+     line drawn by hand, the depth at a point — still works. */
+  if (river.network){
+    announce('The Delta is a network rather than a course, so there is no single line down it to profile. Draw a line across a channel, or use the cross-section.');
+    return;
+  }
   var line = riverLineFor(river.id);
   if (!line || line.length < 2){
     announce('This build carries no centreline for the ' + river.name + '.');
@@ -6651,6 +7163,10 @@ function profileRiverNow(river, claim){
 }
 
 function runProfile(pts, claim){
+  /* A held point is a place on the LAST line. Drawing a new one makes it a
+     claim about a line it was never on. */
+  state.traceAt = null;
+  renderHeld(null);
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
   /* THE LINE IS THE SUBJECT AND IT LOOKED LIKE A SCRATCH. Reported from a
@@ -6764,12 +7280,14 @@ var SNAP_MAX_M  = 1500;   /* beyond this, it is not a question about the river *
 
 function snapToRiver(lat, lon){
   if (!state.riverId) return { at:[lat, lon], moved:0 };
-  var line = riverLineFor(state.riverId);
-  /* Without the centreline loaded there is nothing to snap to, and guessing
-     would be worse than leaving the tap where it fell. */
-  if (!line || line.length < 2) return { at:[lat, lon], moved:0 };
-  var n = nearestOnLine(line, lat, lon);
+  var river = byId(state.riverId);
+  /* Without the geometry loaded there is nothing to snap to, and guessing
+     would be worse than leaving the tap where it fell. In the Delta this is
+     ninety-seven channels rather than one line, and the nearest of them wins
+     — which is the only sense in which "the river" exists there. */
+  var n = nearestOnAny(river, lat, lon);
   if (!n) return { at:[lat, lon], moved:0 };
+  var line = n.line;
   if (n.off > SNAP_MAX_M) return { tooFar:true, away:n.off, at:[lat, lon] };
   if (n.off <= SNAP_TAKE_M) return { at:[lat, lon], moved:0 };
   return { at:line[n.i], moved:n.off };
@@ -6950,6 +7468,22 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.2.0', date:'2026-08-31', changes:[
+      'The Delta is in the app. It is not a fifth river \u2014 it is where the four arrive \u2014 so it has its own card under them, and what counts as the Delta is the state\u2019s own published Legal Delta Boundary rather than anybody\u2019s idea of where it starts. Ninety-seven named channels come with it, so a tap snaps to the water and a cross-section cuts across whichever channel is nearest.',
+      'This matters because most of the depth data was invisible. Of the twenty surveys the state publishes, ELEVEN were of water that belonged to none of the four rivers \u2014 Old River at three cuts, Grant Line, Middle River, Indian Slough \u2014 and the app downloaded every one of them each time it opened and could show you none of them.',
+      'And surveys are filed by the water they are on now, not by a box drawn round a river. Nine of the twenty landed in two rivers at once, including two San Joaquin surveys and one of Old River being offered to you as Sacramento depth. Each one now goes to the river whose channels it actually sits on, the Delta gets what no river claims, and two reservoirs that are nobody\u2019s river are given to nobody.',
+      'Where the state has surveyed the same water twice, the profile says how much the bottom moved between the two dates \u2014 which is a sandbar, measured, rather than guessed at. It only does this when both surveys say what their heights are measured from AND say the same thing; where one of them is silent, both are still drawn and the app says plainly why it will not subtract them. Two heights measured from different places make a difference that looks like an answer and is not one.',
+      'The Delta is not offered a profile down its own course, because it has not got one. Ninety-seven channels meet and part, and choosing one to call the Delta would be this app inventing a route.',
+  ], broken:[
+      'The Delta has no season here. Title 14\u2019s Delta provisions were not confirmed against the regulation when this build was made, and a season nobody checked is worse than none \u2014 so the app shows none and says so. The printed regulations are the authority.',
+      'A change between two surveys is the difference between two dates, and nothing about today. The newest survey of any Delta water in this build is from 2025, and the bed has had every tide since to move again. It is not a depth to take a boat through.',
+  ] },
+  { v:'2.1.0', date:'2026-08-31', changes:[
+      'The depth profile holds the point you let go of. Dragging along the profile is how you find the deep bit \u2014 and the moment you found it and lifted your finger, the mark on the map vanished, so you had learnt that a deep bit exists and nothing about where it was. It stays now, and the panel underneath says which bank it is on and how far off the middle of the channel, names the nearest public land and how far that is, and offers to show you the point, show you both together, keep it as a mark, or let it go.',
+      'Left and right are as the river runs, looking downstream \u2014 not left and right of the screen.',
+      'The gauge dots on the map now have a coloured ring saying which way the water is going there: cyan for the tide pushing upstream, green for running down. The middle of the dot still shows the temperature, so one pin carries both, and the key says so. A gauge that does not measure direction keeps a dark ring, and so does one whose two instruments disagree.',
+      'Once you have asked for the last day of velocity on a river, it stops asking. The agreement is remembered; the readings are not, because a day of velocity is only useful while it is today.',
+  ] },
   { v:'2.0.0', date:'2026-08-31', changes:[
       'Version two. Version one could tell you where the deep water is. This one can be USED \u2014 with a finger, one-handed, on a riverbank, which is the only place it was ever going to be read. Nearly everything between the two came from somebody opening it on a phone and finding that the thing they pressed did nothing: pins eleven pixels wide, a map that would not go where it was told, a panel whose controls were buried under four paragraphs, four river bars that looked like a chart and were meant to be pressed. What is still not right is listed below, as it has been in every release.',
       'And the tide stopped being a number for one place. It is a thing that happens ALONG the river now \u2014 you can see it pushing in at the bottom, the river winning at the top, and where the two meet.',

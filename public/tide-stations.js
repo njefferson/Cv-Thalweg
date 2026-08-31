@@ -8,7 +8,7 @@
  * These are NOAA's numbers. Nothing here was typed by hand, which is the same
  * rule as when the app fetched them at run time — only the moment changed. */
 var TIDE_STATIONS_META = {
-  fetchedAt: '2026-08-30T06:08:49.811Z',
+  fetchedAt: '2026-08-31T20:51:13.769Z',
   source: 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions&units=english'
 };
 var TIDE_STATIONS = {
@@ -57,6 +57,41 @@ var TIDE_STATIONS = {
     {id:'9415142',name:'Selby',lat:38.0583,lon:-122.243},
     {id:'9415074',name:'HERCULES WHARF',lat:38.0233,lon:-122.292},
     {id:'9415056',name:'Pinole Point, San Pablo Bay',lat:38.015,lon:-122.363}
+  ],
+  delta: [
+    {id:'9415229',name:'KORTHS HBR, SAN JOAQUIN RIVER',lat:38.0976,lon:-121.5684},
+    {id:'9415149',name:'PRISONERS POINT, SAN JOAQUIN RIVER',lat:38.0617,lon:-121.555},
+    {id:'9415287',name:'GEORGIANA SLOUGH, MOKELUMNE RIVER',lat:38.125,lon:-121.578},
+    {id:'9415095',name:'Irish Landing, Sand Mound Slough',lat:38.0333,lon:-121.583},
+    {id:'9415257',name:'TERMINOUS,MOKELUMNE RIVER',lat:38.11,lon:-121.498},
+    {id:'9415105',name:'WARDS ISLAND, SAN JOAQUIN RIVER',lat:38.05,lon:-121.497},
+    {id:'9415145',name:'JERSEY ISLAND, FALSE RIVER',lat:38.055,lon:-121.657},
+    {id:'9415053',name:'DUTCH SLOUGH',lat:38.0117,lon:-121.638},
+    {id:'9415193',name:'THREE MILE SLOUGH,SAN JOAQUIN R.',lat:38.0867,lon:-121.685},
+    {id:'9415236',name:'THREE MILE SLOUGH,SACRAMENTO R.',lat:38.1067,lon:-121.7},
+    {id:'9415316',name:'Rio Vista',lat:38.145,lon:-121.692},
+    {id:'9415414',name:'STEAMBOAT SLOUGH',lat:38.1833,lon:-121.655},
+    {id:'9415117',name:'BISHOP CUT, DISSAPOINTMENT SLOUGH',lat:38.045,lon:-121.42},
+    {id:'9414868',name:'ORWOOD,OLD RIVER',lat:37.9383,lon:-121.56},
+    {id:'9415021',name:'BLACKSLOUGH LANDING, SAN JOAQUIN RIVER',lat:37.995,lon:-121.42},
+    {id:'9415478',name:'NEW HOPE BRIDGE, MOKELUMNE RIVER',lat:38.2267,lon:-121.49},
+    {id:'9414866',name:'HOLT, WHISKEY SLOUGH',lat:37.935,lon:-121.435},
+    {id:'9414836',name:'BORDEN HWY BRIDGE,OLD RIVER',lat:37.8833,lon:-121.577},
+    {id:'9414835',name:'BORDEN HIGHWAY BRIDGE, MIDDLE RIVER',lat:37.8917,lon:-121.488},
+    {id:'9415064',name:'ANTIOCH, SAN JOAQUIN RIVER',lat:38.02,lon:-121.815},
+    {id:'9415565',name:'SNODGRASS SLOUGH',lat:38.2767,lon:-121.495},
+    {id:'9415176',name:'COLLINSVILLE,SACRAMENTO RIVER',lat:38.0733,lon:-121.848},
+    {id:'9414367',name:'Borden Highway Bridge, San Joaquin River',lat:37.93666666666701,lon:-121.33333333333005},
+    {id:'9415096',name:'PITTSBURG, NEW YORK SLOUGH, SUISUN BAY',lat:38.0367,lon:-121.88},
+    {id:'9415205',name:'MONTEZUMA SLOUGH, SUISUN BAY',lat:38.0767,lon:-121.885},
+    {id:'9414883',name:'STOCKTON,SAN JOAQUIN RIVER',lat:37.9583,lon:-121.29},
+    {id:'9415307',name:'MEINS LANDING, MONTEZUMA SLOUGH',lat:38.1367,lon:-121.907},
+    {id:'9415112',name:'MALLARD ISLAND, SUISUN BAY',lat:38.0433,lon:-121.918},
+    {id:'9414785',name:'GRANT LINE CANAL BRDG.,OLD RIVER',lat:37.82,lon:-121.447},
+    {id:'9414811',name:'Bradmoor Island',lat:38.1833,lon:-121.923},
+    {id:'9415846',name:'CLARKSBURG,SACRAMENTO RIVER',lat:38.4167,lon:-121.523},
+    {id:'9416131',name:'Port of West Sacramento, Washington Lake',lat:38.56225,lon:-121.5463},
+    {id:'9416174',name:'SACRAMENTO, SACRAMENTO RIVER',lat:38.58,lon:-121.507}
   ],
   mokelumne: [
     {id:'9415257',name:'TERMINOUS,MOKELUMNE RIVER',lat:38.11,lon:-121.498},

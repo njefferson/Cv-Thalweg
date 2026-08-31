@@ -132,7 +132,10 @@ await ctx.route('**/mdapi/**', r => {
 });
 await ctx.route('**/arcgisimg/rest/services/Bathymetry?f=json', r => json(r, FOLDER));
 await ctx.route('**/Bathy_TEST_SacramentoRvr/ImageServer?f=json', r =>
-  json(r, imgMeta('Bathy_TEST_SacramentoRvr', -121.75, 38.30, -121.45, 38.65)));
+  /* ON the river, because a survey is filed by distance to that river's own
+     water now rather than by a box, and a fixture that floats nine kilometres
+     off the channel describes data the state does not publish. */
+  json(r, imgMeta('Bathy_TEST_SacramentoRvr', -121.56, 38.40, -121.44, 38.52)));
 await ctx.route('**/Bathy_TEST_Elsewhere/ImageServer?f=json', r =>
   json(r, imgMeta('Bathy_TEST_Elsewhere', 10.0, 50.0, 10.2, 50.2)));
 await ctx.route('**/MapServer/layers?f=json', r => json(r, SBM_LAYERS));
@@ -270,6 +273,7 @@ check('ribbon dots drawn', await page.evaluate(() => document.querySelectorAll('
    in the header and a card further down. A row plainly ABOUT a river that does
    nothing when pressed is the pin-too-small defect again — the reader tries
    it, nothing happens, and concludes it is a picture. */
+const RIVER_COUNT = await page.evaluate(() => RIVERS.length);
 const rows = await page.evaluate(() => {
   const hits = [...document.querySelectorAll('#riverhits button')];
   return hits.map(h => ({
@@ -297,7 +301,8 @@ const all = await page.evaluate(() => {
     tall: Math.min.apply(null, hits.map(h => Math.round(h.getBoundingClientRect().height))),
     hint: document.getElementById('ribbonnote').textContent };
 });
-check('every river row is a control', all.n === 4, JSON.stringify(all));
+/* Five entries now: the four rivers and the Delta, which is not one. */
+check('every river row is a control', all.n === RIVER_COUNT, JSON.stringify(all));
 check('each one says which river it opens', all.labelled && all.titled, JSON.stringify(all));
 /* A REAL BUTTON, so Enter and Space come free and correct rather than being
    re-implemented on a keydown listener. */
@@ -487,6 +492,134 @@ check('the declared station still has its NOAA name and a real position',
            Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
            st.lat > 37 && st.lat < 41;
   }));
+/* --- THE DELTA, WHICH IS NOT A RIVER ------------------------------------
+   Eleven of the twenty published surveys landed inside no declared river and
+   were fetched on every cold open to be shown to nobody. What counts as the
+   Delta is DWR's published Legal Delta Boundary, not this app's opinion. */
+check('the Delta is an entry, and is marked as a network rather than a course',
+  await page.evaluate(() => {
+    const d = RIVERS.find(r => r.id === 'delta');
+    return !!d && d.network === true && d.tidal === true;
+  }));
+check('it has no reaches, because none were confirmed against the regulation',
+  await page.evaluate(() => {
+    const d = RIVERS.find(r => r.id === 'delta');
+    return Array.isArray(d.reaches) && d.reaches.length === 0;
+  }));
+check('and the season panel says so rather than showing an empty one',
+  await page.evaluate(async () => {
+    const sel = document.getElementById('riverpick');
+    sel.value = 'delta'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 1200));
+    const t = document.body.textContent;
+    return /were not confirmed against Title 14/.test(t);
+  }));
+/* A COURSE IT DOES NOT HAVE IS NOT OFFERED. Read the panel only once it has
+   actually drawn its profile section — the first version of this asserted
+   against a panel still saying "reading the service directory", where the
+   absence of a button proves nothing at all. */
+await page.click('#tab-layers');
+await page.waitForTimeout(1500);
+const dpanel = await page.evaluate(() => (document.getElementById('panel-layers') || {}).textContent || '');
+check('the Delta panel has actually drawn, so its absences mean something',
+  /Depth along a line/.test(dpanel), dpanel.slice(0, 160));
+check('the Delta is offered no profile down a river it does not have',
+  /Depth along a line/.test(dpanel) && !/Profile down the river itself/.test(dpanel),
+  dpanel.slice(0, 200));
+check('but a cross-section is, across the nearest channel',
+  /Cross-section across the nearest channel/.test(dpanel), dpanel.slice(0, 200));
+check('and asking for a course down the Delta explains itself rather than guessing',
+  await page.evaluate(async () => {
+    let said = '';
+    const o = window.announce;
+    window.announce = function(m){ said = m; return o.apply(null, arguments); };
+    profileRiverNow(byId('delta'), null);
+    window.announce = o;
+    return /network rather than a course/.test(said);
+  }));
+
+/* --- A SURVEY BELONGS TO THE WATER IT IS ON -----------------------------
+   Measured against the live catalogue, not one of the twenty published
+   surveys landed on exactly one river: nine landed on both the Sacramento and
+   the Mokelumne — two of them San Joaquin surveys offered as Sacramento
+   depth — and eleven landed on nothing. */
+check('a survey is filed by distance to that river\u2019s own water',
+  await page.evaluate(() => typeof surveyRiverId === 'function' && SURVEY_NEAR_M <= 5000));
+check('a named river keeps its own water even inside the Delta boundary',
+  await page.evaluate(async () => {
+    await loadRiverLines();
+    /* A box centred on the Sacramento at Georgiana Slough, which is inside
+       the legal Delta and is still the Sacramento. */
+    const row = { box: { n: 38.245, s: 38.233, e: -121.513, w: -121.525 } };
+    return surveyRiverId(row) === 'sacramento';
+  }));
+check('and water that is nobody\u2019s river goes to the Delta',
+  await page.evaluate(() => {
+    /* Old River at Bacon Island — no declared river, squarely in the Delta. */
+    const row = { box: { n: 37.976, s: 37.964, e: -121.566, w: -121.578 } };
+    return surveyRiverId(row) === 'delta';
+  }));
+check('and a reservoir belongs to neither, rather than to the nearest',
+  await page.evaluate(() => {
+    /* Lake Del Valle, twenty-three kilometres from any channel. */
+    const row = { box: { n: 37.604, s: 37.592, e: -121.712, w: -121.724 } };
+    return surveyRiverId(row) === null;
+  }));
+
+/* --- HAS THE BOTTOM MOVED ------------------------------------------------
+   Two surveys of one bed is the only honest material for saying a sandbar
+   shifted. Subtracting heights measured from different things, or from
+   something one survey never named, is not. */
+check('two surveys on one datum are compared',
+  await page.evaluate(() => {
+    const mk = (name, date, vertcs, vals) => ({
+      measured: vals.length, survey: { name: name, vertcs: vertcs },
+      pts: vals.map((v, i) => ({ d: i * 50, v: v })) });
+    const model = { length: 500,
+      bands: [ mk('Bathy_NCRO_20230101_X', '', 'NAVD88', [-10,-11,-12,-11,-10,-9,-10,-11,-12,-11]),
+               mk('Bathy_NCRO_20240101_X', '', 'NAVD88', [-8,-9,-10,-9,-8,-7,-8,-9,-10,-9]) ] };
+    const c = bedChange(model);
+    return c && !c.refused && c.n >= 8 && Math.abs(c.mean - 2) < 0.01;
+  }),
+  await page.evaluate(() => {
+    const mk = (name, vertcs, vals) => ({ measured: vals.length,
+      survey: { name: name, vertcs: vertcs }, pts: vals.map((v,i)=>({d:i*50,v:v})) });
+    return JSON.stringify(bedChange({ length:500, bands:[
+      mk('Bathy_NCRO_20230101_X','NAVD88',[-10,-11,-12,-11,-10,-9,-10,-11,-12,-11]),
+      mk('Bathy_NCRO_20240101_X','NAVD88',[-8,-9,-10,-9,-8,-7,-8,-9,-10,-9])]}));
+  }));
+/* THE REAL PAIR IN THE CATALOGUE IS EXACTLY THIS CASE: Grant Line 2024
+   declares NAVD88 and Grant Line 2023 declares nothing at all. */
+check('a pair where one survey names no datum is refused, not guessed at',
+  await page.evaluate(() => {
+    const mk = (name, vertcs, vals) => ({ measured: vals.length,
+      survey: { name: name, vertcs: vertcs }, pts: vals.map((v,i)=>({d:i*50,v:v})) });
+    const c = bedChange({ length:500, bands:[
+      mk('Bathy_NCRO_20230615_GrantLine', null, [-10,-11,-12,-11,-10,-9,-10,-11,-12,-11]),
+      mk('Bathy_NCRO_20240520_GrantLine', 'NAVD88_height_(ftUS)', [-8,-9,-10,-9,-8,-7,-8,-9,-10,-9])]});
+    return c && !!c.refused && c.mean === undefined;
+  }));
+check('and a pair on two different datums is refused too',
+  await page.evaluate(() => {
+    const mk = (name, vertcs, vals) => ({ measured: vals.length,
+      survey: { name: name, vertcs: vertcs }, pts: vals.map((v,i)=>({d:i*50,v:v})) });
+    const c = bedChange({ length:500, bands:[
+      mk('Bathy_NCRO_20230101_X', 'NGVD29', [-10,-11,-12,-11,-10,-9,-10,-11,-12,-11]),
+      mk('Bathy_NCRO_20240101_X', 'NAVD88', [-8,-9,-10,-9,-8,-7,-8,-9,-10,-9])]});
+    return c && /different things/.test(c.refused || '');
+  }));
+check('one survey alone is not a change',
+  await page.evaluate(() => bedChange({ length:500, bands:[
+    { measured:3, survey:{name:'Bathy_NCRO_20230101_X', vertcs:'NAVD88'},
+      pts:[{d:0,v:-9},{d:50,v:-9},{d:100,v:-9}] }] }) === null));
+
+/* Back to the Sacramento for everything after this. */
+await page.evaluate(async () => {
+  const sel = document.getElementById('riverpick');
+  sel.value = 'sacramento'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 1500));
+});
+
 /* --- THE TIDE ALONG THE RIVER -------------------------------------------
    The app could say the tide turns and at which station, and could say
    "running both ways — 3 of 6 gauges read upstream". What it could not do was
@@ -595,6 +728,55 @@ check('and it is named rather than silently dropped',
 /* THE DAY IS 47 KB AND THIS IS THE LANDING PANEL. */
 check('the day of readings is asked for, not fetched for everybody',
   along.askedForDay, 'no button offering the last day');
+
+/* --- THE MAP SHOWS DIRECTION TOO, AND SAYS SO ---------------------------
+   The ring carries which way the water is going; the fill still carries how
+   warm it is. Two facts on one pin, and a key row for the new one, because
+   this app has now shipped two colours that meant something and said nothing. */
+const rings = await page.evaluate(() => {
+  const rows = ((state.gauges.sacramento || {}).rows) || [];
+  const out = { drawn: [], conflictedDark: true };
+  state.gaugeLayer.eachLayer(l => {
+    if (!l.getLatLng) return;
+    const ll = l.getLatLng();
+    const row = rows.find(r => Math.abs(r.lat - ll.lat) < 1e-9);
+    if (!row) return;
+    const vr = velReading(row);
+    out.drawn.push({ id: row.id, ring: l.options.color,
+      wanted: (vr && !vr.conflict) ? (vr.down ? 'ebb' : 'flood') : 'dark' });
+    if (vr && vr.conflict && l.options.color !== '#0A1214') out.conflictedDark = false;
+  });
+  return out;
+});
+check('a gauge that measures direction gets a coloured ring',
+  rings.drawn.some(d => d.wanted !== 'dark' && d.ring !== '#0A1214'),
+  JSON.stringify(rings.drawn));
+check('a gauge that does not measure it keeps a dark one',
+  rings.drawn.every(d => d.wanted !== 'dark' || d.ring === '#0A1214'),
+  JSON.stringify(rings.drawn));
+/* Same rule as the figure: two instruments disagreeing is not a direction. */
+check('and a gauge arguing with itself is not given one either',
+  rings.conflictedDark, JSON.stringify(rings.drawn));
+check('the key explains the ring as well as the fill',
+  await page.evaluate(() => {
+    const t = (document.getElementById('maplegend') || {}).textContent || '';
+    return /Ring cyan/.test(t) && /Ring green/.test(t) && /fill is water temperature/.test(t);
+  }),
+  await page.evaluate(() => (document.getElementById('maplegend') || {}).textContent || ''));
+
+/* CONSENT IS REMEMBERED, THE READINGS ARE NOT. Asking again every visit for
+   something already agreed is the app forgetting a decision; caching a day of
+   velocity would be worse, because it is only useful while it is today. */
+check('agreeing to the day is remembered, and the readings are not cached',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    sput(river.id, 'velday', true);
+    const remembered = !!sget(river.id, 'velday');
+    const cached = !!(state.velHistory || {})[river.id] &&
+                   JSON.stringify(Store).indexOf('72255') !== -1;
+    sput(river.id, 'velday', false);
+    return remembered && !cached;
+  }));
 
 /* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
    The map's key promised it; tapping a station opened a label naming the
@@ -1844,9 +2026,79 @@ check('the mark follows the finger along the line',
               Math.abs(moved.lng - traced.at.lng) > 1e-6),
   JSON.stringify({ first: traced.at, then: moved }));
 await page.mouse.up();
-await page.waitForTimeout(250);
-check('letting go takes the mark off again',
-  await page.evaluate(() => state.traceLayer.getLayers().length) === 0);
+await page.waitForTimeout(400);
+/* LIFTING THE FINGER USED TO THROW THE POINT AWAY, which is the opposite of
+   what dragging along a profile is for: you found the deep bit and the moment
+   you found it the mark vanished, so you had learnt that a deep bit exists and
+   nothing about where. It is held now. */
+check('letting go keeps the mark, it does not discard it',
+  await page.evaluate(() => state.traceLayer.getLayers().length) > 0,
+  await page.evaluate(() => JSON.stringify(state.traceAt)));
+const held = await page.evaluate(() => {
+  const b = document.getElementById('profheld');
+  return { text: b ? b.textContent : '',
+           buttons: b ? [...b.querySelectorAll('button')].map(x => x.textContent) : [] };
+});
+check('and says which bank it is on, as the river runs',
+  /bank|middle of the channel/.test(held.text), held.text.slice(0, 200));
+check('and how far off the middle of the channel',
+  /\d+ m off the middle|within \d+ m of the middle/.test(held.text), held.text.slice(0, 200));
+check('and how to get to it',
+  /Nearest public land|publishes no land of its own/.test(held.text), held.text.slice(0, 260));
+check('and offers to show it, keep it, or let it go',
+  held.buttons.some(b => /Show me this point/.test(b)) &&
+  held.buttons.some(b => /Keep it as a mark/.test(b)) &&
+  held.buttons.some(b => /Let it go/.test(b)), JSON.stringify(held.buttons));
+
+/* LEFT AND RIGHT ARE AS THE RIVER RUNS, and the baked centreline is stored
+   MOUTH FIRST — so downstream at a point is back towards the previous index.
+   Getting that backwards swaps every left for a right, silently and
+   convincingly, so it is driven rather than trusted. */
+check('left and right are taken from the downstream direction, not the array order',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    if (!line || line.length < 3) return 'noline';
+    /* A point a short way to the WEST of a north-flowing-to-the-south reach.
+       Work it out from the geometry rather than asserting a compass answer:
+       step off the line perpendicular to the downstream vector, on the side a
+       positive cross product should call "left", and require that name back. */
+    const i = Math.floor(line.length / 2);
+    const here = line[i], down = line[i - 1];
+    const dx = down[1] - here[1], dy = down[0] - here[0];
+    const len = Math.hypot(dx, dy) || 1;
+    /* left of the downstream vector is (-dy, dx) normalised */
+    const off = 0.004;
+    const lat = here[0] + (dx / len) * off, lon = here[1] - (dy / len) * off;
+    const b = bankOf(river, lat, lon);
+    return b && b.side;
+  }) === 'left',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    const i = Math.floor(line.length / 2);
+    const here = line[i], down = line[i - 1];
+    const dx = down[1] - here[1], dy = down[0] - here[0];
+    const len = Math.hypot(dx, dy) || 1;
+    const lat = here[0] + (dx / len) * 0.004, lon = here[1] - (dy / len) * 0.004;
+    return JSON.stringify(bankOf(river, lat, lon));
+  }));
+check('and the middle of the channel is called neither bank',
+  await page.evaluate(() => {
+    const river = byId('sacramento');
+    const line = riverLineFor(river.id);
+    const b = bankOf(river, line[5][0], line[5][1]);
+    return b && b.side === null;
+  }));
+/* A held point belongs to the line it was found on. */
+check('drawing a new line lets the old point go',
+  await page.evaluate(async () => {
+    const before = !!state.traceAt;
+    runProfile(state.profile.pts.slice());
+    await new Promise(r => setTimeout(r, 300));
+    return before && !state.traceAt &&
+      document.getElementById('profheld').textContent === '';
+  }));
 
 /* --- getting back ------------------------------------------------------- */
 const back = await page.evaluate(() => {
