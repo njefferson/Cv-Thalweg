@@ -19,7 +19,7 @@
 <meta property="og:image" content="https://cv-thalweg.pages.dev/social-preview.png">
 <meta property="og:image:width" content="2560">
 <meta property="og:image:height" content="1280">
-<meta property="og:image:alt" content="Thalweg — depth, tide and flow for four Central Valley rivers. Marked: not for navigation.">
+<meta property="og:image:alt" content="Thalweg — depth, tide and flow for the Sacramento, Feather, American and Mokelumne rivers and the Delta. Marked: not for navigation.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0A1214">
 <meta name="color-scheme" content="dark">
@@ -129,6 +129,24 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
   clip-path:inset(50%); white-space:nowrap}
 #ribbon{display:block; width:100%; min-width:520px}
 @media (max-width:900px){ #ribbon{min-width:0} }
+/* A SCROLLING BAND HAS TO LOOK LIKE ONE.
+
+   When the rows will not all fit, the band scrolls — and it said so only in an
+   aria-label, which is to say it said so to everything except the eye. A
+   sighted reader saw a band that ended, with two rivers below the fold and
+   nothing suggesting they were there. Content you cannot see and cannot know
+   to look for is content that is not there.
+
+   The mask fades the bottom of the VISIBLE area rather than the bottom of the
+   content, which is what a scroll container needs: an absolutely positioned
+   child scrolls away with the rest. It is removed at the end of the scroll so
+   the last row is not permanently dimmed. The words in the note carry the same
+   fact for anyone the fade does not reach. */
+#ribbonwrap.scrolls{
+  -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+  mask-image:linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+#ribbonwrap.scrolls.atend{ -webkit-mask-image:none; mask-image:none }
 .ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
 
 /* ---------- main ---------- */
@@ -329,6 +347,42 @@ input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
 textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink);
   border:1px solid var(--teal-line); font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 
+/* THE SIDEWAYS VIEW.
+
+   A web page cannot turn a phone over. Safari's engine has no
+   `screen.orientation.lock` at all — measured, not remembered — and Chromium's
+   refuses with NotSupportedError outside fullscreen on a handset. So the DEVICE
+   stays where it is and the PICTURE turns instead, which is the half of the
+   idea that is actually available and is also the better half: a portrait phone
+   rotated this way gives the bars 844 by 390 where the same phone physically
+   turned gives them 844 by 242, because the browser keeps its chrome either way
+   and there is more of the screen left over in portrait.
+
+   The recipe is the standard one and the order of the transforms matters:
+   origin at the top left, rotate, then translate in the element's OWN
+   coordinates, which after the rotation moves it back across the screen. */
+#sideways{ max-width:100%; width:100%; max-height:100%; height:100%;
+  padding:0; border:0; background:var(--bg); overflow:hidden }
+#sideways::backdrop{ background:var(--bg) }
+#swinner{
+  position:absolute; top:0; left:0;
+  width:100vh; height:100vw;
+  width:100dvh; height:100dvw;
+  transform-origin:0 0;
+  transform:rotate(90deg) translate(0, -100%);
+  display:flex; flex-direction:column;
+  background:var(--bg);
+}
+.swhead{ display:flex; align-items:center; gap:.6rem; padding:.4rem .6rem;
+  border-bottom:1px solid var(--teal); flex:0 0 auto }
+.swhead h2{ font-size:.85rem; margin:0; color:var(--ink) }
+#swbody{ flex:1 1 auto; min-height:0; overflow:auto; padding:.3rem .5rem }
+#swribbon{ display:block; width:100%; height:auto }
+.swnote{ color:var(--mute); font-size:.7rem; padding:.2rem .6rem .4rem; flex:0 0 auto }
+/* The button that opens it only earns its place where the upright band cannot
+   show everything, which is exactly where the reader is short of height. */
+#swopen{ margin:.4rem 0 }
+
 /* ---------- dialogs / strips ---------- */
 .strip{background:var(--teal); color:var(--ink); padding:.5rem .7rem; display:flex;
   gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; flex:0 0 auto}
@@ -482,6 +536,25 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   body.show-map #panel-map{display:flex}
   body.show-map #rail{flex:0 0 auto}
   body.show-map [role=tabpanel]:not(#panel-map){display:none}
+  /* AND THE TABS STAY WHERE THE TABS ARE.
+
+     `main` is a column here and `#panel-map` is its FIRST child, because on a
+     wide screen it is the left-hand column and source order is what puts it
+     there. Under the breakpoint that same order stacks the map on top of the
+     rail — so choosing Map sent the tab strip to the bottom of the screen, a
+     full viewport away from where it had just been pressed, measured at 203px
+     before and 630px after on an iPhone 13. Every other tab keeps its strip at
+     the top; the one that moves the furniture is the one showing a map you
+     then have to scroll past to get back.
+
+     Nothing decided that — source order did, again, which is the same thing
+     that once moved the whole rail across the desktop window.
+
+     `order` rather than moving the element: the map has to stay a sibling
+     BEFORE the rail for the wide layout, and this is exactly the case flex
+     ordering is for. */
+  body.show-map #rail{order:0}
+  body.show-map #panel-map{order:1}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important; transition-duration:.001ms!important}
@@ -519,8 +592,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
        does nothing is worse than one that is not offered. The accessible name
        carries the word on the face of it, because a label that merely overlaps
        passes a substring check by accident (hub LESSONS 29). -->
-  <button id="homebtn" hidden title="Home — back to all four rivers"
-          aria-label="Home — back to all four rivers">Home</button>
+  <!-- The label is set from the river list at boot; this is the fallback for
+       a page whose script has not run, and it names no count for the same
+       reason the rest of the copy no longer does. -->
+  <button id="homebtn" hidden title="Home — back to every river"
+          aria-label="Home — back to every river">Home</button>
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
@@ -546,7 +622,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 <div id="ribbonwrap" role="region" aria-label="River ribbon" tabindex="0">
   <svg id="ribbon" role="img" aria-labelledby="ribbontitle ribbondesc" preserveAspectRatio="xMidYMid meet">
     <title id="ribbontitle">River ribbon</title>
-    <desc id="ribbondesc">Gauges plotted at their latitude, downstream on the left, coloured by water temperature.</desc>
+    <desc id="ribbondesc">Gauges plotted along each river, downstream on the left, coloured by water temperature. Each river is drawn to its own scale and its length is given on its row.</desc>
   </svg>
   <p class="ribbon-note" id="ribbonnote"></p>
 </div>
@@ -593,6 +669,31 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <div role="tabpanel" id="panel-brief"  aria-labelledby="tab-brief"  tabindex="0" hidden></div>
   </div>
 </main>
+
+<!-- THE BARS, SIDEWAYS, WITHOUT TURNING THE PHONE. The device cannot be
+     rotated by a web page on this hardware; the drawing can. -->
+<dialog id="sideways" aria-labelledby="swtitle">
+  <div id="swinner">
+    <div class="swhead">
+      <h2 id="swtitle">The rivers, sideways</h2>
+      <span class="grow"></span>
+      <button type="button" id="swclose">Done</button>
+    </div>
+    <!-- FOCUSABLE, because it can scroll. The drawing is sized to fit, and the
+         overflow is the safety net for a screen smaller than any measured
+         here — but a region that CAN scroll and cannot be reached by keyboard
+         is a region somebody cannot read the bottom of. axe caught it; the
+         upright band carries the same tabindex for the same reason. -->
+    <div id="swbody" tabindex="0" role="region" aria-label="The rivers, sideways">
+      <svg id="swribbon" role="img" aria-labelledby="swribtitle swribdesc"
+           preserveAspectRatio="xMinYMin meet">
+        <title id="swribtitle">The rivers, drawn sideways</title>
+        <desc id="swribdesc">Gauges plotted along each river, downstream on the left, coloured by water temperature.</desc>
+      </svg>
+    </div>
+    <p class="swnote" id="swnote"></p>
+  </div>
+</dialog>
 
 <!-- What you just got. The strip that offered the update belongs to the OLD
      build and has never heard of the release it is offering, so the only
@@ -663,7 +764,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.5.0';
+var VERSION = '2.9.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2180,12 +2281,55 @@ function ribbonMetrics(W, rowCount, budget, tidal){
      and the two read as one label. Rows carrying a caption get the height it
      needs rather than borrowing it from the row underneath. */
   if (tidal && rowCount > 1) m.rowH += 14;
+  /* AND THE LENGTH SITS UNDER THE NAME, on the multi-river view where the
+     names are drawn at all. A line added to a row without room made for it is
+     how the Delta's caption came to sit on the Mokelumne's temperature. */
+  if (rowCount > 1) m.rowH += 10;
+  /* SHRINK TO FIT, AND WHEN IT WILL NOT FIT, SCROLL RATHER THAN VANISH.
+
+     A row has a floor below which a dot and its figure are not legible, and
+     five rows at that floor need more height than a phone held sideways has
+     in total — a landscape iPhone gives this band about 75px to work with.
+     The old answer was to drop the whole thing, which is how the comparison
+     the landing page exists for disappeared the moment somebody turned their
+     phone. Squeezing below the floor is not available either: an illegible
+     row is not a smaller row, it is a different defect.
+
+     So the third option. Rows keep their legible height, the band keeps its
+     share of the screen, and what does not fit is reached by scrolling. The
+     overflow is VERTICAL because the rows stack — turning the band sideways
+     would mean laying the rivers out along the axis their bars already use,
+     which is the one thing a stacked comparison must not do. */
+  m.natural = m.rowH;
+  m.scrolls = false;
+  /* THE FLOOR IS WHAT THE ROW HAS TO HOLD, and the row grew. 22 was set for a
+     dot and its figure; a multi-river row now also carries the river's name
+     and, under it, how many kilometres its bar covers. Left at 22 the length
+     would print into the top of the next river's bar — which is exactly how
+     the Delta's tide caption came to sit on the Mokelumne's temperature, and
+     the lesson from that one was that a line added to a row needs the row to
+     be told about it. */
+  m.floor = rowCount > 1 ? 32 : 22;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
-    if (fit < m.rowH) m.rowH = fit;
+    if (fit < m.rowH){
+      if (fit >= m.floor) m.rowH = fit;     /* still legible: shrink to fit */
+      else m.scrolls = true;                /* below the floor: keep the size */
+    }
   }
-  m.tooTight = m.rowH < 22;
+  /* THE ONLY REMAINING REASON TO DROP IT is a band too short to show a whole
+     row, where "scrollable" would be a sliver of a bar and a scrollbar.
+
+     The test is the BAND against one row, not the band minus the top and the
+     foot: when the drawing scrolls, its margins and its key scroll with it and
+     do not have to be on screen at once. Requiring them to fit is what took
+     the ribbon off an iPad held sideways, which has room for a row and a half
+     and every reason to be given it. A phone held sideways has seventeen
+     pixels after the caption underneath has taken its share, and that is a
+     sliver — so it keeps the drop, and the note under it says so. */
+  m.budget = isNum(budget) ? budget : null;
+  m.tooTight = m.scrolls && isNum(budget) && budget < (m.rowH + 8);
   RIB = m;
 }
 
@@ -2354,6 +2498,26 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W, list1){
       'font-weight':'600', 'pointer-events':'none' });
     rn.textContent = river.short + ' \u203a';
     g.appendChild(rn);
+  }
+
+  /* HOW LONG THIS BAR ACTUALLY IS.
+
+     Bars of equal width covering different distances is the exact defect the
+     shared scale was introduced to fix, and it was a real one — the only thing
+     that made it a lie was that nothing said what each bar covered. It says so
+     now, on the row, in kilometres. The number is the comparison; the bar is
+     the layout of the gauges along this river.
+
+     Under the name rather than at the end of the bar: the end of the bar is
+     where the tide mark and its caption already are, and this is a property of
+     the row, not of its right-hand edge. */
+  if (showName && span && isNum(span.metres) && span.metres > 0){
+    var kmTxt = svg('text', { x:6, y:y + 4 + RIB.name + 2, fill:'#6E8785',
+      'font-size':String(Math.max(8, RIB.note)), 'pointer-events':'none' });
+    kmTxt.textContent = (span.metres >= 10000
+      ? Math.round(span.metres / 1000)
+      : (span.metres / 1000).toFixed(1)) + ' km';
+    g.appendChild(kmTxt);
   }
 
   /* Gauges bunch up — three of them sit within a few miles on the lower
@@ -2525,8 +2689,25 @@ function riverHits(list, host, x0, top, rowH){
   wrap.appendChild(box);
 }
 
-function drawRibbon(again){
-  var host = $('#ribbon');
+/* ONE DRAWING, TWO HOSTS.
+
+   The sideways view needs the same bars at a different size, and the one thing
+   it must not be is a second copy of this function — a second formulation of
+   one picture is how the two come to disagree about which river is which, and
+   this session has already written that lesson twice. So `opts.host` swaps the
+   canvas and everything that belongs to the BAND rather than to the drawing —
+   the height budget, the note underneath, the row-press overlay, the
+   corrective pass — is skipped for it.
+
+   The overlay is skipped rather than ported on purpose: it positions itself by
+   comparing bounding rectangles, and inside a rotated container those describe
+   the screen rather than the picture. Hit-testing through a transform is a
+   trap, and the sideways view is for reading; pressing a river is what the
+   normal band is for, and it is one press away. */
+function drawRibbon(again, opts){
+  opts = opts || {};
+  var sideways = !!opts.host;
+  var host = opts.host || $('#ribbon');
   /* Keep the title and desc; they are the accessible name of the figure. */
   Array.prototype.slice.call(host.childNodes).forEach(function(n){
     if (n.nodeName !== 'title' && n.nodeName !== 'desc') host.removeChild(n);
@@ -2540,7 +2721,18 @@ function drawRibbon(again){
      the right-hand end is upstream, and a view you have to drag sideways to
      finish reading is one nobody finishes reading. */
   var narrow = window.matchMedia && window.matchMedia('(max-width:900px)').matches;
-  var W = narrow ? Math.max(host.clientWidth || 360, 300)
+  /* MEASURE THE REAL BOX, NOT A HIDDEN ONE. Everything below is arithmetic on
+     what this band actually occupies, and a hidden wrapper reports zero for
+     all of it: clientWidth falls to the 360 fallback, the note measures 0, and
+     the draw that follows is computed from numbers describing nothing. That is
+     the state this function is MOST often entered in, because the previous
+     draw is what hid it. Unhiding first costs nothing — no paint happens
+     between here and the end of this function — and it is the difference
+     between measuring the page and measuring its absence. */
+  var wasHidden = document.getElementById('ribbonwrap').hidden;
+  if (!sideways && wasHidden) document.getElementById('ribbonwrap').hidden = false;
+  var W = sideways ? opts.W
+        : narrow ? Math.max(host.clientWidth || 360, 300)
                  : Math.max(host.clientWidth || 1000, 520);
   var list = state.riverId ? [byId(state.riverId)] : RIVERS;
   /* Under the breakpoint the ribbon and the readings share one screen, so
@@ -2551,14 +2743,66 @@ function drawRibbon(again){
      budget that only bounds the SVG bounds the wrong thing. */
   var wrapEl = document.getElementById('ribbonwrap');
   var budget = null;
-  if (narrow){
+  /* THE BUDGET IS ABOUT HEIGHT AND WAS KEYED ON WIDTH.
+
+     `narrow` means "the map is not beside the rail", which is a fact about
+     width — and it was standing in for "the ribbon and the readings share one
+     screen", which is a fact about HEIGHT. A phone held sideways is 932px
+     wide and 267px tall: wide enough to escape the budget entirely, and short
+     enough that the band then drew 300px of ribbon into a 267px viewport and
+     left the readings nothing at all. Measured, not reasoned about.
+
+     So a short viewport gets the budget whatever its width. 620px is about
+     where a laptop window stops being able to give a third of itself away
+     without the readings under it disappearing. */
+  var shortView = (window.innerHeight || 800) < 620;
+  /* The sideways view is told the box it has and shrinks into it the same way
+     the upright band does — the floor still applies, so it scrolls rather than
+     going illegible if even this is not enough. */
+  if (sideways && isNum(opts.budget)) budget = opts.budget;
+  else if (!sideways && (narrow || shortView)){
     var cs = window.getComputedStyle(wrapEl);
     var extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     Array.prototype.forEach.call(wrapEl.children, function(c){
-      if (c !== host) extra += c.getBoundingClientRect().height;
+      if (c === host) return;
+      /* AN ABSOLUTELY POSITIONED CHILD TAKES NO SPACE IN FLOW, and counting
+         one as furniture is how this budget ate itself.
+
+         The tappable river rows are HTML buttons laid over the drawing inside
+         this same wrapper — `#riverhits`, position:absolute, exactly as tall
+         as the ribbon it covers. It was being added to `extra` as though it
+         pushed the ribbon down the page. It does not: it IS the ribbon,
+         drawn over itself. So every redraw subtracted the previous draw's own
+         height from the space available for the next one, and on a 390x664
+         phone the budget reached MINUS 26 before a single row was measured.
+
+         Then it latched. Below the floor the draw returns early — before the
+         line that removes the stale overlay — so the overlay stayed, the
+         budget stayed negative, and the ribbon could never come back. Home
+         had no ribbon at all, on every geometry, and the note underneath
+         explained it as five rows not fitting on a short screen.
+
+         Height is not the test; participation in flow is. */
+      var st = window.getComputedStyle(c);
+      if (st.position === 'absolute' || st.position === 'fixed') return;
+      /* MARGINS ARE PART OF WHAT A THING TAKES UP, and a bounding rect does
+         not include them. The note under the ribbon is a <p> carrying the
+         browser's default vertical margins — twenty-two pixels the budget
+         could not see, so every draw believed it had twenty-two more than it
+         did and the band came out over its share of the screen. Margins can
+         collapse between siblings, so summing both sides can over-count by a
+         few pixels; that errs toward a smaller ribbon, which is the safe
+         direction, and the corrective pass re-measures either way. */
+      extra += c.getBoundingClientRect().height +
+               (parseFloat(st.marginTop) || 0) + (parseFloat(st.marginBottom) || 0);
     });
+    /* `again` is the retry marker as well as the overshoot. Any value at all
+       means "this is a corrective pass, do not start another one"; only a
+       positive one subtracts. The redraw that restores a good first pass
+       passes 0, which is a retry that takes nothing away — and without that
+       distinction it re-entered the branch below and recursed. */
     budget = Math.round((window.innerHeight || 800) * 0.32) - extra
-             - (again && isNum(again) ? again : 0);
+             - (isNum(again) && again > 0 ? again : 0);
   }
   /* ONE SCALE FOR ALL FOUR, measured before anything is drawn. Every bar used
      to be stretched to the same width whatever distance it covered, which is
@@ -2576,14 +2820,70 @@ function drawRibbon(again){
   });
   ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
-  wrap.hidden = !!RIB.tooTight;
-  if (RIB.tooTight) return;
-  wrap.hidden = false;
+
+  /* A COMPROMISED COMPARISON IS NOT A COMPARISON.
+
+     The stacked band exists for one thing the river cards cannot do: the water
+     temperature ALONG each river, on one scale, all of them at once. Reading
+     that needs them together and at a size worth reading — so a band scrolled
+     to two rows at a time defeats the only job it has, and so does one squeezed
+     until the dots touch. A glance at something illegible is not a glance.
+
+     So on the landing view it is all of them or none of them. Where they do
+     not fit, the band gives way to an offer that says what is behind it and
+     opens the sideways view, where the same picture gets the long side of the
+     screen at full row height. The readings get their third of the screen back
+     in the meantime.
+
+     KEYED ON WHETHER IT FITS, NOT ON WHETHER THIS IS A PHONE. A tall phone in
+     portrait may hold five rows honestly and a short one will not, and the
+     app already measures which. Reaching for a device rule here is what put
+     the height budget on a width test earlier today. */
+  var replaced = !sideways && list.length > 1 && (RIB.scrolls || RIB.tooTight);
+  if (!sideways) wrap.hidden = !!RIB.tooTight || replaced;
+  if (!sideways && (RIB.tooTight || replaced)){
+    /* AND THE OVERLAY GOES WITH IT. Returning here without clearing it leaves
+       buttons for rows that are no longer drawn — invisible inside a hidden
+       wrapper, and, before the fix above, the very thing that kept the budget
+       negative on every subsequent draw. A view that drops itself has to drop
+       its controls too. */
+    var stale = document.getElementById('riverhits');
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+    /* AND IT SAYS SO. A view that vanishes without a word is
+       indistinguishable from one that failed to load. */
+    syncRibbonDropNote();
+    syncSidewaysOffer();
+    return;
+  }
+  if (!sideways){ wrap.hidden = false; syncRibbonDropNote(); syncSidewaysOffer(); }
   var rowH = RIB.rowH, top = RIB.top;
   var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   host.setAttribute('height', H);
   host.setAttribute('width', W);
+
+  /* AND THE BAND EITHER FITS OR SCROLLS. Capped at its share of the screen
+     with the drawing at full height inside it, so every river is present and
+     the ones past the fold are reached rather than lost. `contain` stops a
+     flick that runs off the end of this band from carrying on into the page,
+     which is the trap nested scrolling always sets on touch. */
+  if (!sideways && RIB.scrolls && isNum(RIB.budget)){
+    wrap.style.maxHeight = Math.max(0, RIB.budget) + 'px';
+    wrap.style.overflowY = 'auto';
+    wrap.style.overscrollBehavior = 'contain';
+    wrap.setAttribute('aria-label',
+      'River ribbon, ' + list.length + ' rivers, scrollable');
+    /* AND IT HAS TO LOOK SCROLLABLE, not merely be announced as one. The
+       aria-label above told everything except the eye. */
+    wrap.classList.add('scrolls');
+    markRibbonScrollEnd();
+  } else if (!sideways){
+    wrap.style.maxHeight = '';
+    wrap.style.overflowY = '';
+    wrap.style.overscrollBehavior = '';
+    wrap.setAttribute('aria-label', 'River ribbon');
+    wrap.classList.remove('scrolls', 'atend');
+  }
   var g = svg('g', {});
   var plotted = 0, missing = 0;
 
@@ -2597,8 +2897,25 @@ function drawRibbon(again){
     var rows = (payload && payload.rows) || [];
     var onRiver = rows.filter(function(r){ return !r.context; });
     var sp = spans[i];
-    var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
-    var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
+    /* EVERY BAR GETS THE WHOLE WIDTH, AND EVERY BAR SAYS HOW LONG IT IS.
+
+       These were drawn to ONE distance scale, which was itself a fix: before
+       that they were all stretched to the same width whatever they covered,
+       and four equal bars said four equal rivers. The shared scale told the
+       truth and cost too much for it. Measured off the baked centrelines, the
+       Sacramento is 359 km across its axis and the American is 30 — so the
+       American came out at EIGHT PER CENT of the longest bar, a stub with its
+       gauges piled on top of each other, and the Feather and the Mokelumne at
+       about a fifth. The one river that fits is the one nobody needed help
+       reading.
+
+       The thing that made equal bars a lie was that nothing said what they
+       covered. So each bar is given the full width AND its own length in
+       kilometres, printed on the row: the comparison of length moves from the
+       drawing, where it was crushing four rivers to flatter one, into a number
+       that states it exactly. What the bar is for is where the gauges sit
+       along THIS river, and that is the thing a shared scale was destroying. */
+    var x1 = x0 + full;
     var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W, list.length);
     plotted += n;
     missing += onRiver.length - n;
@@ -2609,7 +2926,8 @@ function drawRibbon(again){
   tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
             RIB.narrow ? 104 : 170, anyTidal);
   host.appendChild(g);
-  riverHits(list, host, x0, top, rowH);
+  if (!sideways) riverHits(list, host, x0, top, rowH);
+  if (sideways) return;
 
   /* THE SHORT NOTE HAS TO CARRY THE SCALE TOO. Bars of visibly different
      lengths with nothing saying why is the same defect as the wash with no
@@ -2619,27 +2937,74 @@ function drawRibbon(again){
      same as no control, and a row that opens a river looks like a chart. */
   var tapHint = state.riverId ? '' : (RIB.narrow ? 'Tap a river to open it. '
                                                  : 'Press a river to open it. ');
+  /* THE NOTE HAS TO SAY THE SCALES DIFFER, and it is the whole reason giving
+     each bar its own is allowed. Bars of one width covering different
+     distances is a lie exactly as long as nothing says what they cover — so
+     the length is on every row, and this says out loud that the widths are no
+     longer comparable. Saying it is not a footnote on the change; it IS the
+     change. */
   var note = RIB.narrow
     ? tapHint + 'Downstream left' +
-      (state.riverId ? '' : '; one distance scale, longest ' + Math.round(maxM / 1000) + ' km') +
+      (state.riverId ? '' : '; each river to its own scale, length on each row') +
       '. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
     : tapHint + 'Downstream on the left; ' +
       (state.riverId ? byId(state.riverId).axisLabel
-                     : 'all rivers to one distance scale — the longest bar is ' +
-                       Math.round(maxM / 1000) + ' km — and one temperature scale') + '. ' +
+                     : 'each river drawn to its OWN scale so its gauges can be read — ' +
+                       'the bars are not comparable lengths, and each row says how many ' +
+                       'kilometres it covers — with one temperature scale across them all') + '. ' +
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
-  $('#ribbonnote').textContent = note + '.';
+  /* AND IT SAYS THERE IS MORE BELOW, with the count, because a fade is a hint
+     and a number is an instruction. How many are out of sight is worked out
+     from the band's own box rather than assumed: the drawing knows its row
+     height and the wrapper knows how much of it is showing. */
+  note += '.';
+  if (RIB.scrolls && isNum(RIB.budget) && rowH > 0){
+    var shown = Math.max(1, Math.floor((RIB.budget - RIB.top) / rowH));
+    var below = Math.max(0, list.length - shown);
+    if (below > 0)
+      note += ' ' + (RIB.narrow ? 'Scroll for ' + below + ' more.'
+                                : 'Scroll the band for the other ' + below + '.');
+  }
+  $('#ribbonnote').textContent = note;
 
   /* And then check. The legend and the note are measured at the size they
      had BEFORE this draw, so the first pass can still overshoot; one
      corrective pass with the measured overshoot subtracted converges,
      and a guard stops it becoming a loop. Raising a number until it looks
      better is not debugging — reading what the browser actually did is. */
-  if (narrow && !again){
+  if (narrow && again === undefined){
     var over = Math.round(wrapEl.getBoundingClientRect().height) -
                Math.round((window.innerHeight || 800) * 0.32);
-    if (over > 2) drawRibbon(over);
+    if (over > 2){
+      /* THE RETRY RE-MEASURES; IT DOES NOT COMPENSATE.
+
+         `extra` is the furniture around the drawing, and it is measured at the
+         TOP of this function — which means it is the PREVIOUS draw's note,
+         not the one about to be written. The note is a sentence whose length
+         depends on how many gauges plotted, so its line count changes between
+         a cold open and a loaded one: measured at three lines, redrawn at two,
+         and the budget was 22px wrong in a direction nobody had accounted for.
+
+         The old retry subtracted the whole measured overshoot from the budget.
+         That is a correction for a number that is already about to be
+         re-measured, so it took the error off twice: with five rows it landed
+         under the legibility floor and the band was dropped entirely. Passing
+         0 re-runs the arithmetic against furniture that is now correct, which
+         is all that was ever needed — and lands inside the budget rather than
+         18px over it.
+
+         The guard stays as a backstop. A corrective pass may shrink this view
+         and may not delete it: overshooting a guideline is a smaller failure
+         than dropping the comparison the landing page exists to show. */
+      var keep = RIB, keptBox = host.getAttribute('viewBox');
+      drawRibbon(0);
+      if (RIB.tooTight && !keep.tooTight){
+        RIB = keep;
+        if (keptBox) host.setAttribute('viewBox', keptBox);
+        drawRibbon(-1);
+      }
+    }
   }
   /* THE RIBBON IS A role="img" AND ITS SUBTREE IS PRUNED, so the rising or
      falling drawn on the bar reaches nobody who cannot see it. It goes in the
@@ -3702,6 +4067,183 @@ function riverCard(river){
   return card;
 }
 
+/* HOW MANY RIVERS THERE ARE, ASKED OF THE RIVER LIST.
+
+   Every sentence in this app that named a number named FOUR, and there have
+   been five entries since the Delta arrived. The landing page said "Four
+   rivers, one temperature scale"; the note explaining a dropped ribbon said
+   "four rows of it will not fit"; the Home button offered to take you "back to
+   all four rivers". Each was correct when written and none of them was wrong
+   in a way anybody could see by reading the file — the number lived in the
+   prose and the truth lived in an array two thousand lines away.
+
+   So the prose asks. `tools/copy-count.mjs` refuses a hardcoded count in
+   reader-facing copy, because a rule in a comment is what this repo has just
+   demonstrated does not hold.
+
+   The Delta is counted apart on purpose: it is where the four arrive, not a
+   fifth of them, and a sentence calling it a river would be a different
+   defect from the one being fixed. */
+/* THE WAY TO PICK A RIVER, offered where the reader is rather than as an
+   instruction to go and find a control. Two panels refuse to do their job
+   without a river — Depth and Marks — and both said so and then left the
+   reader to work out where the choosing happens. */
+/* The one sentence that explains a missing ribbon, owned by neither renderer
+   and written by whichever ran last. */
+/* The fade goes when there is nothing more to reach, so the last row is not
+   left permanently dimmed by a hint about content that is already on screen. */
+function markRibbonScrollEnd(){
+  var wrap = document.getElementById('ribbonwrap');
+  if (!wrap) return;
+  var more = wrap.scrollHeight - wrap.clientHeight - wrap.scrollTop;
+  wrap.classList.toggle('atend', more <= 4);
+}
+
+function syncRibbonDropNote(){
+  var slot = document.getElementById('ribbondropped');
+  if (!slot) return;
+  var wrap = document.getElementById('ribbonwrap');
+  var dropped = !!(wrap && wrap.hidden);
+  slot.hidden = !dropped;
+  /* AND WHEN IT IS DROPPED, THE ADVICE HAS TO MATCH THE SCREEN IT IS ON.
+
+     The band is bounded by HEIGHT, and a phone held sideways has about two
+     hundred pixels of it — less than the same phone upright, not more. A
+     reader who turns the phone to get more room is reaching for the wrong
+     axis, and the note used to tell them only that the screen was short,
+     which is exactly the thing rotating feels like it should fix. */
+  /* WHAT IS BEHIND IT, NOT THAT SOMETHING IS MISSING.
+
+     The old sentence said the rows would not fit and told the reader to pick a
+     single river — an apology and a detour. It never said what the band is
+     FOR, so a reader who had never seen it on a big screen had no idea there
+     was anything to want. Content you cannot see and cannot know to look for
+     is content that is not there, and that was true of the whole comparison,
+     not just the rows below a fold.
+
+     So this names the three things only the stacked view gives, and says they
+     are one press away at full size. The button sits directly under it. */
+  var n = ribbonRowCount();
+  slot.textContent = dropped
+    ? countWord(n).charAt(0).toUpperCase() + countWord(n).slice(1) +
+      ' rivers side by side — the water temperature along each one, how far up ' +
+      'the tide reaches, and where every gauge sits. There is not the height for ' +
+      'them here at a size worth reading. Turned sideways they fit at full size, ' +
+      'all of them at once.'
+    : '';
+}
+
+/* =====================================================================
+   THE SIDEWAYS VIEW — the picture turns, because the phone cannot be turned.
+
+   Asked for as "a button that rotates the screen without the user having to
+   turn on landscape". A web page cannot do that on this hardware and the check
+   is not a memory: Safari's engine reports no `screen.orientation.lock` at all,
+   and Chromium's throws NotSupportedError. A button calling it would be a
+   control that does nothing, which is the defect this app has a rule about.
+
+   Rotating the drawing instead is not a consolation prize. A portrait phone
+   turned this way gives the bars the whole long side of the screen — 844 by
+   390 on an iPhone 13 — where physically rotating the same phone gives them
+   844 by 242, because the browser keeps its chrome and portrait has more
+   screen left to spare. Five rows at full height need about 350 of those 390.
+   ===================================================================== */
+/* The offer follows the DRAW, not the render, for the same reason the note
+   explaining a dropped band does: these two run in no fixed order, and a test
+   made at render time reads whatever the last draw happened to leave. */
+function syncSidewaysOffer(){
+  var row = document.getElementById('swopen');
+  if (!row) return;
+  row.hidden = !sidewaysFits();
+}
+
+function sidewaysFits(){
+  /* Offered where it helps, which is wider than "the band gave up".
+     A band that squeezed its rows down to the legibility floor to get them all
+     in is showing every river at 22px when the sideways view would show them
+     at 44 — cramped is a reason to offer this, not just incomplete. On a tall
+     screen where the rows are already at their natural height it changes
+     nothing and is not offered, because a control that changes nothing is
+     clutter. */
+  return !!(RIB && (RIB.scrolls || RIB.tooTight ||
+                    (isNum(RIB.natural) && RIB.rowH < RIB.natural)));
+}
+
+function openSideways(){
+  var d = $('#sideways');
+  if (!d || typeof d.showModal !== 'function') return;
+  d.showModal();
+  drawSideways();
+  var c = $('#swclose');
+  if (c) c.focus();
+  announce('The rivers, drawn sideways. Press Done to go back.');
+}
+
+function drawSideways(){
+  var host = $('#swribbon');
+  if (!host) return;
+  /* THE NOTE FIRST, because it is one of the two things deciding how tall the
+     drawing's box is. Written after, the measurement below is of a box that is
+     about to change — the same stale-furniture defect the upright band's own
+     budget had, and it showed here as thirty pixels of overflow in a view
+     whose entire purpose is fitting everything on one screen. */
+  var n = $('#swnote');
+  if (n) n.textContent =
+    'Downstream on the left, all ' + countWord(ribbonRowCount()) +
+    ' to one distance scale. This turns the picture, not the phone — a web page cannot rotate the screen itself on this device. Pressing a river is on the upright view.';
+
+  /* The rotated box is as wide as the screen is TALL, and as tall as it is
+     wide. Measured off the container rather than computed from innerHeight and
+     innerWidth, so the browser's own chrome and the safe-area insets are
+     already taken out of both. */
+  var body = $('#swbody');
+  var W = Math.max(320, Math.round((body && body.clientWidth) || window.innerHeight || 640));
+  var H = Math.round((body && body.clientHeight) || 0);
+
+  /* RIB IS A GLOBAL AND THIS DRAW WOULD LEAVE ITS OWN NUMBERS IN IT.
+     Everything that asks "did the upright band have room" — the note under a
+     dropped ribbon, the offer of this very view — reads that global, and after
+     a sideways draw it describes a rotated canvas the size of the whole
+     screen. The band would come back believing it had all the room in the
+     world. One drawing with two hosts has to leave the state of the first
+     alone; borrowing it and putting it back is the whole of that. */
+  var keep = RIB;
+  try { drawRibbon(undefined, { host: host, W: W, budget: H > 80 ? H : null }); }
+  finally { RIB = keep; }
+}
+
+function pickRiverRow(){
+  var row = el('div',{class:'rowline'});
+  var b = el('button',{type:'button',text:'Choose a river'});
+  b.addEventListener('click', function(){
+    selectTab('water');
+    var w = $('#panel-water');
+    if (w) w.scrollTop = 0;
+    announce('Pick a river from the cards.');
+    var first = w && w.querySelector('.rivercard');
+    if (first) first.focus();
+  });
+  row.appendChild(b);
+  return row;
+}
+function initialCap(t){ return t.charAt(0).toUpperCase() + t.slice(1); }
+var COUNTWORDS = ['no','one','two','three','four','five','six','seven','eight','nine','ten'];
+function countWord(n){ return COUNTWORDS[n] || String(n); }
+function riverCount(){ return RIVERS.filter(function(r){ return !r.network; }).length; }
+function networkCount(){ return RIVERS.filter(function(r){ return r.network; }).length; }
+/* "four rivers" or "four rivers and the Delta", from the list itself. */
+function riversPhrase(){
+  var n = riverCount(), k = networkCount();
+  var base = countWord(n) + ' river' + (n === 1 ? '' : 's');
+  if (!k) return base;
+  var names = RIVERS.filter(function(r){ return r.network; })
+    .map(function(r){ return r.short; });
+  return base + ' and ' + (names.length === 1 ? 'the ' + names[0].replace(/^The /, '')
+                                              : names.join(' and '));
+}
+/* Every row the ribbon draws, which is not the same number. */
+function ribbonRowCount(){ return RIVERS.length; }
+
 function renderWater(){
   var p = $('#panel-water'); p.innerHTML = '';
 
@@ -3735,7 +4277,7 @@ function renderWater(){
                 ' — those did not answer. The rest are current.') +
             ' Ages are in the header.'}));
     p.appendChild(el('p',{class:'note',
-      text:'Four rivers, one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
+      text: initialCap(riversPhrase()) + ', one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
     p.appendChild(el('p',{class:'note',
       text:'Tap a river for its tide, its gauges one by one, its published depth surveys and your own marks.'}));
     /* Dropping a view silently is the thing this app is not allowed to do.
@@ -3743,9 +4285,29 @@ function renderWater(){
        short screen, and the cards carry more of the answer, so the ribbon
        goes — and says it went, at the bottom, where saying it costs nothing
        above the fold. */
-    if (document.getElementById('ribbonwrap').hidden)
-      p.appendChild(el('p',{class:'note',
-        text:'The river ribbon is not shown: four rows of it will not fit above these cards on a screen this short. Pick a single river and it comes back for that one.'}));
+    /* A SLOT, NOT A DECISION. Whether the ribbon fits is settled by
+       `drawRibbon`, and the two do not run in a fixed order: this panel can be
+       rendered BEFORE the draw that hides the band, in which case a test for
+       `hidden` here reads false and the explanation is never written. The
+       ribbon then vanishes with nothing said about it, which is the one thing
+       this app is not allowed to do — and it is exactly what happened the
+       moment the band stopped being hidden on its very first pass.
+       So the slot is always here and `syncRibbonDropNote` fills or empties it
+       from whichever of the two ran last. */
+    p.appendChild(el('p',{class:'note',id:'ribbondropped',hidden:'hidden'}));
+    syncRibbonDropNote();
+    /* AND THE WAY TO SEE THEM ALL ANYWAY. Where the upright band cannot show
+       every row — scrolled, or dropped altogether on a screen with no height
+       to give — the picture can be turned instead of the phone. The button
+       exists only in that case: on a tall screen every row is already there
+       and a control that changes nothing is clutter. */
+    var swrow = el('div',{class:'rowline',id:'swopen'});
+    var swb = el('button',{type:'button',
+      text:'\u21bb  See all ' + countWord(ribbonRowCount()) + ' sideways'});
+    swb.addEventListener('click', openSideways);
+    swrow.appendChild(swb);
+    p.appendChild(swrow);
+    syncSidewaysOffer();
     return;
   }
 
@@ -4077,8 +4639,19 @@ function tideSection(river){
     box.appendChild(el('p',{class:'note',
       text:'This station publishes highs and lows only, not an hourly curve. The times below are the turns; the water between them is not published and is not drawn.'}));
   } else {
-    box.appendChild(tideChart(t));
+    box.appendChild(tideChart(t, lightPlace(river, t)));
   }
+  /* THE LIGHT DOES NOT DEPEND ON THE CURVE, and putting it inside the branch
+     that draws one meant the stations without a curve got no light at all.
+     Those are the subordinate stations — New Hope Bridge, Terminous — which
+     are the ones somebody on the upper Mokelumne would actually pick, and
+     nothing about the sun needs an hourly prediction: the times come from the
+     date and the position and the turns come from the highs and lows. The
+     shading needs the chart; the words never did.
+     It is also the same shape as the caveat that lived inside the branch that
+     found an overlap, two functions down and half an hour earlier. */
+  var lb = lightBox(river, t);
+  if (lb) box.appendChild(lb);
   if (t.offline) box.appendChild(el('p',{class:'note',
     text:'Predictions from store. A prediction is arithmetic about the future, so it is still good; the flow and temperature above are not.'}));
 
@@ -4105,7 +4678,249 @@ function tideSection(river){
   return box;
 }
 
-function tideChart(t){
+/* =====================================================================
+   FIRST AND LAST LIGHT.
+
+   The convention every tide table for anglers carries and this one did not:
+   the change of tide matters differently depending on whether it lands in the
+   dark, in the low light at either end of the day, or at noon. A fisher plans
+   around the overlap. The app had the tide and had no idea when the light was.
+
+   IT IS ARITHMETIC AND COSTS NOTHING. No request, no service, nothing to go
+   stale, and it works offline for any date — which is the opposite of almost
+   everything else in this app. The position it is computed for is the tide
+   station being read, because that is what the curve beside it is for.
+
+   WHAT IT IS NOT. It is a light calculation, not a fishing forecast. Thalweg
+   does not tell anybody where or when the fishing will be better, and naming
+   the hours of low light is not that: it is the same kind of fact as the tide
+   turning at 4:12. What a fish does about it is not something this app knows.
+
+   ONE EPHEMERIS, TWO ANSWERS. The shading needs the sun's altitude at an
+   arbitrary instant; the sentences need the named crossings. Computing those
+   from two different formulations is how they come to disagree by four minutes
+   and nobody can say which is right, so `sunAltitude` and `sunTimes` share the
+   position below and the suite asserts the loop closes: at the sunrise this
+   returns, that altitude is the sunrise altitude.
+   ===================================================================== */
+var DEG = Math.PI / 180;
+var OBLIQ = 23.4397;                 /* obliquity of the ecliptic */
+var ALT_SUN   = -0.833;              /* upper limb, refracted: sun up / down */
+var ALT_CIVIL = -6;                  /* civil twilight: first / last light */
+
+function daysSinceJ2000(d){ return d.valueOf() / 86400000 - 10957.5; }
+
+/* Where the sun is on the ecliptic for a given instant. */
+function solarEcliptic(days){
+  var M = (357.5291 + 0.98560028 * days) % 360;
+  var C = 1.9148 * Math.sin(M * DEG) + 0.0200 * Math.sin(2 * M * DEG)
+        + 0.0003 * Math.sin(3 * M * DEG);
+  var L = (M + C + 180 + 102.9372) % 360;
+  return { M:M, L:L, decl: Math.asin(Math.sin(L * DEG) * Math.sin(OBLIQ * DEG)) / DEG };
+}
+
+/* How high the sun is, in degrees, at one instant and one place. */
+function sunAltitude(date, lat, lon){
+  var d = daysSinceJ2000(date), e = solarEcliptic(d);
+  var ra = Math.atan2(Math.sin(e.L * DEG) * Math.cos(OBLIQ * DEG),
+                      Math.cos(e.L * DEG)) / DEG;
+  /* Greenwich mean sidereal time, plus the longitude, minus the sun's right
+     ascension, is the hour angle. */
+  var H = (280.16 + 360.9856235 * d + lon - ra) * DEG;
+  return Math.asin(Math.sin(lat * DEG) * Math.sin(e.decl * DEG) +
+                   Math.cos(lat * DEG) * Math.cos(e.decl * DEG) * Math.cos(H)) / DEG;
+}
+
+/* The named crossings for the local day containing `date`.
+
+   LONGITUDE IS EAST-POSITIVE, which is the sign this app already carries, and
+   the correction is applied ONCE. Applying it in both the day number and the
+   noon estimate put every time eight hours out on the first attempt — and the
+   declination and the day length were both correct throughout, which is what
+   made it look right. */
+function sunTimes(date, lat, lon){
+  var n = Math.round(daysSinceJ2000(date) - 0.0009 + lon / 360);
+  var Jnoon = n + 0.0009 - lon / 360;
+  var e = solarEcliptic(Jnoon);
+  var Jt = 2451545 + Jnoon + 0.0053 * Math.sin(e.M * DEG)
+         - 0.0069 * Math.sin(2 * e.L * DEG);
+  var fromJ = function(J){ return new Date((J - 2440587.5) * 86400000); };
+  var at = function(alt){
+    var cosH = (Math.sin(alt * DEG) - Math.sin(lat * DEG) * Math.sin(e.decl * DEG)) /
+               (Math.cos(lat * DEG) * Math.cos(e.decl * DEG));
+    /* Above the arctic circle the sun can fail to reach an altitude at all.
+       Not this water, and the app must still not divide by a NaN. */
+    if (!(cosH >= -1 && cosH <= 1)) return { rise:null, set:null };
+    var H = Math.acos(cosH) / DEG;
+    return { rise: fromJ(Jt - H / 360), set: fromJ(Jt + H / 360) };
+  };
+  /* AND THEN SOLVE AGAINST THE ALTITUDE ITSELF, so the two answers really are
+     one answer.
+
+     `at` above is the closed form, and it disagreed with `sunAltitude` by 0.18
+     degrees — the altitude at the sunrise it returned was -0.65 where sunrise
+     is defined as -0.833, about forty-five seconds out, and the same amount in
+     the same direction at first light. The first guess at the cause was the
+     declination being taken at solar noon rather than at the crossing; fixing
+     that changed the answer by a fraction of a second and left the 0.18
+     standing, which is how it was established that the real difference is the
+     transit estimate. `at` reaches solar noon through a two-term
+     equation-of-time approximation; `sunAltitude` goes through sidereal time
+     and right ascension, and those are the same quantity computed two ways.
+
+     Nobody can act on forty-five seconds. The point is that two paths through
+     one ephemeris disagreed at all, and a disagreement nobody can adjudicate
+     is how a defect comes to live in whichever path is read less often.
+
+     So there is one definition now and the other refines to it: Newton on the
+     altitude, from the closed form's guess, which is already within a minute.
+     Four steps takes it under a second and the closure check has nothing left
+     to find. It costs a few dozen evaluations, once per render, of arithmetic
+     with no network behind it. */
+  var solve = function(guess, alt){
+    if (!guess) return null;
+    var t = guess.getTime();
+    for (var k = 0; k < 4; k++){
+      var f  = sunAltitude(new Date(t), lat, lon) - alt;
+      /* Numeric slope over a minute, centred, in degrees per millisecond. */
+      var f1 = sunAltitude(new Date(t + 30000), lat, lon) -
+               sunAltitude(new Date(t - 30000), lat, lon);
+      if (!isFinite(f1) || Math.abs(f1) < 1e-12) break;
+      var step = f / (f1 / 60000);
+      if (!isFinite(step)) break;
+      /* A guess that is already within a minute cannot need an hour's
+         correction; anything that large means the slope was read near a
+         turning point and the closed form is the better answer. */
+      if (Math.abs(step) > 3600000) break;
+      t -= step;
+    }
+    return new Date(Math.round(t));
+  };
+  /* AND SOLAR NOON THE SAME WAY. Left as the closed form's estimate it was the
+     one time on this panel still coming from the other method, and it showed:
+     rise and set, now solved exactly, straddled it by 35 seconds. Transit is
+     where the hour angle is zero, so it is a solve like the others — Newton on
+     the altitude, which is stationary there, needs the second derivative, so
+     this bisects the hour angle instead. */
+  var transit = (function(){
+    var hourAngleAt = function(ms){
+      var d2 = daysSinceJ2000(new Date(ms)), e2 = solarEcliptic(d2);
+      var ra = Math.atan2(Math.sin(e2.L * DEG) * Math.cos(OBLIQ * DEG),
+                          Math.cos(e2.L * DEG)) / DEG;
+      var h = (280.16 + 360.9856235 * d2 + lon - ra) % 360;
+      if (h > 180) h -= 360;
+      if (h < -180) h += 360;
+      return h;
+    };
+    var t0 = fromJ(Jt).getTime(), lo = t0 - 3600000, hi = t0 + 3600000;
+    if (hourAngleAt(lo) > 0 || hourAngleAt(hi) < 0) return fromJ(Jt);
+    for (var k = 0; k < 40; k++){
+      var mid = (lo + hi) / 2;
+      if (hourAngleAt(mid) < 0) lo = mid; else hi = mid;
+    }
+    return new Date(Math.round((lo + hi) / 2));
+  })();
+  var day = at(ALT_SUN), civil = at(ALT_CIVIL);
+  return { noon: transit, decl: e.decl,
+           sunrise: solve(day.rise, ALT_SUN),     sunset: solve(day.set, ALT_SUN),
+           dawn:    solve(civil.rise, ALT_CIVIL), dusk:  solve(civil.set, ALT_CIVIL) };
+}
+
+/* Which of the three states the light is in at an instant. */
+function lightAt(date, lat, lon){
+  var a = sunAltitude(date, lat, lon);
+  return a > ALT_SUN ? 'day' : a > ALT_CIVIL ? 'twilight' : 'night';
+}
+
+/* Where the tide is read, which is where the light is computed. The station
+   carries NOAA's own position; a river's centre is the fallback and is said
+   to be one rather than passed off as the station. */
+function lightPlace(river, t){
+  var st = ((t && t.stations) || []).filter(function(s){ return s.id === t.station; })[0];
+  if (st && isNum(st.lat) && isNum(st.lon))
+    return { lat:st.lat, lon:st.lon, name: st.name || st.id, exact:true };
+  if (river && river.center)
+    return { lat:river.center[0], lon:river.center[1], name:river.name, exact:false };
+  return null;
+}
+
+/* THE LIGHT IN WORDS, and the turns that land in it.
+
+   The shading is inside a role="img" and reaches nobody who cannot see it, and
+   a shaded band with nothing naming it is the defect the tide key and the
+   reversal mark have each already been. So: first light and last light by the
+   clock, and then the part a fisher is actually reading the chart for — which
+   of the next turns falls in the low hours at either end of the day.
+
+   IT NAMES AN OVERLAP AND CLAIMS NOTHING ABOUT IT. That anglers plan around
+   the change of tide near first or last light is a convention, and saying so
+   is a fact about the practice; saying it produces fish would be a forecast,
+   which this app does not make. */
+function lightBox(river, t){
+  var place = lightPlace(river, t);
+  if (!place) return null;
+  var box = el('div', {});
+  var now = new Date();
+  var todays = sunTimes(now, place.lat, place.lon);
+  if (!todays.dawn || !todays.dusk || !todays.sunrise || !todays.sunset){
+    /* Never reached on this water; said rather than divided by. */
+    box.appendChild(el('p',{class:'note',
+      text:'The sun does not rise or set as usual at this latitude on this date, so first and last light are not shown.'}));
+    return box;
+  }
+
+  var line = 'First light ' + clockLocal(todays.dawn.toISOString()) +
+    ', sunrise ' + clockLocal(todays.sunrise.toISOString()) +
+    ', sunset ' + clockLocal(todays.sunset.toISOString()) +
+    ', last light ' + clockLocal(todays.dusk.toISOString()) + '.';
+  box.appendChild(el('p',{class:'note',text:line}));
+
+  /* WHICH TURNS LAND IN THE LOW LIGHT. Twilight at either end, plus the hour
+     on the daylight side of each, which is the window the convention is
+     actually about — "the change at first light" is not a single minute. */
+  var LOW = 3600000;
+  var hits = [];
+  (t.hilo || []).forEach(function(h){
+    var when = new Date(String(h.t).replace(' ', 'T'));
+    var ms = when.getTime();
+    if (!isFinite(ms) || ms < Date.now() || ms > Date.now() + 36 * 3600000) return;
+    var st = lightAt(when, place.lat, place.lon);
+    var near = st === 'twilight';
+    if (!near && st === 'day'){
+      /* Within an hour of the twilight edge on the daylight side. */
+      var d2 = sunTimes(when, place.lat, place.lon);
+      if (d2.sunrise && d2.sunset)
+        near = (ms - d2.sunrise.getTime() >= 0 && ms - d2.sunrise.getTime() <= LOW) ||
+               (d2.sunset.getTime() - ms >= 0 && d2.sunset.getTime() - ms <= LOW);
+    }
+    if (near) hits.push({ at:when, type:h.type, v:h.v, state:st });
+  });
+
+  if (hits.length){
+    var say = hits.slice(0, 3).map(function(h){
+      return (h.type === 'H' ? 'high' : 'low') + ' water ' +
+        clockLocal(h.at.toISOString()) + ' on ' + dayLocal(h.at.toISOString());
+    }).join(', ');
+    box.appendChild(el('p',{class:'note',
+      text:'In the next day and a half the tide turns in the low light at ' + say + '.'}));
+  } else {
+    box.appendChild(el('p',{class:'note',
+      text:'None of the turns in the next day and a half falls in the low light at either end of the day.'}));
+  }
+  /* THE CAVEAT IS NOT CONDITIONAL ON THERE BEING SOMETHING TO CAVEAT. Written
+     inside the branch that found an overlap, it disappeared exactly when the
+     answer was "none" — so the reader who most needs to know what this section
+     is and is not claiming got the bare sentence and no framing at all. */
+  box.appendChild(el('p',{class:'note',
+    text:'Fishing the change at first or last light is a convention among anglers. This section says when the two coincide and nothing whatever about what the fish will do — Thalweg does not know that and will not guess it.'}));
+
+  box.appendChild(el('p',{class:'note',
+    text:'Computed for ' + place.name + (place.exact ? '' : ', the middle of this reach rather than the station') +
+      ' — arithmetic from the date and the position, so it needs no signal and works for any day. First and last light are civil twilight, the sun six degrees below the horizon, which is about when you can read water without a torch.'}));
+  return box;
+}
+
+function tideChart(t, place){
   var W = 320, H = 110, pad = 16;
   var now = Date.now();
   var pts = (t.hourly||[]).map(function(p){
@@ -4128,6 +4943,33 @@ function tideChart(t){
   if (y1 - y0 < 0.5){ y0 -= 0.25; y1 += 0.25; }
   var sx = function(v){ return pad + (v-x0)/(x1-x0)*(W-2*pad); };
   var sy = function(v){ return H-pad - (v-y0)/(y1-y0)*(H-2*pad); };
+
+  /* THE LIGHT, BEHIND THE WATER. Night darkest, the twilight at either end of
+     it a shade lighter, daylight left as the page. It goes in first so the
+     tide is drawn ON it rather than under it.
+
+     SAMPLED FROM THE SUN'S ALTITUDE rather than assembled from rise and set
+     times. The window is thirty hours and crosses at least one midnight, so
+     interval arithmetic here means stitching two or three days of crossings
+     together and getting the joins right; asking how high the sun is at each
+     step has no joins in it and cannot put a night in the wrong place. Five
+     minutes a step, about 360 of them, and the runs are merged so the drawing
+     is a handful of rectangles rather than one per sample. */
+  if (place){
+    var STEP = 5 * 60000, runs = [], cur = null;
+    for (var tt = x0; tt <= x1; tt += STEP){
+      var state = lightAt(new Date(tt), place.lat, place.lon);
+      if (!cur || cur.state !== state){ cur = { state:state, from:tt, to:tt }; runs.push(cur); }
+      else cur.to = tt;
+    }
+    runs.forEach(function(r){
+      if (r.state === 'day') return;
+      var x = sx(r.from), w = Math.max(0.5, sx(Math.min(r.to + STEP, x1)) - x);
+      s.appendChild(svg('rect',{ x:x, y:0, width:w, height:H,
+        fill:'#04090A', 'fill-opacity': r.state === 'night' ? '.55' : '.28' }));
+    });
+  }
+
   var d = pts.map(function(p,i){ return (i?'L':'M')+sx(p.x).toFixed(1)+' '+sy(p.y).toFixed(1); }).join(' ');
   s.appendChild(svg('path',{ d:d, fill:'none', stroke:'#7BD5D9', 'stroke-width':'2' }));
   s.appendChild(svg('path',{ d:d+' L'+sx(x1)+' '+(H-pad)+' L'+sx(x0)+' '+(H-pad)+' Z',
@@ -4224,15 +5066,31 @@ function renderLayers(){
   }
 
 
-  if (!state.catalog){
-    p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
-    appendBasemap(p);
-    return;
-  }
+  /* NO RIVER IS ANSWERED BEFORE NO CATALOGUE, and the order is the whole fix.
+
+     These two checks were the other way round, so on All rivers the panel
+     returned at the first one and showed "Reading the DWR service directory…"
+     — a progress message for a request that is never made, because the
+     catalogue is fetched for a river and there is no river. It sat there
+     forever. The sentence below, which says what this panel is for and how to
+     reach it, was written and could not be got to.
+
+     A spinner is a promise that something is happening. This one was a
+     permanent claim that the app was busy on your behalf while it waited for
+     an event that could not occur, which is worse than an empty panel: it
+     tells a reader to wait rather than to act. */
   var river = state.riverId ? byId(state.riverId) : null;
   if (!river){
     p.appendChild(el('p',{class:'note',
       text:'Depth belongs to a reach, so it comes with a river. Pick one above and the map opens with it — All rivers is for choosing between them, not for reading bottom.'}));
+    /* AND THE WAY TO DO IT, here, rather than as an instruction to go and
+       find a control somewhere else. */
+    p.appendChild(pickRiverRow());
+    appendBasemap(p);
+    return;
+  }
+  if (!state.catalog){
+    p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
     appendBasemap(p);
     return;
   }
@@ -4906,6 +5764,7 @@ function renderMarks(){
        from a refusal on its own. */
     p.appendChild(el('p',{class:'note',
       text:'A mark belongs to one river, so pick a river to drop one. Everything already dropped is below.'}));
+    p.appendChild(pickRiverRow());
     var total = 0;
     RIVERS.forEach(function(river){
       var marks = sget(river.id,'marks') || [];
@@ -8207,6 +9066,61 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.9.0', date:'2026-09-01', changes:[
+      'On the front page the river bars are now all of them or none of them. They are there for one thing the cards underneath cannot do \u2014 the water temperature ALONG each river, on one scale, all five at once \u2014 and reading that needs them together and big enough to read. Two rows at a time, scrolled, defeats the only job they have.',
+      'Where there is not the height for them, they give way to a panel that tells you what you are missing and opens it: five rivers side by side, the temperature along each, how far up the tide reaches, and where every gauge sits. One press and they are there at full size on the long side of the screen.',
+      'That gives the readings back a third of the screen on a phone, and it is decided by whether the bars actually FIT rather than by guessing what kind of device you are on \u2014 a tall phone held upright may have room for all five and a short one will not.',
+  ], broken:[
+      'On a short screen the bars are no longer glanceable on the front page; you press for them. A glance at something too small to read is not a glance, but it is a press you did not used to make.',
+      'The sideways view is for reading. Pressing a river to open it is on the upright bars, where the invisible buttons that make them pressable can work out where they are.',
+  ] },
+  { v:'2.8.1', date:'2026-09-01', changes:[
+      'The river bars now LOOK like they scroll, on a phone where they do. They were scrolling and saying so only to a screen reader \u2014 which is to say saying so to everything except the eye: the band simply ended, with rivers below the fold and nothing suggesting they were there.',
+      'The bottom edge fades while there is more to reach, and the note underneath says how many rivers are below it. The fade goes once you are at the end, so the last row is not left dimmed by a hint about something already on screen.',
+  ], broken:[
+      'Content you cannot see and cannot know to look for is content that is not there. That was true here for two releases and it was found on a phone, not by a gate \u2014 the gate was asserting the band announced itself, and it did, silently.',
+  ] },
+  { v:'2.8.0', date:'2026-09-01', changes:[
+      'Every river now gets the whole width of its bar, drawn to its own scale. They were all squeezed onto one distance scale set by the longest, and the longest is the Sacramento \u2014 359 km across, against the American\u2019s 30. So the American was drawn at EIGHT PER CENT of the width with its gauges piled on top of each other, the Feather and the Mokelumne at about a fifth, and the only river you could actually read was the one that needed no help.',
+      'And every row says how many kilometres it covers, because that is the whole reason this is allowed. Bars of one width covering different distances is a lie for exactly as long as nothing says what they cover \u2014 so the comparison of length moves out of the drawing, where it was crushing four rivers to flatter one, and into a number that states it exactly. The note under the bars says out loud that the widths are no longer comparable.',
+      'What a bar is for is where the gauges sit along THAT river, and a shared scale was destroying it for four rivers out of five.',
+  ], broken:[
+      'The bars can no longer be compared to each other by eye, on purpose. Read the kilometres on each row instead; that is what the number is there for.',
+      'Rows carry a line more than they did, so fewer of them fit on a short screen than before. Where they do not fit the bars scroll, and the sideways view shows all of them at once.',
+  ] },
+  { v:'2.7.0', date:'2026-09-01', changes:[
+      'A button that turns the river bars sideways, where there is no room for them upright. It gives them the LONG side of the screen: on an iPhone 13 the bars go from 22 pixels tall in a 390-wide box to 45 tall in a 667-wide one, with every river on screen at once and nothing to scroll.',
+      'It turns the picture, not the phone, and it says so. A web page cannot rotate the screen itself on an iPhone or an iPad \u2014 Safari has no way to do it, and a button that quietly did nothing would be worse than no button. Turning the drawing is the half that works, and it is the better half: a phone held upright has more screen to give than the same phone turned over, because the browser keeps its own bars either way.',
+      'The button only appears where it helps \u2014 where the upright bars are squeezed, scrolled, or gone. On a screen with room for all of them at full size it changes nothing, so it is not offered.',
+  ], broken:[
+      'Pressing a river to open it is on the upright view only. The sideways one is for reading: the invisible buttons that make the bars pressable work out where they are by measuring the screen, and inside a rotated picture that measurement describes the wrong thing.',
+      'It is one drawing shown two ways, not two drawings. If the bars are ever wrong in one they will be wrong in both, which is the trade for them never disagreeing with each other.',
+  ] },
+  { v:'2.6.1', date:'2026-09-01', changes:[
+      'The river bars scroll instead of disappearing. On a screen with no room for five of them at a size worth reading, the app used to take the whole comparison away \u2014 which is the thing the front page is for. The bars keep their size now, the band keeps its share of the screen, and the ones past the bottom are reached by scrolling.',
+      'That brought them back on the small phones, where they had been gone entirely, and it stopped them taking over an iPad held sideways \u2014 which had been drawing a taller band than the whole screen and leaving the readings nothing.',
+      'And the note explaining a missing band now tells you the right thing to do about it. It is bounded by HEIGHT, and turning a phone sideways gives it LESS of that, not more \u2014 so where rotating is the wrong move the note says so, rather than leaving you to try it.',
+  ], broken:[
+      'A phone held sideways still cannot show five bars. There are about two hundred pixels of height on that screen in total, and the caption underneath takes a quarter of them. Held upright the same phone has room, and the note says so.',
+      'Where the bars do fit at a smaller size they are still shrunk to fit rather than scrolled, because the point of stacking them is seeing them at once.',
+  ] },
+  { v:'2.6.0', date:'2026-09-01', changes:[
+      'The tide chart knows when it is dark. Night is shaded behind the curve and the low light at either end of the day a shade lighter, so you can see at a glance whether a turn lands at first light, in the middle of the afternoon, or at two in the morning. First light, sunrise, sunset and last light are written out underneath as well.',
+      'And it names the turns that fall in the low light \u2014 which of the next day and a half\u2019s highs and lows land in the hour around dawn or dusk. Fishing the change at first or last light is a convention among anglers; the app is telling you when the two coincide and nothing whatever about what the fish will do.',
+      '\u201cFirst light\u201d means civil twilight, the sun six degrees under the horizon, which is about when you can read water without a torch \u2014 not sunrise, which is half an hour later. Both are given because they are half an hour apart and people mean different things by the word.',
+      'None of this costs a request. It is arithmetic from the date and where the tide station is, so it works with no signal, for any date, and there is nothing about it that can go stale or fail to answer.',
+  ], broken:[
+      'The light is computed for the tide station you are reading, not for where you are standing. On this water that is a difference of seconds, not minutes, but it is the station\u2019s dawn rather than yours.',
+      'It is a light calculation and not a fishing forecast. Thalweg does not know where or when the fishing will be better and does not guess.',
+  ] },
+  { v:'2.5.1', date:'2026-09-01', changes:[
+      'Home has its river bars back. They had gone from every screen size, and the note underneath blamed your screen for it \u2014 which was wrong. The bars are tappable now, and the invisible buttons that make them tappable sit exactly on top of the bars; the code working out how much room the bars could have was counting those buttons as if they pushed the bars further down the page. Every redraw took the last drawing\u2019s own height away from the next one until there was no room left at all, and once it gave up it could not come back.',
+      'The tabs stay where they are when you open the map. Choosing Map used to send the row of tabs to the bottom of the screen \u2014 a whole screen away from the finger that had just pressed it, and behind a map you then had to scroll past to get back. Every other tab leaves them at the top; now so does that one.',
+      'Depth no longer says it is loading something when no river is picked. It sat on \u201cReading the DWR service directory\u2026\u201d forever, because that reading only happens once you have chosen a river \u2014 so it was a promise that something was happening when nothing was going to. It says what the panel is for instead, and both it and Marks now offer a button that takes you to the choosing rather than telling you to go and find it.',
+      'Nothing on the landing page counts the rivers wrongly any more. It said \u201cfour rivers\u201d in three places while five things were listed under it, and the Home button offered to take you back to all four. The sentences ask the list now, so they cannot fall behind it again.',
+  ], broken:[
+      'On the shortest phones the bars still cannot be shown on the landing page: five of them at a size you can actually read do not fit above the cards. That is a real limit rather than the fault above, and the app says so and tells you to pick one river to get them back.',
+  ] },
   { v:'2.5.0', date:'2026-09-01', changes:[
       'The tide now says how BIG today is, not just which way it is going and when it turns. The swing between high and low is not the same every day \u2014 it grows and shrinks over about a fortnight with the moon, and on this water the difference between the two ends is a couple of feet at the same station. Two days both described as \u201crising, high at four\u201d can be completely different afternoons, and nothing here said which one you had.',
       'It is drawn as well as said: one bar a day for the sixteen days of predictions the app holds, today marked, with the biggest and the smallest day named by date. On the river cards the size only appears at the ends of the cycle, because \u201cthe biggest swing of the fortnight\u201d changes what you do today and \u201csomewhere in the middle\u201d does not.',
@@ -8953,6 +9867,55 @@ function boot(){
   /* Home. Back to the four-river landing this app opens on, on the Water tab,
      scrolled to the top — all three, because arriving at the landing halfway
      down a panel is not arriving at the landing. */
+  /* THE LABEL SAYS WHAT IS THERE. It offered to take a reader "back to all
+     four rivers" while five things were listed under it. */
+  (function(){
+    var hb = $('#homebtn'), label = 'Home \u2014 back to all ' + riversPhrase();
+    hb.title = label; hb.setAttribute('aria-label', label);
+  })();
+  (function(){
+    var d = $('#sideways'), c = $('#swclose');
+    if (c) c.addEventListener('click', function(){ d.close(); });
+    if (d) d.addEventListener('close', function(){
+      announce('Back to the upright view.');
+      /* THE BUTTON, NOT THE ROW IT SITS IN. A div is not focusable, so
+         focusing it silently does nothing and the reader is returned to the
+         top of the document — which is the same "focus lands on BODY" defect
+         the first-run panel was fixed for. */
+      /* A FALLBACK, NOT AN OVERRIDE. A modal returns focus to whatever held it
+         when it opened, and that is the right answer: press the button, come
+         back to the button. Trying to set it here instead raced the platform
+         and lost — focus ended up on whichever tab had been clicked earlier in
+         the session, which is worse than doing nothing.
+         What the platform cannot handle is having nowhere to go, when the
+         element that had focus was rebuilt while this was open. Then focus
+         lands on BODY, which is the "somewhere real" defect the first-run
+         panel was fixed for. So: only then, and only if there is still a
+         button to take it. */
+      setTimeout(function(){
+        var row = document.getElementById('swopen');
+        if (!row || row.hidden) return;
+        /* Left alone when the platform got it right — press the button, come
+           back to the button, and this changes nothing. It is wrong whenever
+           the readings refresh while this is open: the panel is rebuilt, the
+           element the modal was going to restore to is detached, and focus
+           lands wherever was touched before that — measured landing on the
+           Depth tab, three controls away from where the reader was. */
+        if (row.contains(document.activeElement)) return;
+        var b = row.querySelector('button');
+        if (b) b.focus();
+      }, 0);
+    });
+    /* A rotation that survives the screen changing under it. */
+    var band = document.getElementById('ribbonwrap');
+    if (band) band.addEventListener('scroll', markRibbonScrollEnd, { passive: true });
+    var swTimer = null;
+    window.addEventListener('resize', function(){
+      if (!d || !d.open) return;
+      clearTimeout(swTimer);
+      swTimer = setTimeout(drawSideways, 180);
+    });
+  })();
   $('#homebtn').addEventListener('click', function(){
     selectRiver('');
     selectTab('water');

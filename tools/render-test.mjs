@@ -1117,6 +1117,358 @@ check('and says it is the level at one station, not the current where you are',
 check('the measured section says the two need not agree',
   /need not agree|not the same thing/i.test(along.text), along.text.slice(0, 400));
 
+/* --- FIRST AND LAST LIGHT -----------------------------------------------
+   The convention every angler's tide table carries and this one did not: the
+   change of tide lands differently in the dark, in the low light at either end
+   of the day, or at noon. It is arithmetic — no request, nothing to go stale,
+   works offline for any date — which makes it the one thing here that can be
+   checked against physics rather than against a service. */
+const sun = await page.evaluate(() => {
+  const LAT = 38.1583, LON = -121.6853;          /* Rio Vista */
+  const at = iso => sunTimes(new Date(iso + 'T12:00:00Z'), LAT, LON);
+  const hours = (a, b) => (b - a) / 3600000;
+  const eq = at('2026-03-20'), jun = at('2026-06-21'), dec = at('2026-12-21');
+  const nov = at('2026-11-03'), feb = at('2026-02-11');
+  const meanNoonH = 12 - LON / 15;               /* mean solar noon, UTC hours */
+  const noonOff = t => (t.noon.getUTCHours() + t.noon.getUTCMinutes() / 60 +
+                        t.noon.getUTCSeconds() / 3600 - meanNoonH) * 60;
+  return {
+    eqLen: hours(eq.sunrise, eq.sunset),
+    junLen: hours(jun.sunrise, jun.sunset),
+    decLen: hours(dec.sunrise, dec.sunset),
+    /* Sunrise and sunset must straddle solar noon exactly. */
+    symmetry: Math.abs((+eq.sunrise + +eq.sunset) / 2 - eq.noon) / 1000,
+    /* The equation of time: the sun runs about 16 minutes ahead of the clock
+       in early November and about 14 behind in mid-February. Nothing here was
+       fitted to those — they fall out of the ephemeris or the ephemeris is
+       wrong. */
+    novOff: noonOff(nov), febOff: noonOff(feb),
+    /* Civil twilight is before sunrise and after sunset, never the other way. */
+    dawnBeforeRise: hours(eq.dawn, eq.sunrise),
+    duskAfterSet: hours(eq.sunset, eq.dusk),
+    /* THE LOOP CLOSES. The shading reads the sun's altitude at an instant; the
+       sentences read the named crossings. Two formulations of the same thing
+       is how they come to disagree by four minutes with nobody able to say
+       which is right — so the altitude AT the computed sunrise has to be the
+       sunrise altitude. */
+    altAtSunrise: sunAltitude(jun.sunrise, LAT, LON),
+    altAtDawn: sunAltitude(jun.dawn, LAT, LON),
+    altAtNoonJun: sunAltitude(jun.noon, LAT, LON),
+    /* And the classifier agrees with both. */
+    stateAtNoon: lightAt(jun.noon, LAT, LON),
+    stateAtMidnight: lightAt(new Date(+jun.noon + 12 * 3600000), LAT, LON),
+    stateBetween: lightAt(new Date(+jun.sunset + 12 * 60000), LAT, LON)
+  };
+});
+/* Twelve hours and a bit at the equinox — the "and a bit" is the sun's disc
+   and refraction, and a check that came out at exactly 12 would mean those
+   had been left out. */
+check('day length at the equinox is twelve hours and a little more',
+  sun.eqLen > 12.05 && sun.eqLen < 12.25, String(sun.eqLen));
+/* 38.16 degrees north: the solstices are 14h49m and 9h31m. */
+check('and the solstices are the right length for this latitude',
+  Math.abs(sun.junLen - 14.82) < 0.05 && Math.abs(sun.decLen - 9.51) < 0.05,
+  JSON.stringify({ jun: sun.junLen, dec: sun.decLen }));
+/* NEARLY, AND NOT EXACTLY — the asymmetry is real rather than error. The
+   declination drifts across the day, so sunrise and sunset are not perfectly
+   equidistant from transit; it is tens of seconds at this latitude. Asserting
+   "exactly" was asserting a property of the approximate model, and it started
+   failing the moment the model got better. */
+check('sunrise and sunset straddle solar noon to within a minute',
+  sun.symmetry < 60, String(sun.symmetry));
+check('the equation of time peaks where it really does',
+  sun.novOff < -14 && sun.novOff > -18 && sun.febOff > 13 && sun.febOff < 17,
+  JSON.stringify({ nov: sun.novOff, feb: sun.febOff }));
+check('first light comes before sunrise and last light after sunset',
+  sun.dawnBeforeRise > 0.3 && sun.dawnBeforeRise < 0.8 &&
+  sun.duskAfterSet > 0.3 && sun.duskAfterSet < 0.8,
+  JSON.stringify({ dawn: sun.dawnBeforeRise, dusk: sun.duskAfterSet }));
+/* THE TWO ANSWERS COME FROM ONE EPHEMERIS, asserted by substituting one back
+   into the other rather than by computing it the same way twice. */
+check('the altitude at the sunrise this app computes IS the sunrise altitude',
+  Math.abs(sun.altAtSunrise - (-0.833)) < 0.1, String(sun.altAtSunrise));
+check('and the altitude at first light is the civil-twilight altitude',
+  Math.abs(sun.altAtDawn - (-6)) < 0.1, String(sun.altAtDawn));
+/* Sanity on the other end: at midsummer noon at 38N the sun is about 75 up. */
+check('the sun is where it should be at midsummer noon',
+  sun.altAtNoonJun > 73 && sun.altAtNoonJun < 77, String(sun.altAtNoonJun));
+check('and the light is classified from the same altitude',
+  sun.stateAtNoon === 'day' && sun.stateAtMidnight === 'night' &&
+  sun.stateBetween === 'twilight',
+  JSON.stringify({ noon: sun.stateAtNoon, midnight: sun.stateAtMidnight,
+                   justAfterSunset: sun.stateBetween }));
+
+/* IT IS DRAWN AND IT IS SAID. The shading lives inside a role="img", so a
+   band with nothing naming it reaches nobody who cannot see it — the same
+   defect the tide key and the reversal mark have each already been. */
+const lightUi = await page.evaluate(() => {
+  const chart = document.getElementById('tidechart');
+  const panel = document.getElementById('panel-water').textContent;
+  return {
+    shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
+    said: /First light/.test(panel) && /last light/.test(panel),
+    /* THE CLAIM MUST BE ABOUT THE OVERLAP, NEVER ABOUT THE FISH — and the
+       test for that cannot be a word search, because the sentence doing the
+       refusing contains the words being refused. Third time this session: a
+       gate keyed on copy pins the copy, and pins the disclaimer with it
+       (hub LESSONS 180). So this asserts the DENIAL is present, which is the
+       actual requirement, and separately that no recommendation is made. */
+    convention: /convention among anglers/.test(panel),
+    denial: /nothing whatever about what the fish will do/.test(panel),
+    noForecast: !/(better|best) (fishing|time to fish)|you should fish|worth fishing/i.test(panel),
+    computed: /arithmetic from the date and the position/.test(panel),
+    twilightSaid: /six degrees below the horizon/.test(panel)
+  };
+});
+check('the light is shaded on the tide chart', lightUi.shaded > 0,
+  String(lightUi.shaded));
+check('and named in words, because the chart is a role="img"', lightUi.said);
+check('the low-light turns are given as a coincidence, not a prediction',
+  lightUi.convention && lightUi.denial && lightUi.noForecast, JSON.stringify(lightUi));
+check('it says the times are computed rather than published', lightUi.computed);
+check('and says what "first light" actually means', lightUi.twilightSaid);
+
+/* --- THE LANDING PAGE, AS IT IS ACTUALLY READ ----------------------------
+   Four reports from a real device in one message, and three of them were the
+   same kind of defect: something correct when it was written, left behind by
+   the app growing a fifth entry or a new overlay. */
+
+/* HOME LOST ITS RIBBON, ON EVERY GEOMETRY.
+
+   The tappable river rows are HTML buttons laid over the drawing inside
+   `#ribbonwrap` — absolutely positioned, exactly as tall as the ribbon. The
+   height budget summed the wrapper's children as furniture that pushes the
+   ribbon down the page, and counted that overlay among them. It does not push
+   anything: it IS the ribbon, drawn over itself. So each redraw subtracted the
+   previous draw's own height from the space left for the next, and the budget
+   reached MINUS 26 on a 390x664 phone before a row was measured.
+
+   Then it latched: below the floor the draw returns early, before the line
+   that clears the stale overlay, so the overlay stayed and the budget could
+   never recover. */
+/* THIS BLOCK IS ABOUT THE LANDING PAGE, so it has to BE on the landing page —
+   and it has to put the suite back where it found it. The row overlay only
+   exists when more than one river is drawn, so with a river still selected
+   these checks measured an empty overlay and called it a defect; and leaving
+   All rivers selected afterwards failed three tide-station checks forty lines
+   later, which is the same state leak this suite has been bitten by before. */
+const riverBefore = await page.evaluate(() => state.riverId);
+await page.evaluate(() => {
+  const sel = document.getElementById('riverpick');
+  sel.value = ''; sel.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(1500);
+
+const ribbonBand = await page.evaluate(() => {
+  const wrap = document.getElementById('ribbonwrap');
+  /* Redraw several times: one pass was always fine, and the defect only
+     appeared once a previous draw had left its overlay behind. */
+  drawRibbon(); drawRibbon(); drawRibbon();
+  const hits = document.getElementById('riverhits');
+  return {
+    hidden: wrap.hidden, rowH: RIB.rowH, floor: RIB.floor, tooTight: RIB.tooTight,
+    rows: document.querySelectorAll('#ribbon rect[stroke="#1F5B57"]').length,
+    hitButtons: hits ? hits.querySelectorAll('button').length : 0,
+    rivers: RIVERS.length,
+    /* The overlay must never be counted as furniture again. */
+    overlayInWrap: !!(hits && hits.parentNode === wrap),
+    overlayAbsolute: hits ? getComputedStyle(hits).position : null
+  };
+});
+check('the ribbon survives being redrawn', !ribbonBand.hidden && ribbonBand.rowH > 0,
+  JSON.stringify(ribbonBand));
+check('and its budget is never driven negative by its own overlay',
+  ribbonBand.rowH >= (ribbonBand.floor || 22),
+  JSON.stringify({ rowH: ribbonBand.rowH, floor: ribbonBand.floor }));
+/* The overlay is still where it was — the fix is to stop COUNTING it, not to
+   move it, and a test that passes because the overlay went away would be
+   measuring a different app. */
+check('the row buttons are still laid over the ribbon inside its wrapper',
+  ribbonBand.overlayInWrap && ribbonBand.overlayAbsolute === 'absolute',
+  JSON.stringify(ribbonBand));
+check('there is a button for every river the ribbon draws',
+  ribbonBand.hitButtons === ribbonBand.rivers,
+  JSON.stringify({ buttons: ribbonBand.hitButtons, rivers: ribbonBand.rivers }));
+
+/* A SHORT SCREEN SCROLLS THE BAND RATHER THAN DROPPING IT. Five rows at a
+   legible height need more room than a phone has above the cards, and the old
+   answer was to remove the comparison the landing page exists for. A row has a
+   floor below which a dot and its figure cannot be read, so squeezing is not
+   available either — the third option is to keep the size, cap the band, and
+   let the rest be reached. */
+const shortBand = await page.evaluate(async () => {
+  const before = { w: window.innerWidth, h: window.innerHeight };
+  /* Drive the metrics directly: the viewport cannot be resized from in here,
+     and what is under test is the arithmetic, not the browser. */
+  ribbonMetrics(360, 5, 112, true);
+  const tight = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight, floor: RIB.floor };
+  ribbonMetrics(360, 5, 300, true);
+  const roomy = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  ribbonMetrics(360, 5, 40, true);
+  const sliver = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  drawRibbon();
+  return { tight, roomy, sliver, before };
+});
+check('a band with room shows every row without scrolling',
+  !shortBand.roomy.scrolls && !shortBand.roomy.tooTight,
+  JSON.stringify(shortBand.roomy));
+/* THE ROWS KEEP THEIR HEIGHT. An illegible row is not a smaller row. */
+check('a band too small keeps the rows legible and scrolls instead',
+  shortBand.tight.scrolls && shortBand.tight.rowH >= shortBand.tight.floor &&
+  !shortBand.tight.tooTight, JSON.stringify(shortBand.tight));
+/* And the one case where scrolling would be a sliver of a bar still drops. */
+check('a band too small to show even one row is still dropped',
+  shortBand.sliver.tooTight, JSON.stringify(shortBand.sliver));
+
+/* THE SCROLL HINT IS ASSERTED IN THE WALK, not here. A band only gets a
+   height budget on a screen that is narrow or short, and this suite runs at
+   1280x900 — so the scrolling state cannot be reached here at all, and a check
+   that drives it by hand would be measuring a state the app never enters on
+   this geometry. Same split as the sideways view: mechanics where they are
+   geometry-free, geometry where the geometry is real. */
+
+/* --- THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED ---------------
+   Asked for as a button that rotates the screen. No web page can do that on
+   this hardware — Safari's engine has no screen.orientation.lock at all and
+   Chromium's throws NotSupportedError — so a button calling it would be a
+   control that does nothing. The drawing rotates instead, which is also the
+   better half: a portrait phone gives the bars its long side.
+
+   This suite runs at 1280x900, where the band has room and the offer is
+   correctly absent. So the cramped state is driven rather than waited for, and
+   the claims that are ABOUT the geometry — that it fits, that the rows come
+   out taller — are asserted in the walk that actually runs at phone sizes.
+   Here: the mechanics, the wiring and the words. */
+const sw = await page.evaluate(async () => {
+  /* A band with no room, the state a phone is really in. */
+  ribbonMetrics(360, RIVERS.length, 150, true);
+  const crampedRowH = RIB.rowH, cramped = RIB.scrolls || RIB.rowH < RIB.natural;
+  syncSidewaysOffer();
+  const row = document.getElementById('swopen');
+  const offered = row && !row.hidden;
+  if (!offered) { drawRibbon(); return { cramped, offered: false, crampedRowH }; }
+  /* FOCUS IT FIRST, because that is what pressing it does. A modal returns
+     focus to whatever held it when it opened, so a synthetic click that never
+     focused the button asks the platform to restore something that was never
+     true and then blames it for the answer. */
+  const opener = row.querySelector('button');
+  opener.focus();
+  opener.click();
+  await new Promise(r => setTimeout(r, 500));
+  const d = document.getElementById('sideways');
+  const svg = document.getElementById('swribbon');
+  const out = {
+    cramped, offered: true, open: d.open, crampedRowH,
+    bars: svg.querySelectorAll('rect[stroke="#1F5B57"]').length,
+    rivers: RIVERS.length,
+    note: document.getElementById('swnote').textContent,
+    focusInside: d.contains(document.activeElement),
+    /* No row-press overlay in here: it positions itself from bounding boxes,
+       and inside a rotated container those describe the screen rather than the
+       picture. Hit-testing through a transform is a trap. */
+    hits: !!document.querySelector('#swinner #riverhits'),
+    /* The drawing is the SAME drawing — one function, two hosts — so the
+       upright band must still be intact behind it. */
+    uprightIntact: document.querySelectorAll('#ribbon rect[stroke="#1F5B57"]').length > 0
+  };
+  d.close();
+  await new Promise(r => setTimeout(r, 200));
+  out.closed = !d.open;
+  drawRibbon();
+  return out;
+});
+check('a band with no room is recognised as cramped', sw.cramped,
+  JSON.stringify({ rowH: sw.crampedRowH }));
+check('and it offers to show the rivers sideways', sw.offered, JSON.stringify(sw));
+check('the sideways view opens', sw.open === true, JSON.stringify(sw));
+check('every river is drawn in it', sw.bars >= sw.rivers, JSON.stringify(sw));
+/* IT MUST NOT CLAIM TO HAVE ROTATED THE DEVICE. */
+check('it says it turns the picture and not the phone',
+  /turns the picture, not the phone/.test(sw.note) &&
+  /cannot rotate the screen itself/.test(sw.note), sw.note);
+check('the row-press overlay is not carried into the rotated view', !sw.hits,
+  JSON.stringify(sw));
+/* ONE DRAWING, TWO HOSTS — the second host must not have eaten the first. */
+check('drawing it sideways leaves the upright band standing', sw.uprightIntact,
+  JSON.stringify(sw));
+check('the keyboard is inside it while it is open', sw.focusInside,
+  JSON.stringify(sw));
+check('it closes', sw.closed, JSON.stringify(sw));
+/* WHERE FOCUS LANDS AFTER IT CLOSES IS ASSERTED IN THE WALK, not here. This
+   suite runs at 1280x900 and drives the cramped state by hand, so the moment
+   anything redraws, the offer correctly disappears — and the button focus
+   should return to is gone with it. The precondition for that check only
+   holds on a screen that is really short, which is where the walk runs. */
+
+/* AND IT IS NOT OFFERED WHERE IT CHANGES NOTHING. A control that does nothing
+   is the defect this whole feature exists to avoid being. */
+check('a band already showing every row at full height does not offer it',
+  await page.evaluate(() => {
+    ribbonMetrics(900, RIVERS.length, 900, true);
+    syncSidewaysOffer();
+    const hidden = document.getElementById('swopen').hidden;
+    drawRibbon();
+    return hidden;
+  }));
+
+/* NO SENTENCE NAMES A COUNT THAT LIVES IN AN ARRAY. Every one of them said
+   FOUR, and there have been five entries since the Delta arrived. */
+const copy = await page.evaluate(() => ({
+  water: document.getElementById('panel-water').textContent,
+  home: (document.getElementById('homebtn') || {}).title || '',
+  phrase: typeof riversPhrase === 'function' ? riversPhrase() : null,
+  riverCount: typeof riverCount === 'function' ? riverCount() : null,
+  ribbonRows: typeof ribbonRowCount === 'function' ? ribbonRowCount() : null
+}));
+check('the landing copy counts the rivers rather than naming a number',
+  /Four rivers, one temperature scale/.test(copy.water) === false &&
+  new RegExp(copy.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(copy.water),
+  JSON.stringify({ phrase: copy.phrase, has: copy.water.slice(0, 160) }));
+check('and the phrase comes from the river list',
+  copy.riverCount === 4 && copy.ribbonRows === 5 && /four rivers/i.test(copy.phrase),
+  JSON.stringify(copy));
+/* The Delta is counted apart: it is where the four arrive, not a fifth. */
+check('the Delta is named rather than counted as a river',
+  /and the Delta/i.test(copy.phrase), copy.phrase);
+check('the Home button offers what is actually there',
+  !/four rivers/i.test(copy.home) || /and the Delta/i.test(copy.home), copy.home);
+
+/* DEPTH SAT ON A SPINNER THAT COULD NEVER RESOLVE. The catalogue is fetched
+   for a river; with no river the request is never made, so "Reading the DWR
+   service directory…" was a permanent claim that the app was busy on your
+   behalf. A spinner tells a reader to wait; this one had to tell them to act. */
+const noRiver = await page.evaluate(async () => {
+  const out = {};
+  for (const t of ['layers', 'marks']) {
+    selectTab(t);
+    await new Promise(r => setTimeout(r, 400));
+    const el = document.getElementById('panel-' + t);
+    out[t] = { text: el.textContent,
+               route: [...el.querySelectorAll('button')]
+                 .some(b => /Choose a river/.test(b.textContent)) };
+  }
+  selectTab('water');
+  return out;
+});
+check('Depth with no river says what it is for, not that it is loading',
+  !/Reading the DWR service directory/.test(noRiver.layers.text) &&
+  /Depth belongs to a reach/.test(noRiver.layers.text),
+  noRiver.layers.text.slice(0, 200));
+/* AND NAMES THE ROUTE. "Pick one above" is an instruction to go and find a
+   control; the control belongs where the refusal is. */
+check('and offers the way to pick one', noRiver.layers.route);
+check('Marks with no river does the same', noRiver.marks.route &&
+  /A mark belongs to one river/.test(noRiver.marks.text),
+  noRiver.marks.text.slice(0, 160));
+
+/* Put the suite back on the river it was reading, and wait for it, so what
+   follows measures the app rather than this block's leftovers. */
+await page.evaluate((id) => {
+  const sel = document.getElementById('riverpick');
+  sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true }));
+}, riverBefore);
+await page.waitForTimeout(2500);
+
 /* --- IS TODAY A BIG TIDE OR A SMALL ONE ----------------------------------
    After "which way" and "when", this is the question. The swing between high
    and low grows and shrinks over about fourteen and a half days, and on this

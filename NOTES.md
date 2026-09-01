@@ -5,11 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.5.0 on `staging`. **Production is 2.4.0** and stays there until a
-  promote — these are two numbers on purpose, and writing one of them here
-  covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.5.0** at https://staging.cv-thalweg.pages.dev — springs
-  and neaps: how big today's tide is against the fortnight, said and drawn.
+- **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
+  verified by reading that address rather than the push output.
+- Staged candidate: **2.9.0** at https://staging.cv-thalweg.pages.dev — the
+  band is whole or replaced by an offer that says what is behind it; each river
+  to its own scale with its length on the row; a sideways view of the bars;
+  first and last light on the tide chart; and 2.5.1's four device defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -941,6 +942,419 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## All of them or none of them, decided by fit
+
+The question put was which arrangement serves how a fisher actually plans. The
+answer came from separating two moments that want different things.
+
+**Choosing where to go** is a comparing task, and the river cards already do it:
+season, temperature and its reading, flow with the gauge it came from, clarity,
+which way the water is running, the tide phase with its next turn and swing.
+The cards are the choosing instrument.
+
+**What the cards cannot do**, and the only thing the stacked band uniquely
+gives, is the temperature ALONG each river on one scale — that the lower
+Sacramento is warm while the upper is cold, and the American is uniform top to
+bottom. A mean per card hides it, and for a fall-run fishery it is the fact
+that matters most.
+
+**Standing on the bank** is a different task, and by then a river is picked and
+the band is one row. None of this touches it.
+
+So the band's value is real and it needs room. **A version too small to read
+does not serve the moment it exists for** — it occupies a third of the screen
+looking as though it does. And scrolling is the worst of the options, because
+the comparison requires seeing them TOGETHER: two rows at a time is not a
+comparison, it is a list.
+
+**So on the landing view it is all of them or none of them**, and where they do
+not fit the band gives way to an offer.
+
+**Keyed on whether it fits, not on whether this is a phone.** A tall phone in
+portrait may hold five rows honestly and a short one will not, and the app
+already measures which. Reaching for a device rule here is exactly what put the
+height budget on a width test earlier the same day.
+
+**The offer names what is behind it.** The old sentence said the rows would not
+fit and sent the reader to pick a single river — an apology and a detour that
+never said what the band is FOR. A reader who has never seen it on a big screen
+had no idea there was anything to want. It now names the three things only the
+stacked view gives and says they are one press away at full size.
+
+**What the scroll work bought, and what replaced it.** 2.6.1's scrolling band
+and 2.8.1's fade were right answers to the question as it stood, and both are
+now unused on the landing view. That is not waste: the fade work is what made it
+obvious that a scrolled comparison is a compromised one, and the scroll path
+stays for the single-river case. The a11y checks about reaching rows below a
+fold were replaced rather than weakened — there is no fold now, and what is
+asserted instead is that the band is never shown half-finished.
+
+## The band scrolled and only said so to a screen reader
+
+Reported from the device, and the gate that should have caught it was the one
+that missed it. 2.6.1 made the band scroll instead of vanishing and set an
+`aria-label` reading "River ribbon, 5 rivers, scrollable" — and the walk
+asserted exactly that label was there. It was. **To the eye the band simply
+ended**, with two rivers below the fold and nothing suggesting they existed.
+
+**A check that asserts a thing was announced is not a check that it was
+shown.** The label was the whole of the evidence, and the label is invisible.
+
+Two additions, because a fade is a hint and a number is an instruction:
+
+- The bottom edge fades while there is more to reach. It is a `mask-image` on
+  the scroller rather than an absolutely positioned overlay, because an
+  absolute child of a scroll container scrolls away with the content — the
+  mask applies to the VISIBLE area, which is what this needs.
+- The fade is removed at the end of the scroll, so the last row is not left
+  permanently dimmed by a hint about content that is already on screen.
+- The note counts what is below: "Scroll for 3 more", worked out from the
+  band's own box rather than assumed.
+
+**And the check moved to where the state exists.** The scrolling band cannot be
+reached at 1280x900 at all — a budget only applies on a screen that is narrow or
+short — so a desktop check driving it by hand would be measuring a state the app
+never enters on that geometry. It is asserted in the walk, at 375 and 390, where
+the overflow is real. Same split as the sideways view: mechanics where they are
+geometry-free, geometry where the geometry is.
+
+## The shared distance scale was crushing four rivers to flatter one
+
+Reported from the device: the Sacramento seems to be what makes the others
+cramped. Measured off the baked centrelines, across each river's own axis:
+
+- Sacramento, 359 km — the bar that sets the scale.
+- Feather, 84 km — 24% of it.
+- Mokelumne, 77 km — 21%.
+- **American, 30 km — eight per cent.**
+
+So the American was a stub about a twelfth of the width with its gauges piled
+on top of each other, and the only river that could be read was the one nobody
+needed help reading.
+
+**This reverses an earlier fix, and the reason it is allowed is the half that
+was missing the first time.** The bars were originally all stretched to the
+same width whatever they covered, and four equal bars said four equal rivers.
+The shared scale told the truth about length and paid for it with the thing the
+drawing is actually for — where the gauges sit along THIS river.
+
+**What made equal bars a lie was that nothing said what they covered.** So each
+bar gets the full width AND its own length in kilometres on the row, and the
+note says out loud that the widths are no longer comparable. The comparison of
+length moves out of the drawing and into a number that states it exactly.
+Saying it is not a footnote on the change; it is the change.
+
+**The length goes under the name, not at the end of the bar.** The end of the
+bar is where the tide mark and its caption already live, and this is a property
+of the row rather than of its right-hand edge.
+
+**And the legibility floor had to move with it.** 22px was set for a dot and its
+figure; a multi-river row now also carries the name and, under it, the distance.
+Left at 22 the length would print into the top of the next river's bar — which
+is precisely how the Delta's tide caption came to sit on the Mokelumne's
+temperature two releases ago, and the lesson from that one was that a line added
+to a row needs the row to be told about it. The floor is a property of the
+metrics now rather than a constant in three places, and both suites read it from
+there rather than repeating the number.
+
+**The cost, stated in the release note rather than discovered:** rows are taller,
+so fewer fit on a short screen than before. That is what 2.6.1's scrolling band
+and 2.7.0's sideways view are for, and they arrived first by luck rather than by
+plan.
+
+## The screen cannot be rotated by a web page, so the picture is
+
+Asked for as "a button that rotates the screen without the user having to turn
+on landscape". **Checked rather than remembered, in both engines:**
+
+- **WebKit — Safari's engine, so every iPhone and iPad — has no
+  `screen.orientation.lock` at all.** `hasLock: false`.
+- Chromium has the method and it threw `NotSupportedError: screen.orientation
+  .lock() is not available on this device`; on a handset it works only inside
+  fullscreen.
+
+So a button calling it would be a control that does nothing, which is the
+defect this repo has a rule about. The device stays put and the DRAWING turns.
+
+**That is not the consolation prize.** A portrait phone rotated this way gives
+the bars 667 by 282 where the same phone physically turned gives them 844 by
+242 — the browser keeps its chrome either way and portrait has more screen left
+to spare. Measured: on an iPhone 13 the rows go from **22px in a 390-wide box
+to 45px in a 667-wide one**, every river on screen, nothing to scroll.
+
+The transform is the standard recipe and the ORDER matters: origin at the top
+left, `rotate(90deg)` then `translate(0,-100%)` in the element's own
+coordinates, which after the rotation moves it back across the screen. The box
+is `100dvh` wide by `100dvw` tall.
+
+**One drawing, two hosts — not two drawings.** `drawRibbon` takes an
+`opts.host`, and everything belonging to the BAND rather than to the picture is
+skipped for it: the height budget, the note, the row-press overlay, the
+corrective pass. A second formulation of one picture is how two views come to
+disagree about which river is which, and this session has already written that
+lesson twice.
+
+**The row-press overlay is skipped on purpose rather than ported.** It places
+itself by comparing bounding rectangles, and inside a rotated container those
+describe the screen rather than the picture. Hit-testing through a transform is
+a trap; the sideways view is for reading and the upright band is one press away.
+
+**Two defects found while building it.**
+
+`RIB` is a global and the sideways draw was leaving its own numbers in it —
+everything that asks "did the upright band have room", including the offer of
+this very view, reads that global, so the band came back believing it had a
+whole rotated screen of room. Borrowed and put back now.
+
+And the note under the drawing was written AFTER the box was measured, so the
+measurement was of a layout about to change — thirty pixels of overflow in a
+view whose entire purpose is fitting on one screen. The same stale-furniture
+defect as the band's own budget, in a function written an hour after it.
+
+**And a focus lesson worth keeping.** After the modal closes, the platform
+restores focus to whatever held it when it opened, and that is the right
+answer. Two attempts to set it manually raced that restoration and lost — focus
+landed on the Depth tab, three controls from where the reader was. What the
+platform cannot handle is having nowhere to go, when the readings refresh and
+rebuild the panel while the view is open. So the handler now leaves a correct
+restoration alone and only steps in when focus did not come back to the opener.
+
+**One test moved rather than weakened.** The desktop suite drives the cramped
+state by hand, so the moment anything redraws, the offer correctly disappears
+and the button focus should return to is gone with it. The precondition only
+holds on a screen that really is short, so the focus-return check lives in the
+walk that runs at phone sizes — verified there by direct measurement first.
+
+## The band scrolls now, and the budget was keyed on the wrong axis
+
+Reported from the device: the ribbon had been taken off for a narrow view and
+turning the phone landscape did not bring it back. Measured across eight real
+geometries, two separate defects fell out — and the second is the one nobody
+would have found by reasoning.
+
+**A phone held sideways has LESS height, not more.** Landscape on an iPhone is
+about 233px of viewport; the band's share of that is 75px and the caption
+underneath takes 58 of them. Rotating is reaching for the wrong axis. So the
+note now says that where it applies, rather than telling a reader the screen is
+short and leaving them to try the thing that makes it shorter.
+
+**The budget keyed on WIDTH and it is about HEIGHT.** `narrow` means "the map is
+not beside the rail" — a fact about width, standing in for "the ribbon and the
+readings share one screen", which is a fact about height. An iPhone 15 Pro Max
+held sideways is **932px wide and 267px tall**: wide enough to escape the budget
+entirely, short enough that the band then drew a 300px ribbon into a 267px
+viewport and left the readings nothing at all. An iPad mini sideways was drawing
+366px into 461px, 79% of the screen. Neither was reachable from the portrait
+geometries the suite had always measured.
+
+**And the third option instead of all-or-nothing.** A row has a floor below
+which a dot and its figure are not legible, so squeezing is not available — an
+illegible row is not a smaller row. Five rows at that floor need more height
+than a short screen has. The old answer was to drop the comparison the landing
+page exists for. Now: rows keep their height, the band keeps its share, and what
+does not fit is reached by scrolling, with `overscroll-behavior: contain` so a
+flick off the end does not carry into the page.
+
+That is what the request asked for, on the axis that actually overflows. The
+rows stack, so the overflow is vertical; laying them out sideways would put the
+rivers along the same axis their bars already use, which is the one thing a
+stacked comparison must not do.
+
+**One threshold was wrong at first and the measurement caught it.** The drop
+test asked whether the band minus its top margin and its key could hold a row —
+but when the drawing scrolls, its margins and its key scroll with it and need
+not be on screen at once. Requiring them to fit took the ribbon off an iPad held
+sideways, which has room for a row and a half and every reason to be given it.
+The test is the band against one row.
+
+**Where it stands:** the small phones have their bars back, scrolled at full
+size where they used to be gone; an iPad sideways is capped at 21% of the screen
+instead of 79%; and a phone held sideways still cannot show five, which is a
+real limit that the note now explains correctly.
+
+## First and last light, and the only thing here that can be checked against physics
+
+The convention every angler's tide table carries and this one did not: a change
+of tide lands differently in the dark, in the low light at either end of the
+day, or at noon. The app had the tide and no idea when the light was.
+
+**It is arithmetic and costs nothing** — no request, nothing to go stale, works
+offline for any date, which is the opposite of almost everything else here. NOAA
+solar position, computed for the tide station being read.
+
+**And it is the one thing in this repo that can be verified against the world
+rather than against a service.** The checks are physical invariants, none of
+them fitted:
+
+- Day length at the equinox is twelve hours **and a little more** — the "and a
+  little more" is the sun's disc and refraction, and a check that came out at
+  exactly 12 would mean those had been left out.
+- The solstices are 14h49m and 9h31m at 38.16 degrees north.
+- The equation of time peaks at about **16 minutes ahead in early November**
+  and **15 behind in mid-February**. Those fall out of the ephemeris; nothing
+  was tuned to produce them.
+- Solar noon lands at 1:08 PM PDT in June, which is right for a place this far
+  west inside the Pacific zone.
+
+**The first attempt was eight hours out and looked correct.** The longitude
+correction was applied twice — once in the day number and again in the noon
+estimate — and the declination and both day lengths were right throughout,
+which is exactly what made it hard to see. The invariant that caught it was
+solar noon against longitude, which is the one quantity the double correction
+could not survive.
+
+**Then a closure check found a 45-second disagreement, and that was the useful
+one.** The shading needs the sun's altitude at an arbitrary instant; the
+sentences need the named crossings. Computing those two ways is how they come to
+disagree with nobody able to adjudicate. So the suite substitutes one back into
+the other: **the altitude at the sunrise the app computes must be the sunrise
+altitude.** It was -0.65 where sunrise is -0.833.
+
+The first hypothesis — declination taken at solar noon rather than at the
+crossing — was wrong, and testing it was worth it: fixing that moved the answer
+by a fraction of a second and left the 0.18 degrees standing, which established
+that the real difference is the **transit estimate**. The closed form reaches
+solar noon through a two-term equation-of-time approximation; the altitude path
+goes through sidereal time and right ascension. Same quantity, two methods.
+
+There is one definition now and the other refines to it: Newton on the altitude
+from the closed form's guess, four steps, under a second. Solar noon is solved
+too — by bisecting the hour angle, since altitude is stationary there — because
+left as the estimate it was the last time on the panel still coming from the
+other method, and it showed as rise and set straddling it by 35 seconds.
+
+**And one test was asserting a property of the approximation.** "Sunrise and
+sunset straddle solar noon exactly" passed only while the model was crude:
+declination drifts across a day, so the asymmetry is real and is tens of
+seconds. It now allows a minute and says why.
+
+**A gate keyed on copy pinned the disclaimer, for the third time this session.**
+The check for "this is not a fishing forecast" searched for words like "fish
+will" — and matched the sentence doing the refusing. It asserts the denial is
+PRESENT now, which is the actual requirement, plus the absence of a
+recommendation. Hub LESSONS 180, again.
+
+**And the light was locked inside the branch that draws a curve.** `lightBox`
+went in beside `tideChart`, in the `else` of the hourly-curve check — so the
+stations that publish highs and lows only got no light at all. Those are the
+subordinate stations, New Hope Bridge and Terminous, which are exactly the ones
+somebody on the upper Mokelumne would pick. Nothing about the sun needs an
+hourly prediction: the times come from the date and the position and the turns
+come from the highs and lows. The shading needs the chart; the words never did.
+
+That is the same shape as the caveat that had been written inside the branch
+that found an overlap and vanished when the answer was "none" — **a thing put
+next to the code that happens to be nearby rather than next to what it actually
+depends on**, twice in one afternoon, in one function.
+
+## Home lost its ribbon on every screen, and the note blamed the screen
+
+Reported from the device. The ribbon was gone from the landing page at every
+geometry, and the sentence underneath explained it as four rows not fitting on
+a short screen — which was wrong twice over: there are five rows, and the rows
+were not the reason.
+
+**The row overlay was being counted as furniture in the ribbon's own budget.**
+The tappable river rows are HTML buttons laid over the drawing inside
+`#ribbonwrap` (§194 — they cannot be inside the `role="img"`), positioned
+absolutely and exactly as tall as the ribbon. `drawRibbon` sums the wrapper's
+children as things that push the ribbon down the page and take space from it.
+The overlay pushes nothing: **it IS the ribbon, drawn over itself.** So every
+redraw subtracted the previous draw's own height from the space left for the
+next one, and on a 390x664 phone the budget reached **minus 26** before a row
+was measured.
+
+**Then it latched.** Below the legibility floor the draw returns early — before
+the line that removes the stale overlay — so the overlay stayed, the budget
+stayed negative, and the ribbon could never come back on its own.
+
+Height is not the test; **participation in flow is**. An absolutely positioned
+child is skipped now, and the early return clears the overlay it is dropping.
+
+**Two more arithmetic errors surfaced behind it**, both only visible once the
+first was fixed.
+
+**Margins are part of what a thing takes up and a bounding rect does not
+include them.** The note under the ribbon is a `<p>` carrying the browser's
+default vertical margins — twenty-two pixels the budget could not see, so every
+draw believed it had twenty-two more than it did and the band came out over its
+share. Counting `marginTop + marginBottom` is what put every geometry at exactly
+32% instead of 35%.
+
+**And the corrective pass was compensating for a number that was about to be
+re-measured.** `extra` is read at the top of the function, so it is the PREVIOUS
+draw's note — and the note's line count changes with how many gauges plotted.
+The retry subtracted the whole measured overshoot from a budget that would be
+recomputed against correct furniture anyway, taking the error off twice; with
+five rows that landed under the floor and dropped the band. It passes 0 now: a
+re-run, not a compensation.
+
+**And a policy, kept as a backstop:** a corrective pass may shrink this view and
+may not delete it. Overshooting a guideline by a few pixels is a smaller failure
+than dropping the comparison the landing page exists to show.
+
+**What is still true:** an iPhone SE cannot hold five legible rows in the share
+the ribbon is allowed. That is a real limit, the app says so, and the note no
+longer names a count it does not have.
+
+### And the fix exposed the next one: the explanation ran before the decision
+
+Fixing the budget moved WHEN the ribbon gets hidden. It used to be hidden on
+its very first pass, so by the time the water panel rendered, `hidden` was
+already true and the sentence explaining the absence was written. With the
+arithmetic corrected the band is hidden only by the corrective pass — which can
+run after that panel has rendered — so the test for `hidden` read false and the
+explanation was never written. The ribbon vanished with nothing said about it,
+which is the one thing this app is not allowed to do.
+
+**Caught by a gate that already existed** — "a dropped ribbon is announced
+rather than just missing" — and it is the second time this session that fixing
+an arithmetic error surfaced a defect underneath it that only the arithmetic
+error had been hiding.
+
+The sentence belongs to neither renderer now. The panel leaves an empty slot
+and `syncRibbonDropNote()` fills or empties it from whichever of the two ran
+last, so their order stops mattering.
+
+## The tabs went to the bottom of the screen when the map opened
+
+`main` is a column under the breakpoint and `#panel-map` is its FIRST child,
+because on a wide screen it is the left-hand column and source order puts it
+there. Stacked, that order put the map above the rail — so choosing Map sent the
+tab strip from 203px to 630px on an iPhone 13, a full viewport from where the
+finger had just been, behind a map you then had to scroll past to get back.
+
+Nothing decided that; source order did — the same thing that once moved the
+whole rail across the desktop window. Two `order` rules, scoped to the narrow
+breakpoint so the wide layout is untouched. Asserted by measuring where the
+boxes land, because that is the only thing that proves an ordering.
+
+## Three sentences counted the rivers and one array knew better
+
+"Four rivers, one temperature scale". "Four rows of it will not fit". "Home —
+back to all four rivers". Each was correct when written, and there have been
+five entries since the Delta arrived. None was wrong in a way anybody could see
+by reading the file: the number lived in the prose and the truth lived in an
+array two thousand lines away.
+
+The prose asks the list now — `riverCount()`, `networkCount()`, `riversPhrase()`
+— and the Delta is counted apart on purpose, because it is where the four
+arrive rather than a fifth of them.
+
+## Depth sat on a spinner that could never resolve
+
+With no river the panel returned at its first check and showed "Reading the DWR
+service directory…" forever, because the catalogue is fetched FOR a river and
+there was no river. The sentence saying what the panel is for was written and
+sat below the return, unreachable.
+
+**A spinner is a promise that something is happening.** This one was a permanent
+claim that the app was busy on the reader's behalf while waiting for an event
+that could not occur — worse than an empty panel, because it tells a reader to
+wait rather than to act. The checks are in the right order now, and both Depth
+and Marks carry a button to the choosing rather than an instruction to go and
+find it.
 
 ## Springs and neaps, and why a week could not answer it
 

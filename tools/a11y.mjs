@@ -412,6 +412,202 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await noOverflow(page, `${name}: nothing reaches past the edge on ${tab}`);
   }
 
+  /* THE TABS MUST NOT MOVE WHEN A TAB IS PRESSED.
+
+     `main` is a column under the breakpoint and `#panel-map` is its FIRST
+     child, because on a wide screen it is the left-hand column and source
+     order puts it there. Stacked, that same order put the map ABOVE the rail —
+     so choosing Map sent the tab strip from 203px to 630px on an iPhone 13, a
+     full viewport away from where the finger had just been. Every other tab
+     keeps its strip at the top; the one that moved the furniture was the one
+     showing a map you then had to scroll past to get back from.
+
+     Measured rather than asserted about the CSS, because the rule that fixes
+     it is `order` on a flex child and the only thing that proves an ordering
+     is where the boxes actually land. */
+  if (width < 901) {
+    await page.selectOption('#riverpick', 'sacramento');
+    await page.waitForTimeout(1500);
+    await page.click('#tab-water');
+    await page.waitForTimeout(400);
+    const tabsBefore = await page.evaluate(() =>
+      Math.round(document.querySelector('[role=tablist]').getBoundingClientRect().top));
+    await page.click('#tab-map');
+    await page.waitForTimeout(1200);
+    const onMap = await page.evaluate(() => {
+      const t = document.querySelector('[role=tablist]').getBoundingClientRect();
+      const m = document.getElementById('map').getBoundingClientRect();
+      return { top: Math.round(t.top), bottom: Math.round(t.bottom),
+               mapTop: Math.round(m.top), vh: window.innerHeight };
+    });
+    check(`${name}: the tab strip stays put when the map is opened`,
+      Math.abs(onMap.top - tabsBefore) <= 2,
+      JSON.stringify({ before: tabsBefore, after: onMap.top }));
+    /* And it is above the map rather than under it, which is the thing a
+       finger reaching back for another tab actually needs. */
+    check(`${name}: and sits above the map, not below it`,
+      onMap.bottom <= onMap.mapTop + 2, JSON.stringify(onMap));
+    check(`${name}: the tab strip is still on screen with the map open`,
+      onMap.top >= 0 && onMap.bottom <= onMap.vh, JSON.stringify(onMap));
+    await audit(page, `${name}: the map tab open`);
+    await page.selectOption('#riverpick', '');
+    await page.waitForTimeout(1200);
+    await page.click('#tab-water');
+    await page.waitForTimeout(400);
+  }
+
+  /* HOME KEEPS ITS RIBBON. The row overlay was being counted as furniture in
+     the ribbon's own height budget — it is absolutely positioned and exactly
+     as tall as the ribbon, so every redraw took the last draw's height out of
+     the space left for the next one until the budget went negative and the
+     band was dropped on every geometry. It latched, because the early return
+     below the floor happens before the stale overlay is cleared. */
+  const band = await page.evaluate(() => {
+    drawRibbon(); drawRibbon(); drawRibbon();
+    const wrap = document.getElementById('ribbonwrap');
+    const hits = document.getElementById('riverhits');
+    return { hidden: wrap.hidden, rowH: RIB.rowH, floor: RIB.floor,
+             h: Math.round(wrap.getBoundingClientRect().height),
+             pct: Math.round(wrap.getBoundingClientRect().height / window.innerHeight * 100),
+             buttons: hits ? hits.querySelectorAll('button').length : 0,
+             rivers: RIVERS.length };
+  });
+  /* A very short screen genuinely cannot hold five legible rows in the share
+     the ribbon is allowed, and dropping it there is the designed answer. What
+     must not happen is dropping it because the arithmetic ate itself — so the
+     assertion is on the row height, which is what tells the two apart. */
+  check(`${name}: the ribbon's own overlay does not eat its height budget`,
+    band.hidden ? band.rowH > 0 : band.rowH >= (band.floor || 22),
+    JSON.stringify(band));
+  /* ALL OF THEM OR NONE OF THEM, ON THE LANDING VIEW.
+
+     The stacked band exists for one thing the river cards cannot do: the water
+     temperature ALONG each river, on one scale, all at once. Reading that needs
+     them together and at a readable size — so a band scrolled two rows at a
+     time defeats the only job it has. Where they do not fit it gives way to an
+     offer that names what is behind it and opens the sideways view.
+
+     This replaced the scroll checks that used to live here. The behaviour is
+     different on purpose, not weakened: what was being asserted was that the
+     rows below a fold could be reached, and there is no fold now. */
+  const landing = await page.evaluate(() => {
+    drawRibbon(); drawRibbon();
+    const wrap = document.getElementById('ribbonwrap');
+    const note = document.getElementById('ribbondropped');
+    const row = document.getElementById('swopen');
+    return {
+      bandShown: !wrap.hidden,
+      /* Every row present, at or above the legibility floor, or not at all. */
+      rowH: RIB.rowH, floor: RIB.floor, scrolls: RIB.scrolls,
+      overflow: Math.round(wrap.scrollHeight - wrap.clientHeight),
+      offered: !!(row && !row.hidden),
+      says: note && !note.hidden ? note.textContent : ''
+    };
+  });
+  /* Whichever way it went, the comparison is never shown half-finished. */
+  check(`${name}: the band is either whole or replaced, never scrolled`,
+    !landing.bandShown || landing.overflow <= 4,
+    JSON.stringify(landing).slice(0, 200));
+  if (landing.bandShown)
+    check(`${name}: a shown band has every row at a readable height`,
+      landing.rowH >= landing.floor, JSON.stringify(landing));
+  if (!landing.bandShown) {
+    /* AND THE READER IS TOLD WHAT THEY ARE MISSING. A reader who has never
+       seen this on a big screen has no idea there is anything to want, so
+       "not shown" is not enough — it has to name what is behind it. */
+    check(`${name}: a replaced band says what the stacked view is for`,
+      /temperature along each one/.test(landing.says) &&
+      /how far up the tide reaches/.test(landing.says) &&
+      /where every gauge sits/.test(landing.says),
+      landing.says.slice(0, 200));
+    check(`${name}: and says it is reachable sideways at full size`,
+      /sideways/.test(landing.says) && /full size/.test(landing.says),
+      landing.says.slice(-120));
+    check(`${name}: with the way to get there beside it`, landing.offered,
+      JSON.stringify(landing).slice(0, 160));
+  }
+
+  /* THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED. Safari's engine has
+     no screen.orientation.lock at all, so the device stays put and the drawing
+     rotates — and this is the geometry the whole feature is for, asserted on a
+     screen that really is short rather than on a driven state. */
+  const swRow = await page.evaluate(() => {
+    const r = document.getElementById('swopen');
+    return r ? { there: true, hidden: r.hidden } : { there: false };
+  });
+  if (swRow.there && !swRow.hidden) {
+    const rot = await page.evaluate(async () => {
+      const uprightRowH = RIB.rowH;
+      const uprightW = Number((document.getElementById('ribbon')
+        .getAttribute('viewBox') || '0 0 0 0').split(' ')[2]);
+      const opener = document.querySelector('#swopen button');
+      opener.focus(); opener.click();
+      await new Promise(r => setTimeout(r, 600));
+      const svg = document.getElementById('swribbon');
+      const body = document.getElementById('swbody');
+      const vb = (svg.getAttribute('viewBox') || '').split(' ').map(Number);
+      return { uprightRowH, uprightW, sidewaysRowH: RIB.rowH,
+               canvasW: vb[2], canvasH: vb[3],
+               bars: svg.querySelectorAll('rect[stroke="#1F5B57"]').length,
+               rivers: RIVERS.length,
+               fits: body.scrollHeight <= body.clientHeight + 4,
+               vw: window.innerWidth };
+    });
+    check(`${name}: sideways draws every river`, rot.bars >= rot.rivers,
+      JSON.stringify(rot));
+    check(`${name}: and all of it fits on one screen`, rot.fits, JSON.stringify(rot));
+    /* The whole point: the long side of the screen, and rows the upright band
+       had no room to give. */
+    check(`${name}: the drawing is wider than the screen itself`,
+      rot.canvasW > rot.vw, JSON.stringify(rot));
+    check(`${name}: with taller rows than upright could manage`,
+      rot.sidewaysRowH >= rot.uprightRowH, JSON.stringify(rot));
+    await audit(page, `${name}: the rivers, sideways`);
+    const back = await page.evaluate(async () => {
+      document.getElementById('sideways').close();
+      await new Promise(r => setTimeout(r, 300));
+      const row = document.getElementById('swopen');
+      return { closed: !document.getElementById('sideways').open,
+               onOpener: !!(row && row.contains(document.activeElement)),
+               active: document.activeElement ? document.activeElement.tagName : 'none' };
+    });
+    check(`${name}: it closes and hands focus back to what opened it`,
+      back.closed && back.onOpener, JSON.stringify(back));
+  }
+
+  /* AND THE BAND NEVER TAKES MORE THAN ITS SHARE, however wide the screen is.
+     The budget keyed on WIDTH, which is a fact about whether the map sits
+     beside the rail — not about whether there is height to give away. A phone
+     held sideways is 932 wide and 267 tall: wide enough to escape the budget,
+     short enough that the band then drew 300px into a 267px viewport. */
+  check(`${name}: the ribbon keeps to its share wherever a budget applies`,
+    await page.evaluate(() => {
+      const w = document.getElementById('ribbonwrap');
+      if (w.hidden) return true;
+      /* A tall wide screen has no budget and never had one: there the map sits
+         beside the rail and the band spans the top with the whole page under
+         it. The invariant is not "always a third" — it is that a budget is in
+         force whenever this band and the readings are sharing one screen, and
+         that where one is in force it is kept to. */
+      const budgeted = window.innerWidth <= 900 || window.innerHeight < 620;
+      if (!budgeted) return true;
+      return w.getBoundingClientRect().height <= window.innerHeight * 0.34 + 2;
+    }),
+    JSON.stringify({ vw: width, vh: height }));
+  /* AND THE OTHER HALF OF IT: a short screen must actually get a budget. This
+     is the check that would have caught the width-keyed one, which let a
+     932x267 phone draw 300px of ribbon into a 267px viewport. */
+  check(`${name}: a short screen gets a budget however wide it is`,
+    await page.evaluate(() => {
+      if (window.innerHeight >= 620) return true;
+      drawRibbon();
+      return RIB.budget !== null && RIB.budget !== undefined;
+    }),
+    JSON.stringify({ vw: width, vh: height }));
+  if (!band.hidden)
+    check(`${name}: every river the ribbon draws has a row button`,
+      band.buttons === band.rivers, JSON.stringify(band));
+
   /* A NEW SURFACE JOINS THIS LIST IN THE SAME COMMIT, OR IT SHIPS UNMEASURED
      (hub LESSONS 28). Two arrived together and neither is reachable from the
      states above: the species regulations sit inside folds that arrive shut,
@@ -486,6 +682,19 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     planted.drawn && /rising/i.test(planted.says), JSON.stringify(planted).slice(0, 200));
   /* THE SECOND NEW SURFACE ON THIS PANEL, and it joins the list in the same
      commit that builds it rather than the release after. */
+  /* THE THIRD NEW SURFACE ON THIS PANEL. The light shading lives inside the
+     tide chart's role="img" and reaches nobody who cannot see it, so what has
+     to exist is the sentence — and this walk is the only place the panel is
+     driven with a tide present. */
+  const light = await page.evaluate(() => {
+    const chart = document.getElementById('tidechart');
+    const panel = document.getElementById('panel-water').textContent;
+    return { shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
+             said: /First light/.test(panel) && /last light/.test(panel),
+             denial: /nothing whatever about what the fish will do/.test(panel) };
+  });
+  check(`${name}: first and last light are named in words`,
+    light.said && light.denial, JSON.stringify(light));
   check(`${name}: the fortnight of swings draws too`,
     planted.springNeap && /fortnight/.test(planted.snSays),
     JSON.stringify({ drew: planted.springNeap, says: planted.snSays }).slice(0, 240));
@@ -1002,7 +1211,7 @@ for (const [label, width, height] of [
   check(`${label}: a dropped ribbon is announced rather than just missing`,
     await page.evaluate(() => document.getElementById('ribbonwrap').hidden === false ||
       [...document.querySelectorAll('#panel-water .note')]
-        .some(n => /river ribbon is not shown/i.test(n.textContent))));
+        .some(n => /rivers side by side/i.test(n.textContent))));
 
   await page.selectOption('#riverpick', 'sacramento');
   await page.waitForTimeout(1800);
