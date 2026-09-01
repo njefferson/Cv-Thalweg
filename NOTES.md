@@ -10,10 +10,12 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- **2.11.0 is live at https://cv-thalweg.pages.dev**, promoted with 2.10.0 on
-  2026-09-01 and verified by reading that address.
-- Staged candidate: **2.11.1** — the width under the finger, Depth and width as
-  the default view, and the tracing defect below.
+- **2.11.1 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
+  verified by reading that address rather than the push output — the page and
+  the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
+  it on the same day.
+- Nothing is staged ahead of production: `staging` and `main` carry the same
+  release.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
