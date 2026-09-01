@@ -457,23 +457,40 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
         : [{ id: '9415316', name: 'Rio Vista', lat: 38.1417, lon: -121.6853 }],
       hourly: [],
       hourlyUnavailable: true,
-      hilo: [
-        { t: stamp(now - 3 * 3600000), v: 0.7, type: 'L' },
-        { t: stamp(now + 3 * 3600000), v: 4.3, type: 'H' },
-        { t: stamp(now + 9 * 3600000), v: 0.7, type: 'L' }
-      ]
+      /* A FORTNIGHT WITH A FORTNIGHT'S SHAPE IN IT. The panel also says how
+         big today is against the rest of the cycle, and that surface does not
+         exist at all without sixteen days of turns whose amplitude actually
+         varies — three turns would leave it drawing nothing and the state
+         would ship unmeasured (hub LESSONS 28). Springs at now, neaps a week
+         out, which is the ordinary shape of it. */
+      hilo: (function(){
+        var out = [], H = 16 * 24;
+        var env = function(i){ return 1.15 + 0.75 * Math.cos(Math.PI * i / (14.8 * 12)); };
+        var at  = function(i){ return 2.5 + env(i) * Math.sin(Math.PI * i / 6); };
+        for (var i = -39; i < H; i += 6)
+          out.push({ t: stamp(now + i * 3600000), v: Number(at(i).toFixed(3)),
+                     type: ((i - 3) % 12 === 0) ? 'H' : 'L' });
+        return out;
+      })()
     });
     renderWater();
     const strip = document.querySelector('#panel-water .tidephase');
+    const sn = document.querySelector('#panel-water svg[aria-label*="ft"]');
     return { drawn: !!strip, says: strip ? strip.textContent : '',
+             springNeap: !!sn, snSays: sn ? sn.getAttribute('aria-label') : '',
              /* When it does not draw, what the panel said instead is the
                 whole diagnosis and a bare false is not. */
              instead: strip ? '' : (document.getElementById('panel-water').textContent || '').slice(0, 140) };
   });
   check(`${name}: the tide strip draws when there is a tide to draw`,
     planted.drawn && /rising/i.test(planted.says), JSON.stringify(planted).slice(0, 200));
+  /* THE SECOND NEW SURFACE ON THIS PANEL, and it joins the list in the same
+     commit that builds it rather than the release after. */
+  check(`${name}: the fortnight of swings draws too`,
+    planted.springNeap && /fortnight/.test(planted.snSays),
+    JSON.stringify({ drew: planted.springNeap, says: planted.snSays }).slice(0, 240));
   await page.waitForTimeout(300);
-  await audit(page, `${name}: the tide rising-or-falling strip`);
+  await audit(page, `${name}: the tide rising-or-falling strip and the fortnight of swings`);
   await noOverflow(page, `${name}: nothing reaches past the edge with the tide strip up`);
   /* THE ARROW IS DECORATION AND EVERYTHING IT MEANS IS IN THE SENTENCE. A
      reader who cannot see it must not lose the answer, and one who can must

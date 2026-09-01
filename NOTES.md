@@ -5,14 +5,11 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.4.0 on `staging`. **Production is 2.3.0** and stays there until a
+- Version 2.5.0 on `staging`. **Production is 2.4.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.4.0** at https://staging.cv-thalweg.pages.dev — the
-  tide says which way it is MOVING as well as which way it comes in; a measured
-  mark for how far up the tide actually pushed in the last day; and striped
-  bass, sturgeon and black bass, read from CDFW's own service rather than typed
-  in, with a monthly workflow that re-reads them.
+- Staged candidate: **2.5.0** at https://staging.cv-thalweg.pages.dev — springs
+  and neaps: how big today's tide is against the fortnight, said and drawn.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -944,6 +941,63 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## Springs and neaps, and why a week could not answer it
+
+After "which way" and "when", the question is "is that a lot". The swing
+between high and low grows and shrinks over about fourteen and a half days, and
+at one station on this water the two ends of that are a couple of feet apart.
+Two days both described as "rising, high at four" can be completely different
+afternoons and nothing in the app said which one you had.
+
+**The turns are fetched over sixteen days now, the hourly curve still over
+seven.** A week cannot answer a fortnightly question — it does not contain both
+a biggest and a smallest, so today cannot be placed in the cycle. The cost is
+almost nothing: a turn is four rows a day, so the fortnight is about sixty rows.
+The hourly curve is the expensive one and it is drawn for the next twenty-four
+hours and nothing else, so it stays where it was.
+
+**The figure is the great diurnal range: the day's highest water minus its
+lowest.** This coast has mixed semidiurnal tides — two highs and two lows a day,
+and the pairs are unequal, often by more than a foot. One high minus the next
+low would report whichever pair the arithmetic happened to land on and would
+jump about between days for a reason that is not the moon.
+
+**A clipped day is not a small tide, and that guard is load-bearing.** The first
+and last day of any window hold only part of their turns; a day carrying one
+high and one low when it really had four reports a span the water never stopped
+at, and it would sit at the bottom of the chart looking like a neap. A day needs
+at least three turns to count. The request begins the day BEFORE today for the
+same reason, so today is never the clipped one.
+
+**It refuses two cases instead of answering them.** Fewer than six usable days,
+and there is no cycle to place today in. Less than half a foot between the
+biggest day and the smallest, and calling one of them a spring tide is naming
+rounding rather than the moon.
+
+**And it says "fortnight" and means it.** Sixteen days of predictions cannot say
+this is the biggest tide of the month or the year, so the app does not. The
+claim is scoped to the window it actually holds.
+
+**The limit that has to travel with it.** This is the astronomical swing at ONE
+station. What moves where somebody is standing is that plus whatever the river
+is carrying, and the app knows those two separately and must not let a tall bar
+imply the second — a big swing on a river in flood is not the same afternoon as
+a big swing on a low one.
+
+**The fixture needed a fortnight's shape in it, and the old one had none.** The
+stub's amplitude was constant, so the new question would have been answered with
+"every day is the same" and measured against a tide that exists nowhere. It is
+modulated over 14.8 days now with now at a spring. That also invalidated a
+hardcoded `3.6` in an older assertion about the swing — replaced with the
+fixture's own two turns, so it stays true whatever the envelope becomes next.
+
+**And a gate keyed on copy pinned the disclaimer.** The first version of the
+"claims only the window it can see" check searched the whole panel for "biggest
+of the month" — and matched the app's own sentence promising *not* to say it.
+The check reads the figure's accessible name now, which is the claim itself
+rather than the prose around it. Same shape as the tide-turn check three
+releases ago, and hub LESSONS §180.
 
 ## Six tools in this repo fetch, and two of them were still going direct
 

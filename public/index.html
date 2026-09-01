@@ -663,7 +663,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.4.0';
+var VERSION = '2.5.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1573,7 +1573,15 @@ function coopsPredictions(url){
 
 function loadTide(river, station){
   if (!station) return Promise.resolve(null);
-  var uH = coopsUrl(station, 'h'), uL = coopsUrl(station, 'hilo');
+  /* THE TURNS GO OUT A FORTNIGHT, THE CURVE DOES NOT.
+     Springs and neaps are a FORTNIGHTLY cycle — the swing grows and shrinks
+     over about fourteen and a half days — so a week of turns cannot say where
+     today sits in it. Asked over sixteen days the window contains both a
+     biggest and a smallest, and today can be placed against both. It costs
+     almost nothing: a turn is four rows a day, so the fortnight is about
+     sixty rows. The hourly curve is the expensive one and it stays at a week,
+     because it is drawn for the next twenty-four hours and nothing else. */
+  var uH = coopsUrl(station, 'h'), uL = coopsUrl(station, 'hilo', 16);
   /* The highs and lows are the part that matters and every prediction
      station has them. The hourly curve is a reference-station luxury:
      a subordinate station — New Hope Bridge, Terminous — answers
@@ -3260,6 +3268,76 @@ function nextHighLow(river){
   return (out.high || out.low) ? out : null;
 }
 
+/* The fortnight, drawn. One bar a day for the span the water covers, today
+   marked, the biggest and smallest named. A number on its own does not answer
+   "is that a lot" — the shape of the cycle does, and the shape is the thing
+   somebody plans a weekend around. */
+function springNeapBox(river){
+  var sn = springNeap(river);
+  if (!sn) return null;
+
+  var box = el('div', {});
+
+  /* THE SENTENCE FIRST, because the picture is inside a role="img" and
+     everything it says has to exist in words anyway. */
+  var say;
+  if (sn.isBiggest)
+    say = 'Today is the biggest tide of the fortnight ahead — ' + fmt(sn.today.range, 1) +
+      ' ft between the day’s highest water and its lowest. The smallest in that window is ' +
+      fmt(sn.smallest.range, 1) + ' ft, on ' + dayLocal(sn.smallest.day + 'T12:00') + '.';
+  else if (sn.isSmallest)
+    say = 'Today is the smallest tide of the fortnight ahead — ' + fmt(sn.today.range, 1) +
+      ' ft between the day’s highest water and its lowest. The biggest in that window is ' +
+      fmt(sn.biggest.range, 1) + ' ft, on ' + dayLocal(sn.biggest.day + 'T12:00') + '.';
+  else
+    say = 'Today the water covers ' + fmt(sn.today.range, 1) +
+      ' ft between its highest and its lowest. Across the fortnight ahead that runs from ' +
+      fmt(sn.smallest.range, 1) + ' ft on ' + dayLocal(sn.smallest.day + 'T12:00') +
+      ' to ' + fmt(sn.biggest.range, 1) + ' ft on ' + dayLocal(sn.biggest.day + 'T12:00') + '.';
+  /* The convention named, once, so the words on the screen connect to the
+     words used on the bank — and named as the CONVENTION rather than as a
+     classification this app is making. */
+  if (sn.band === 'spring') say += ' That is the big end of the cycle, the one called springs.';
+  else if (sn.band === 'neap') say += ' That is the small end of the cycle, the one called neaps.';
+  box.appendChild(el('p', { class:'note', text:say }));
+
+  var narrow = window.matchMedia && window.matchMedia('(max-width:620px)').matches;
+  var W = narrow ? 320 : 520, H = 74, pad = 2;
+  var n = sn.days.length;
+  var bw = Math.max(4, (W - pad * 2) / n - 2);
+  var maxR = sn.biggest.range;
+  var fig = svg('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%',
+    preserveAspectRatio:'xMinYMin meet', style:'height:auto; display:block',
+    role:'img', 'aria-label':say });
+  var g = svg('g', {});
+  sn.days.forEach(function(d, i){
+    var x = pad + i * ((W - pad * 2) / n);
+    var h = Math.max(1, (d.range / maxR) * (H - 26));
+    var isToday = d.day === sn.today.day;
+    g.appendChild(svg('rect', { x:x, y:(H - 16) - h, width:bw, height:h,
+      fill: isToday ? FLOOD : '#2E7C76',
+      'fill-opacity': isToday ? '.95' : '.55' }));
+    /* Only today's is labelled. Sixteen dates at 8px is a smear, and the
+       biggest and the smallest are named in the sentence above. */
+    if (isToday){
+      var lb = svg('text', { x:x + bw / 2, y:H - 5, fill:FLOOD, 'font-size':'9',
+        'text-anchor':'middle' });
+      lb.textContent = 'today ' + fmt(d.range, 1) + ' ft';
+      g.appendChild(lb);
+    }
+  });
+  fig.appendChild(g);
+  box.appendChild(fig);
+
+  /* AND THE LIMIT OF IT. The swing is the astronomical tide at one station;
+     what actually moves where somebody is standing is that plus whatever the
+     river is carrying, and this app knows the two separately and must not let
+     a tall bar imply the second. */
+  box.appendChild(el('p', { class:'note',
+    text:'One bar a day, for the sixteen days of predictions this app holds — not the biggest of the month or the year, and it says the fortnight because that is what it can see. It is the swing at this station and nothing else: what the water does where you are standing is that plus whatever the river is carrying, and a big swing on a river in flood is not the same afternoon as a big swing on a low one.' }));
+  return box;
+}
+
 /* The strip itself. An arrow that means rising or falling, the sentence that
    says the same thing, and — under it — the line that keeps this honest: it is
    a level prediction at one station, not a current where you are standing. */
@@ -3294,6 +3372,100 @@ function tidePhaseBox(river, stationName){
   t.appendChild(el('span',{class:'sub',text:sub}));
   box.appendChild(t);
   return box;
+}
+
+/* =====================================================================
+   SPRINGS AND NEAPS — is today a big tide or a small one.
+
+   After "which way" and "when", this is the question. The swing between high
+   and low is not the same every day: it grows and shrinks over about fourteen
+   and a half days with the moon, and the difference is large — on this water a
+   neap day and a spring day are a couple of feet apart at the same station. A
+   big swing moves more water through a channel in the same six hours, which is
+   what a bank fisher is actually reading when they talk about the tide being
+   "strong" today. Two days both described as "rising, high at 4pm" can be
+   completely different afternoons, and nothing in this app said which.
+
+   THE RANGE THAT MATTERS HERE IS THE GREAT DIURNAL ONE. This coast has mixed
+   semidiurnal tides: two highs and two lows a day and the pairs are UNEQUAL,
+   often by more than a foot. Taking one high minus the next low would report
+   whichever pair the arithmetic happened to land on, and would swing about
+   from day to day for a reason that is not the moon. The highest high minus
+   the lowest low of the day is the span the water actually covers, and it is
+   the figure the convention uses.
+
+   IT IS COMPARED AGAINST WHAT WAS FETCHED, AND SAYS SO. The window is sixteen
+   days, which contains a biggest and a smallest — enough to place today in the
+   cycle, and NOT enough to call it the biggest of the month or the year. The
+   app says "in the fortnight ahead" and means exactly that.
+   ===================================================================== */
+
+/* One entry per local day in the window, with the span the water covers. A day
+   at the edge of the window can hold only part of its turns, which would read
+   as an unusually small tide rather than as a clipped day — so a day is only
+   counted when it carries at least one high AND one low. */
+function tideDayRanges(river){
+  var t = state.tides[river.id];
+  if (!t || !t.hilo || !t.hilo.length) return [];
+  var byDay = {};
+  t.hilo.forEach(function(h){
+    var v = Number(h.v);
+    if (!isNum(v)) return;
+    var iso = String(h.t).replace(' ', 'T');
+    var when = new Date(iso);
+    if (!isFinite(when.getTime())) return;
+    var key = iso.slice(0, 10);
+    var d = byDay[key] || (byDay[key] = { day:key, hi:null, lo:null, n:0 });
+    d.n++;
+    if (h.type === 'H'){ if (d.hi === null || v > d.hi) d.hi = v; }
+    else               { if (d.lo === null || v < d.lo) d.lo = v; }
+  });
+  /* A CLIPPED DAY IS NOT A SMALL TIDE. The first and last days of any window
+     hold only part of their turns, and a day carrying one high and one low
+     when it really had four reports a span the water never stopped at — which
+     would read as a neap and sit at the bottom of the chart. A mixed
+     semidiurnal day has four turns; three is the floor that keeps the genuine
+     three-turn days and refuses the clipped ones. The request begins the day
+     BEFORE today for exactly this reason, so today is never the clipped one. */
+  return Object.keys(byDay).sort().map(function(k){ return byDay[k]; })
+    .filter(function(d){ return d.hi !== null && d.lo !== null && d.n >= 3; })
+    .map(function(d){ d.range = d.hi - d.lo; return d; });
+}
+
+/* Where today sits between the smallest and the biggest day in the window.
+   Returns nothing rather than a guess when the window is too short to hold a
+   cycle, or when every day in it is the same size — both of which would make
+   "bigger than average" a statement about rounding. */
+function springNeap(river){
+  var days = tideDayRanges(river);
+  if (days.length < 6) return null;
+  var todayKey = (function(){
+    var n = new Date();
+    return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) +
+           '-' + ('0' + n.getDate()).slice(-2);
+  })();
+  var today = null;
+  days.forEach(function(d){ if (d.day === todayKey) today = d; });
+  if (!today) return null;
+  var biggest = days[0], smallest = days[0];
+  days.forEach(function(d){
+    if (d.range > biggest.range) biggest = d;
+    if (d.range < smallest.range) smallest = d;
+  });
+  var spread = biggest.range - smallest.range;
+  /* Under half a foot between the biggest and smallest day there is no cycle
+     to speak of, and calling one of them a spring tide would be naming noise. */
+  if (!(spread > 0.5)) return null;
+  var frac = (today.range - smallest.range) / spread;
+  return {
+    days: days, today: today, biggest: biggest, smallest: smallest,
+    spread: spread, frac: frac,
+    /* The plain words, and they are deliberately about THIS WINDOW. */
+    band: frac >= 0.8 ? 'spring' : frac <= 0.2 ? 'neap' : 'between',
+    isBiggest: today.day === biggest.day,
+    isSmallest: today.day === smallest.day,
+    windowDays: days.length
+  };
 }
 
 /* WHICH WAY THE TIDE IS MOVING RIGHT NOW, which is not the same question as
@@ -3405,6 +3577,7 @@ function riverCard(river){
   var flow = downstreamFlow(river);
   var turn = river.tidal ? nextTurn(river) : null;
   var ph   = river.tidal ? tidePhase(river) : null;
+  var sn   = river.tidal ? springNeap(river) : null;
   var payload = state.gauges[river.id];
 
   var card = el('button',{ type:'button', class:'rivercard' });
@@ -3499,6 +3672,13 @@ function riverCard(river){
       td.appendChild(document.createTextNode('next ' + turn.type + ' '));
       td.appendChild(el('b',{text:clockLocal(turn.at.toISOString())}));
       td.appendChild(document.createTextNode(' · ' + fmt(turn.v,1) + ' ft'));
+      /* AND HOW BIG TODAY IS. Only at the ends of the cycle: a card is four
+         lines and "in the middle of the fortnight" is not worth one of them,
+         where "biggest of the fortnight" changes what somebody does today. */
+      if (sn && (sn.isBiggest || sn.isSmallest))
+        td.appendChild(el('span',{class:'rdg-id',
+          text:(sn.isBiggest ? 'biggest' : 'smallest') + ' swing of the fortnight, ' +
+            fmt(sn.today.range,1) + ' ft'}));
     } else {
       td.appendChild(document.createTextNode('tidal — no prediction loaded'));
     }
@@ -3510,6 +3690,9 @@ function riverCard(river){
     (flow ? commas(fmt(flow.flow,0)) + ' cubic feet per second at ' + flow.name +
        (flow.tidal ? ', tidal flow rather than river discharge' : '') + '. ' : '') +
     (ph ? 'The tide is ' + (ph.rising ? 'rising' : 'falling') + '. ' : '') +
+    (sn ? 'Today the water covers ' + fmt(sn.today.range,1) + ' feet' +
+      (sn.isBiggest ? ', the biggest swing of the fortnight ahead' :
+       sn.isSmallest ? ', the smallest swing of the fortnight ahead' : '') + '. ' : '') +
     (turn ? 'Next ' + turn.type + ' at ' + clockLocal(turn.at.toISOString()) + '. ' : '') +
     'Show this river.');
   card.addEventListener('click', function(){
@@ -3878,6 +4061,17 @@ function tideSection(river){
   if (phbox) box.appendChild(phbox);
   else box.appendChild(el('p',{class:'note',
     text:'Whether the tide is rising or falling right now cannot be said from what is stored: it needs the turn before now as well as the one after it, and the stored predictions start later than that. The turns below are unaffected. Reconnect and it comes back.'}));
+
+  /* AND HOW BIG TODAY IS, which is the question after "which way" and "when".
+     It goes with the phase rather than further down: the two together are what
+     a person asks the tide panel for, and they are one thought.
+     ITS SILENCE IS DIFFERENT FROM THE PHASE'S and gets its own sentence. The
+     phase needs two turns; this needs a fortnight of them, so a stored copy
+     from a week ago has the first and not the second. */
+  var snbox = springNeapBox(river);
+  if (snbox) box.appendChild(snbox);
+  else box.appendChild(el('p',{class:'note',
+    text:'How big today’s tide is against the rest of the fortnight cannot be worked out from what is stored: the swing grows and shrinks over about fourteen days, and there are not enough days of predictions here to place today in that. Everything else on this panel is unaffected.'}));
 
   if (t.hourlyUnavailable){
     box.appendChild(el('p',{class:'note',
@@ -8013,6 +8207,16 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.5.0', date:'2026-09-01', changes:[
+      'The tide now says how BIG today is, not just which way it is going and when it turns. The swing between high and low is not the same every day \u2014 it grows and shrinks over about a fortnight with the moon, and on this water the difference between the two ends is a couple of feet at the same station. Two days both described as \u201crising, high at four\u201d can be completely different afternoons, and nothing here said which one you had.',
+      'It is drawn as well as said: one bar a day for the sixteen days of predictions the app holds, today marked, with the biggest and the smallest day named by date. On the river cards the size only appears at the ends of the cycle, because \u201cthe biggest swing of the fortnight\u201d changes what you do today and \u201csomewhere in the middle\u201d does not.',
+      'The figure it uses is the whole span the water covers in a day \u2014 the day\u2019s highest water minus its lowest. This coast has two highs and two lows a day and the pairs are unequal, often by more than a foot, so taking one high minus the next low would report whichever pair the arithmetic landed on and jump about for a reason that is nothing to do with the moon.',
+      'The turns are now fetched a fortnight ahead instead of a week, because a week cannot answer a fortnightly question. The hourly curve still comes a week at a time \u2014 it is drawn for the next day and nothing else, and it is the expensive one.',
+  ], broken:[
+      'It is the swing at one station and nothing else. What the water actually does where you are standing is that plus whatever the river is carrying, and a big swing on a river in flood is not the same afternoon as a big swing on a low one. The app shows the two separately and will not add them together.',
+      'Sixteen days of predictions cannot tell you this is the biggest tide of the month or the year, and the app does not say so. It says the fortnight ahead and means exactly that.',
+      'A day at the edge of the window holds only part of its turns, which would read as an unusually small tide rather than as a clipped day. Those days are left out rather than drawn short.',
+  ] },
   { v:'2.4.0', date:'2026-09-01', changes:[
       'The tide says which way it is MOVING, not just which way it comes in. Everything the app said about the tide was a direction on the map \u2014 the sea is downstream, the flood pushes up, the wash marks how far. None of that told you whether the water in front of you at four in the afternoon is coming up or going down, which is the thing you plan the next two hours around. It says so now, on the tide panel, on each river\u2019s card and on the bar, with how far through the swing it is and how long until the turn.',
       'It is a prediction of the HEIGHT at one station and it says so. The water can still be running upstream while the level falls \u2014 that is ordinary on this river, not a fault \u2014 so the measured direction at each gauge is still shown underneath, and the app says plainly that the two need not agree.',
