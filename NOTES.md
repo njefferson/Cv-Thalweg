@@ -10,9 +10,9 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- Staged candidate: **2.9.1** at https://staging.cv-thalweg.pages.dev — nothing
-  the reader can see is different unless they use a screen reader; it is the
-  release that stops the app counting anything by hand.
+- Staged candidate: **2.11.0** at https://staging.cv-thalweg.pages.dev — how
+  wide the river is along the profile, and the moon. 2.10.0 is on staging behind
+  it and has not been promoted.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -472,12 +472,16 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   The address is a paypal.me handle rather than an email: an email in a public
   repo under the owner's name gets scraped, and a handle takes payments without
   publishing one. Venmo sits beside it — same coffee, whichever route is less trouble.
-- **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
-  not invent one. The state's open-data portal returns nothing for boating
-  facilities, boat launch ramps or DBW; the one "Public Access Points" service
-  is coastal beaches — 1,500 across the coastal counties and ZERO inside any of
-  the four river boxes, which was checked rather than assumed. What CDFW does
-  publish is its own lands, and `tools/fetch-access.mjs` bakes those.
+- **THAT LINE SAID THERE WAS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS,
+  AND IT WAS WRONG.** It read as a finding about the state and was a fact about
+  this container: the hosts that publish it were refused at the CONNECT tunnel
+  and never reached. CDFW publishes 677 boating facilities through the service
+  behind its own Fishing Guide, 97 of them on these rivers, and
+  `tools/fetch-ramps.mjs` bakes them. What survives of the old note is narrower
+  and still true: the "Public Access Points" service is coastal beaches — 1,500
+  across the coastal counties and ZERO inside any of the river boxes, checked
+  rather than assumed — and CDFW's own lands are a different thing from a
+  launch, which is why they are a separate layer.
 - **A BOUNDING BOX CANNOT SAY WHICH RIVER A PLACE IS ON.** Every one of these
   boxes is hundreds of kilometres across, so a property only has to clip a
   corner to be listed — which filed the Yolo Bypass Wildlife Area under the
@@ -831,6 +835,217 @@ Both halves were seen red on a LOCAL plant and never on a pushed one:
 `copy-count.mjs` on a restored "Back to all four rivers." and on a declaration
 that no longer matches anything, and the a11y check on a `riverNamesPhrase()`
 that drops its last river.
+
+
+## The hub pin and the doctrine marker had drifted here too
+
+`.doctrine-sync` records the hub commit this repo has RECONCILED with. The
+`uses: .../hub-gates.yml@<sha>` line in `gates.yml` is the commit CI CHECKS THE
+HUB OUT AT to run the shared gates. **They are the same fact, they are written
+in two files, and nothing here was comparing them.** The marker had moved and
+the pin had not, so CI was running the privacy, quote, third-person, no-grid and
+branch-guard checks from 2026-08-29 while this repo's marker said it had read
+and applied everything since.
+
+Both now read the same commit, and `tools/hub-pin-check.mjs` keeps them that
+way — on every commit through `.branch-guard`'s `also=`, and in CI because a
+fresh clone has no hook.
+
+**It is a COPY, and the copy is correct rather than lazy.** The hub's shared
+gates are never forked; they take `--repo .` precisely so five divergent
+versions cannot exist. This one cannot follow that rule, and the reason is the
+circularity it exists to break: CI fetches the hub AT the pin, so a gate
+validating the pin would be fetched at the very commit it is checking, and a pin
+left far enough behind would check out a hub that does not contain the file at
+all — failing with a missing module instead of a diagnosis. Taken from
+solve-ent, which was the only sibling that had it and, measured on 2026-09-01,
+the only sibling whose marker and pin agreed.
+
+
+## The data the app said did not exist
+
+`public/index.html` told the reader, in the Layers panel, that **"No published
+list of boat ramps for these rivers could be found, and this app will not invent
+one."** `tools/fetch-access.mjs` opened with the same claim in its header, and
+`NOTES.md` stated it as a finding. It was false.
+
+**It was false because of where the session stood, not because of what the state
+publishes.** Six of the hosts that carry it — `data.ca.gov`, `dbw.parks.ca.gov`,
+`www.parks.ca.gov`, `opendata.arcgis.com`, `map.dfg.ca.gov`, `water.ca.gov` —
+and later `www.arcgis.com`, the item-search endpoint, were all refused at the
+CONNECT tunnel by this container's egress. A refusal and an absence are
+indistinguishable from inside, and the app wrote the absence down. That is hub
+LESSONS §188 exactly, and this is what it cost: a real dataset written off in
+shipped copy, and a feature nobody built because the record said there was
+nothing to build it from.
+
+**What is actually published.** CDFW's `FishingGuide` feature service, the one
+behind the department's own Fishing Guide map. Layer 0, `FGuideBoating`, is 677
+boating facilities statewide. **97 rows land within a kilometre of these five
+rivers' own courses.** Each carries the facility type, the owner and whether that
+owner is government, ramp lanes usable at one time, trailer parking, restrooms,
+fish cleaning, a phone number, and CDFW's own `Water_Body` string — which names
+"Sacramento River", "Feather River", "American River" and
+"Sacramento-SanJoaquinDelta-Mokelumne River" outright.
+
+**THE FIRST VERSION OF THE GENERATOR THREW AWAY TWO THIRDS OF IT.** It required
+every facility to carry the interview date, on the reasoning that the age is the
+caveat and an undated row would read as current — and only 237 of the 677 carry
+one. That rule was invented by the generator, not by the data, and it dropped
+111 real facilities to keep the file tidy. Undated rows are KEPT and marked, and
+the app says "CDFW records no date for this one" rather than showing a blank —
+which is this repo's standing answer to a missing figure everywhere else. The
+split is printed on every run so the proportion cannot change quietly. Of the 97
+on these rivers, 49 carry a year and 48 do not.
+
+**A launch at a confluence is on both rivers and is listed under both.**
+Discovery Park is on the American and on the Sacramento; twenty rows are one
+facility filed twice. Each names the others, and the check refuses a one-way
+`also` — a row claiming a listing the other river does not have would be the app
+inventing a place.
+
+**The layer nearly shipped unpressable.** The pins are twelve pixels across and
+what makes any pin on this map reachable by a thumb is its layer's presence in
+`pinLayers()`, not its styling. Drawn and unlisted, the launches looked perfect
+in every screenshot and were inert: measured on a plant, a press twenty pixels
+off a launch pin returned a DEPTH READING for the water underneath. That is the
+doctrine's own worst case — a feature present in the source and unreachable on
+the device — and it is asserted now at 0, 10 and 20 px.
+
+**And a check written for the new control failed on the old one beside it.**
+Every primary button in a panel was thirty pixels tall, in an app read
+one-handed on a riverbank, since the first week. The layer toggles included.
+Nothing was measuring it, so nothing was wrong. `.rowline button` has a 44px
+floor now.
+
+**Both toggles also read "Show them on the map".** Two controls with one
+accessible name in one panel is one control offered twice to anybody moving
+through it by keyboard — and the rendering suite proved it by clicking the wrong
+one the moment the section landed. Each names what it shows, and the suites
+assert on the accessible name rather than the visible text, because every row in
+these lists carries a "Map" button correctly distinguished by an `aria-label`.
+
+
+## Width, and the two ways it could have been a lie
+
+The down-river profile drew the depth and nothing else. `tools/fetch-widths.mjs`
+adds the other dimension of the same channel: a line cast straight across
+USGS's NHD large-scale Area polygon — the mapped water surface at 1:24,000 —
+perpendicular to the committed centreline, taking the distance between the two
+nearest bank crossings. Every second point of `river-lines.js`, so about 600 m
+apart down the Sacramento.
+
+**It is the MAPPED channel and not today's water**, and that has to reach the
+reader rather than sit in this file: the river is wider in a flood and narrower
+in a drought and NHD does not move with the stage. Bank to bank, so bars and
+shallow margins are inside it — which is the same relationship the depth
+surveys have to navigable water, and the same reason neither is for navigation.
+
+**THE TWO WAYS A NUMBER HERE COULD BE A LIE, AND BOTH REFUSE.** A cast that
+leaves the mapped water and finds no far bank inside 1200 m has left the channel
+— a confluence, a flooded bypass, a Delta junction — and "the width here" has no
+single answer, so nothing is drawn. And a centreline point that is not inside
+any polygon at all is USGS's flowline disagreeing with USGS's own area polygon,
+which happens on the narrow upper reaches where the channel is too small to be
+mapped as an area; measuring from there would take the nearest bank of something
+else. Counted: 424 measured and 155 refused on the Sacramento, 86 and 46 on the
+Mokelumne. **The refusals are the feature — a generator that never refused would
+be one that had guessed at every confluence.**
+
+**One in four points was tried first and was too coarse to be useful.** The
+surveyed run on the Sacramento is 31 km; at a sample every 1.2 km that left
+TWELVE points to draw a line through, which is not a picture of a channel. One
+in two, measured on the running app rather than reasoned about, gives 25 across
+the same run and a 21 KB file.
+
+**The spot check that makes the numbers mean something.** The Sacramento at
+downtown Sacramento comes out at 179 m, which anybody can check against the
+world without any of this code. Medians: Sacramento 128 m, Feather 99 m,
+American 90 m, Mokelumne 37 m. That last one is the check working — the
+Mokelumne really is a small river, and a generator measuring the wrong bank
+would not have produced a number a third of the others.
+
+**WIDTH SURVIVES A MISSING SURVEY, and that is the reason it is its own view
+rather than a tick beside the depth.** DWR sounded a small fraction of these
+rivers; USGS mapped the banks of all of them. So the no-depth early return in
+`renderProfile` is skipped when the reader has asked for the width and there is
+a width to show, and the width is attached to every profile model including the
+ones that found no survey at all.
+
+**The width and the depth never share a scale.** A width in metres and a depth
+in feet on one axis is an invitation to read one as the other, so the width has
+its own — on the right when shown with the depth, on the left and owning the
+picture when shown alone, and the depth grid is suppressed entirely in that
+view.
+
+**What was lost, and it is in the release notes rather than left to be found:**
+dragging a finger along the profile does not work in the Width view. The tracing
+reads a depth at the point under the finger and moves a mark along the line on
+the map, and there is no depth there to read.
+
+## The moon, and the check that is worth more than the moon
+
+Computed, not fetched — Meeus's truncated series, the same shape as the sun
+already in this file, so it works with no signal and there is no service to be
+down. It sits under the spring–neap section because it is the cause of it.
+
+**THE FIRST VERSION CARRIED ONE PERIODIC TERM AND WAS MEASURABLY WRONG.** The
+mean interval between the new moons it found came out at 29.517 days against the
+true 29.53059, and the mean was not the real problem — the SCATTER was: with
+only the equation of centre each individual new moon lands up to a third of a
+day out, which is enough to print the wrong calendar date. The evection (1.27°)
+and the variation (0.66°) are the two largest omitted terms, and at 12.19° a day
+of elongation those are two and a half hours and an hour and a quarter of
+timing.
+
+**And the correction was nearly missed, because the measurement was too short.**
+Over ten years the corrected series reads 29.5247 and looks worse than the
+original; over sixty it reads 29.5308 against a true 29.530588. The difference
+is entirely SAMPLING — the endpoint scatter is a third of a day either side and
+does not average down until there are hundreds of intervals. A shorter window
+would have sent this session chasing a defect that was not there.
+
+**THE CHECK THAT IS WORTH THE MOST IS NOT ABOUT THE MOON AT ALL.** The
+spring–neap section measures the swing in NOAA's published predictions and knows
+nothing about where the moon is; the moon is arithmetic about the sky and knows
+nothing about NOAA. The big tides follow the new and the full by a day or two,
+so the biggest day in the window has to land near one of them. Two independent
+paths made to close, which is hub LESSONS §203.
+
+**IT LIVES IN `tools/live-test.mjs` AND NOT IN THE RENDERING SUITE, and the
+reason is the whole point of it.** Written there first, it failed by 4.2 days —
+because that suite runs against a STUBBED tide whose fortnightly envelope was
+authored by hand and whose phase has no relationship to the real moon. Made to
+pass, it would have meant phase-locking the fixture to the code it is supposed
+to be independent of. Against the real service it passes.
+
+**The moon is outside `tideSection` on purpose.** That function returns early
+while the predictions are loading and again when the station fails, and the moon
+depends on neither — it needs no signal and no station and is the one thing on
+that panel that is never missing. Put inside, it disappeared exactly when
+everything else did. **This is the third time in this file a section has been
+written inside a branch that had nothing to do with it**: the light box inside
+the hourly-curve branch, and the overlap caveat inside the branch that found an
+overlap.
+
+## No wake zones: asked, on this date, of these four
+
+Not built, and this is the negative written the way §208 says a negative has to
+be written — with the search attached, so the next session can tell a fact from
+a snapshot.
+
+Asked on **1 September 2026**, of `data.ca.gov` (the state open-data portal),
+`gis.data.ca.gov` (the State Geoportal), `www.arcgis.com` (the ArcGIS Online
+item search) and `dbw.parks.ca.gov` (the Division of Boating and Waterways).
+**All four answered.** None publishes a no-wake or speed-zone dataset for these
+waters: "no wake" returns nothing at the portal, "speed zone" returns air
+quality and wind generation, and the one boating layer ArcGIS Online has for
+California is a third party's, for Lake Tahoe.
+
+There is a reason, and it is the reason not to keep looking for one file: on
+this water these zones are set by county ordinance and by the signs on the bank,
+under the Harbors and Navigation Code. They are not one state layer, and an app
+that drew them from one would be asserting a boundary nobody published.
 
 
 ## Scratch

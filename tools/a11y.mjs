@@ -1071,6 +1071,63 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   check(`${name}: the depth-at-a-point control is offered without a pointer`,
     await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
       .some(b => /Read the depth at the map centre/.test(b.textContent))));
+
+  /* THE TWO LAYER TOGGLES ARE DIFFERENT CONTROLS AND MUST SOUND DIFFERENT.
+     When the launch section landed in 2.10.0 both read "Show them on the map",
+     which to anybody tabbing through this panel is one control offered twice —
+     and the rendering suite proved it by clicking the wrong one. Measured on
+     the accessible name, not the visible text, because every row in these lists
+     carries a "Map" button correctly distinguished by an aria-label. */
+  const toggles = await page.evaluate(() =>
+    [...document.querySelectorAll('#panel-layers button')]
+      .filter(b => /on the map$/.test(b.textContent.trim()))
+      .map(b => {
+        const r = b.getBoundingClientRect();
+        return { name: (b.getAttribute('aria-label') || b.textContent).trim(),
+                 w: Math.round(r.width), h: Math.round(r.height),
+                 pressed: b.getAttribute('aria-pressed') };
+      }));
+  check(`${name}: each layer toggle answers to its own name`,
+    toggles.length > 1 &&
+      new Set(toggles.map(t => t.name)).size === toggles.length,
+    JSON.stringify(toggles));
+  /* 44 by 44. These are pressed with a thumb, outdoors, on a riverbank. */
+  check(`${name}: and is big enough to press`,
+    toggles.length > 0 && toggles.every(t => t.h >= 44), JSON.stringify(toggles));
+  /* A toggle that does not say whether it is on is a toggle a screen-reader
+     user has to guess at. */
+  check(`${name}: and says whether its layer is showing`,
+    toggles.length > 0 && toggles.every(t => t.pressed === 'true' || t.pressed === 'false'),
+    JSON.stringify(toggles));
+  /* THE AGE OF THE LAUNCH DATA IS THE CAVEAT, and a caveat that reaches only
+     the eye has not reached the reader who most needs it. */
+  /* THE MOON'S DISC IS A role="img" AND THOSE ARE A KNOWN TRAP HERE — a
+     drawing whose name is empty is invisible on screen and total for anyone
+     reading by ear, and this file already carries one lesson about a <title>
+     being deleted by its own re-render. The name has to carry the phase and
+     the lit fraction, which is everything the picture shows. */
+  const moonPic = await page.evaluate(() => {
+    const t = document.getElementById('panel-water').innerText;
+    const svgs = [...document.querySelectorAll('#panel-water svg[role=img]')]
+      .map(s => (s.getAttribute('aria-label') || '').trim())
+      .filter(l => /moon/i.test(l));
+    return { section: /The moon/.test(t),
+             says: /% of the face lit/.test(t) || /per cent lit/.test(t),
+             named: svgs };
+  });
+  check(`${name}: the moon is on the tide panel`, moonPic.section, JSON.stringify(moonPic).slice(0, 200));
+  check(`${name}: and its drawing is named with the phase it is showing`,
+    moonPic.named.length === 1 && /per cent lit/.test(moonPic.named[0]),
+    JSON.stringify(moonPic.named));
+
+  check(`${name}: the launch list says out loud how old it is`,
+    await page.evaluate(() => /THAT RECORD IS OLD/.test(
+      document.getElementById('panel-layers').innerText)),
+    await page.evaluate(() => {
+      const t = document.getElementById('panel-layers').innerText;
+      const i = t.indexOf('Where you can launch');
+      return i === -1 ? '(section missing)' : t.slice(i, i + 200);
+    }));
   /* The local dev server proxies /bathy upstream, so DWR is reachable here
      even with the browser's own egress cut — which is the production shape
      too. The no-catalogue state is therefore forced rather than waited for:
@@ -1502,6 +1559,31 @@ for (const [label, width, height] of [
       p.shown && p.note.length > 20, JSON.stringify(p).slice(0, 200));
     check('touch: the drawing is named even when it has nothing to draw',
       p.role === 'img' && p.named, JSON.stringify(p).slice(0, 200));
+
+    /* THE WIDTH VIEWS, WHERE THERE ARE ANY. The profile can show the depth,
+       the width, or both, and each button has to say which it is and whether
+       it is the one in force — a picture that changed with no announcement and
+       no pressed state is a change only the eye receives. The buttons are only
+       offered where there is a width to show, so this asserts the pair: either
+       there is no width and no buttons, or there is a width and every button
+       carries its own name and its own state. */
+    const views = await page.evaluate(() => {
+      const have = !!(state.profile && state.profile.widths && state.profile.widths.length > 1);
+      const b = [...document.querySelectorAll('#profviews button')].map(x => ({
+        name: (x.getAttribute('aria-label') || x.textContent).trim(),
+        pressed: x.getAttribute('aria-pressed'),
+        h: Math.round(x.getBoundingClientRect().height)
+      }));
+      return { have, b, table: PROF_VIEWS.length };
+    });
+    check('touch: the profile offers a view for each thing it can draw, or none',
+      views.have ? views.b.length === views.table : views.b.length === 0,
+      JSON.stringify(views));
+    check('touch: and each view button says what it is and whether it is on',
+      views.b.every(x => x.name.length > 5 &&
+        (x.pressed === 'true' || x.pressed === 'false')) &&
+      views.b.filter(x => x.pressed === 'true').length <= 1,
+      JSON.stringify(views.b));
     await audit(page, 'touch: the profile');
     await page.click('#profclear');
     await page.waitForTimeout(400);

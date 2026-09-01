@@ -34,7 +34,7 @@ permissions:
 jobs:
   # Everything the hub owns, in one line rather than eight steps that drift.
   hub-gates:
-    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@e2a5b7cb6b59311bdc7379abd0dea442edc8422f
+    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@c13dfc885a1c3c608a0d105d4a11b0b7e872189a
     with:
       pwa: true
       # This repo carries three workflows, one of which holds a write token, and
@@ -87,6 +87,14 @@ jobs:
       - name: Counts in copy are asked of their tables
         run: node tools/copy-count.mjs
 
+      # The hub commit is written in .doctrine-sync and in the uses: line above,
+      # and they are the same fact. A pin left behind means the shared gates run
+      # rules this repo has already adopted and they have never heard of, and
+      # every one of them goes green. It runs on every commit through
+      # .branch-guard as well; here it is because a fresh clone has no hook.
+      - name: The hub pin and the doctrine marker agree
+        run: node tools/hub-pin-check.mjs
+
       # The river centrelines are generated too, and a line that teleports would
       # draw a profile straight across country. This asks USGS nothing — it
       # reads what was committed and refuses a line with an impossible step in
@@ -102,6 +110,20 @@ jobs:
       # the shape of an answer.
       - name: The baked access lands
         run: node tools/fetch-access.mjs --check
+
+      # And the launches, which are a different dataset answering a different
+      # question. This asks CDFW nothing: it reads what was committed and
+      # refuses a facility with no position, no kind, no statement of whether it
+      # carries a date, or one filed under a river it is nowhere near.
+      - name: The baked boating facilities
+        run: node tools/fetch-ramps.mjs --check
+
+      # And the widths, which are geometry rather than a download: every sample
+      # has to point at a real index on the committed centreline and be either
+      # a width of this river or an honest refusal. A number outside the range
+      # a river can be is the cast having found the wrong bank.
+      - name: The baked river widths
+        run: node tools/fetch-widths.mjs --check
 
       # The Delta's boundary and its ninety-seven channels are baked too, and a
       # baked artefact that nothing checks is one that goes stale in the tree.

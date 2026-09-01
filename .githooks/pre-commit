@@ -23,6 +23,15 @@ if [ ! -x "tools/copy-count.mjs" ]; then
 fi
 "tools/copy-count.mjs" || exit 1
 
+if [ ! -x "tools/hub-pin-check.mjs" ]; then
+  echo "" >&2
+  echo "  REFUSED — .branch-guard declares also=tools/hub-pin-check.mjs and it is missing or not executable." >&2
+  echo "  A declared check that silently stops running is worse than no check." >&2
+  echo "" >&2
+  exit 1
+fi
+"tools/hub-pin-check.mjs" || exit 1
+
 branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo '')
 
 if [ "$branch" = "staging" ]; then exit 0; fi

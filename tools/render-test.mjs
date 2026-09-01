@@ -1543,6 +1543,165 @@ check('a clipped day is dropped rather than reported as a small tide',
 /* Every day the same size is not a cycle. */
 check('a tide with no cycle in it gets no spring-or-neap claim',
   spring.flatIsNull, JSON.stringify({ flat: spring.flatIsNull }));
+
+/* --- HOW WIDE THE RIVER IS ------------------------------------------------
+   The width is geometry over USGS's mapped water surface, baked. These check
+   the three things that would make it a lie on the screen: that the numbers
+   are widths of THIS river rather than a cast that found the wrong bank, that
+   a refusal draws nothing rather than a guess, and that the width and the
+   depth never share a scale. */
+const wide = await page.evaluate(async () => {
+  const river = byId('sacramento');
+  const all = Object.values(RIVER_WIDTHS).flat();
+  const measured = all.filter(s => s.m !== null).map(s => s.m);
+  return {
+    rivers: Object.keys(RIVER_WIDTHS),
+    /* Computed IN the page: RIVERS is the app's table and does not exist out
+       here in the runner. */
+    withCourse: RIVERS.filter(r => !r.network).length,
+    /* The Delta is absent BY DESIGN: it has no course to be perpendicular to,
+       and the app refuses to profile down it for the same reason. A width for
+       it would mean the generator had picked a channel and not said so. */
+    hasDelta: Object.prototype.hasOwnProperty.call(RIVER_WIDTHS, 'delta'),
+    n: measured.length,
+    min: Math.min(...measured), max: Math.max(...measured),
+    refusals: all.length - measured.length,
+    /* Every sample points at a place on the committed centreline. */
+    indexed: all.every(s => {
+      const line = riverLineFor(Object.keys(RIVER_WIDTHS)
+        .find(k => RIVER_WIDTHS[k].includes(s)));
+      return !line || (s.i >= 0 && s.i < line.length);
+    }),
+    meta: !!(WIDTHS_META && WIDTHS_META.source && WIDTHS_META.fetchedAt),
+    views: PROF_VIEWS.length,
+    /* Downtown Sacramento is about 180 m across. This is the one place on
+       these rivers whose width a person can check against the world without
+       any of this code, which is what makes it worth asserting. */
+    downtown: (() => {
+      const line = riverLineFor('sacramento');
+      let best = null;
+      for (const s of RIVER_WIDTHS.sacramento) {
+        if (s.m === null) continue;
+        const p = line[s.i];
+        const d = Math.hypot((p[0] - 38.58) * 110540, (p[1] + 121.51) * 87000);
+        if (!best || d < best.d) best = { d, m: s.m };
+      }
+      return best;
+    })()
+  };
+});
+check('the width is baked in for every river with a course',
+  wide.rivers.length === wide.withCourse && wide.meta,
+  JSON.stringify({ rivers: wide.rivers, meta: wide.meta }));
+check('and the Delta has none, because it has no course to be across',
+  !wide.hasDelta, JSON.stringify({ hasDelta: wide.hasDelta }));
+check('every sample points at a real place on the committed centreline',
+  wide.indexed, JSON.stringify({ n: wide.n }));
+/* A CAST THAT FINDS THE WRONG BANK PRODUCES A NUMBER, and it is the failure
+   this data can have that looks most like a result. Nothing on these rivers is
+   five metres across or three kilometres. */
+check('every width is a width one of these rivers could actually have',
+  wide.min > 5 && wide.max < 2400,
+  JSON.stringify({ min: wide.min, max: wide.max, n: wide.n }));
+/* Refusals are the feature. A generator that never refused would be one that
+   had guessed at every confluence. */
+check('and the places with no single width refuse rather than guess',
+  wide.refusals > 0, JSON.stringify({ refusals: wide.refusals }));
+check('the Sacramento at Sacramento comes out about as wide as it is',
+  wide.downtown && wide.downtown.m > 120 && wide.downtown.m < 260,
+  JSON.stringify(wide.downtown));
+check('the profile offers depth, width, and the two together',
+  wide.views === 3, JSON.stringify({ views: wide.views }));
+
+/* --- THE MOON, CHECKED AGAINST THE SKY -----------------------------------
+   Nothing here compares the moon code against itself. Every assertion below is
+   a property of the world that the series was not tuned to: an interval
+   astronomers measured, two epochs published long before this file existed,
+   and — the one worth the most — agreement with a quantity this app works out
+   from a completely different input. (Hub LESSONS §203.)
+
+   THE MEAN SYNODIC MONTH IS 29.530588 DAYS. It is not in the source anywhere
+   as a target; it falls out of the mean motions. Measured over sixty years so
+   the endpoint scatter, which is a third of a day either side on a truncated
+   series, averages down to nothing — over ten years the same code reads
+   29.5247 and that is the SAMPLING, not the model, which is the trap this
+   check is shaped to avoid. */
+const moon = await page.evaluate(() => {
+  const DAY = 86400000;
+  /* Continuous scan rather than repeated searches: watching the elongation
+     wrap through zero finds every new moon and cannot skip one. */
+  const elong = t => moonPhase(new Date(t)).elong;
+  let prev = elong(Date.UTC(2000, 0, 1)), times = [];
+  const step = 1800000;
+  for (let t = Date.UTC(2000, 0, 1) + step; t < Date.UTC(2060, 0, 1); t += step) {
+    const e = elong(t);
+    if (e < prev) times.push(t - step + ((360 - prev) / ((e + 360) - prev)) * step);
+    prev = e;
+  }
+  const n = times.length;
+  const gaps = times.slice(1).map((t, i) => (t - times[i]) / DAY);
+  /* Two published epochs. Neither is in the source. */
+  const knownNew = moonPhase(new Date('2000-01-06T18:14:00Z'));
+  const knownFull = moonPhase(new Date('2000-01-21T04:40:00Z'));
+  const off = e => Math.min(e.elong, 360 - e.elong);
+  return {
+    count: n,
+    mean: (times[n - 1] - times[0]) / DAY / (n - 1),
+    gapMin: Math.min(...gaps), gapMax: Math.max(...gaps),
+    newOff: off(knownNew), newIllum: knownNew.illum,
+    fullOff: Math.abs(knownFull.elong - 180), fullIllum: knownFull.illum,
+    /* The lit fraction has to follow the elongation, not be a second guess at
+       it: zero at new, one at full, and monotonic between. */
+    ladder: [0, 45, 90, 135, 180].map(deg => {
+      const t = Date.UTC(2026, 0, 1);
+      let best = null;
+      for (let k = 0; k < 24 * 40; k++) {
+        const when = t + k * 3600000, e = moonPhase(new Date(when));
+        const d = Math.abs(e.elong - deg);
+        if (!best || d < best.d) best = { d, illum: e.illum };
+      }
+      return +best.illum.toFixed(3);
+    }),
+    /* Names come from the table, so the table is what decides how many there
+       are — a phase list that grew would otherwise leave the prose behind. */
+    names: [...new Set(MOON_PHASES.map(p => p.name))].length
+  };
+});
+check('the mean interval between new moons is the synodic month',
+  Math.abs(moon.mean - 29.530588) < 0.001,
+  JSON.stringify({ mean: +moon.mean.toFixed(6), over: moon.count + ' new moons' }));
+/* The real synodic month swings between about 29.27 and 29.83 days with the
+   eccentricity. A model that produced a CONSTANT interval would pass the mean
+   check above and be wrong about every individual month. */
+check('and the individual months vary the way the real ones do',
+  moon.gapMin > 29.1 && moon.gapMin < 29.4 && moon.gapMax > 29.7 && moon.gapMax < 30.0,
+  JSON.stringify({ min: +moon.gapMin.toFixed(3), max: +moon.gapMax.toFixed(3) }));
+check('a published new moon comes out new',
+  moon.newOff < 2 && moon.newIllum < 0.001,
+  JSON.stringify({ degreesOff: +moon.newOff.toFixed(2), illum: moon.newIllum }));
+check('and a published full moon comes out full',
+  moon.fullOff < 2 && moon.fullIllum > 0.999,
+  JSON.stringify({ degreesOff: +moon.fullOff.toFixed(2), illum: moon.fullIllum }));
+/* The lit fraction is (1 - cos elongation) / 2 and the quarters are the proof:
+   half lit at ninety degrees is the one value a wrong formula rarely gets. */
+check('the lit face follows the elongation, quarters included',
+  moon.ladder[0] < 0.01 && Math.abs(moon.ladder[2] - 0.5) < 0.02 &&
+  moon.ladder[4] > 0.99 &&
+  moon.ladder.every((v, i) => i === 0 || v >= moon.ladder[i - 1]),
+  JSON.stringify(moon.ladder));
+check('the phase names come from a table rather than a chain of ifs',
+  moon.names === 8, JSON.stringify({ names: moon.names }));
+
+/* THE CROSS-CHECK AGAINST THE MEASURED TIDE LIVES IN tools/live-test.mjs, NOT
+   HERE, AND THE REASON IS THE WHOLE POINT OF IT. The spring–neap section is
+   worked out from NOAA's predictions; the moon is worked out from the sky; the
+   check is that two independent paths agree. This suite runs against a STUBBED
+   tide whose fortnightly envelope was authored by hand, so its phase has no
+   relationship to the real moon — it failed here by 4.2 days, which was the
+   fixture being a fixture and not a defect. Made to pass, it would have meant
+   phase-locking the fixture to the code it is supposed to be independent of,
+   which is the opposite of an independent check. It runs against the real
+   service instead, where the agreement means something. */
 check('the fortnight is drawn as well as said', spring.figure);
 /* IT SAYS "FORTNIGHT" AND MEANS IT — sixteen days of predictions cannot say
    this is the biggest tide of the month or the year, and must not imply it. */
@@ -2553,6 +2712,87 @@ const acc = await page.evaluate(() => {
     source: /wildlife\.ca\.gov|arcgis/.test(ACCESS_META.source)
   };
 });
+/* --- WHERE YOU CAN LAUNCH -------------------------------------------------
+   The app asserted for its whole life that this data did not exist, on
+   evidence gathered through a firewall. These assert the correction: that the
+   data is there, that it is filed by the river's own course rather than a box,
+   and — the part that matters most — that its AGE reaches the reader on every
+   entry, because a ramp that closed in 2015 is still in CDFW's file. */
+const ramp = await page.evaluate(() => {
+  const t = document.getElementById('panel-layers').textContent;
+  return {
+    heading: /Where you can launch/.test(t),
+    saysOld: /THAT RECORD IS OLD/.test(t),
+    saysNoStage: /cannot see the stage|knows today/.test(t),
+    /* THE SELECTED RIVER'S, not every river's. The map draws one river at a
+       time, and comparing its layer count against the whole baked file asks a
+       question with no true answer. */
+    baked: (RAMPS[state.riverId] || []).length,
+    bakedAll: Object.values(RAMPS).reduce((n, v) => n + v.length, 0),
+    meta: !!(RAMPS_META && RAMPS_META.source && RAMPS_META.fetchedAt),
+    onMap: state.rampLayer.getLayers().length,
+    /* Undated rows are KEPT and marked. The first generator dropped them and
+       lost two thirds of the data to a rule it had invented. */
+    undated: Object.values(RAMPS).flat().filter(x => x.seen === null).length,
+    unseenKeyed: Object.values(RAMPS).flat().every(x => 'seen' in x),
+    farthest: Math.max(...Object.values(RAMPS).flat().map(x => x.km))
+  };
+});
+check('the panel says where you can launch', ramp.heading, JSON.stringify(ramp));
+check('the launches are baked in and say where they came from',
+  ramp.bakedAll > 10 && ramp.meta, JSON.stringify(ramp));
+check('and they are drawn on the map', ramp.onMap === ramp.baked, JSON.stringify(ramp));
+/* A launch is a slope into THIS river, not a facility somewhere in a box that
+   is hundreds of kilometres across. */
+check('no launch is filed under a river it is not on',
+  ramp.farthest <= 1.2, JSON.stringify(ramp));
+/* THE AGE IS THE WHOLE CAVEAT. If this stops reaching the reader the feature
+   becomes a list of ramps that may not be there, presented as current. */
+check('the panel says out loud that the record is old', ramp.saysOld, JSON.stringify(ramp));
+check('and that it cannot see today\u2019s water', ramp.saysNoStage, JSON.stringify(ramp));
+check('every launch says whether it has a date, including the ones that do not',
+  ramp.unseenKeyed && ramp.undated > 0, JSON.stringify(ramp));
+check('an undated launch is shown as undated rather than dropped or dated',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.seen === null);
+    return !!s && /no date for this one/.test(rampSeen(s)) && !/\d{4}/.test(rampSeen(s));
+  }));
+check('a dated launch prints its year',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.seen);
+    return !!s && rampSeen(s).indexOf(String(s.seen)) !== -1;
+  }));
+/* A facility at a confluence is listed under both rivers on purpose, and
+   saying so is what stops it reading as two places. */
+check('a launch listed under two rivers names the other one',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.also && x.also.length);
+    if (!s) return true;
+    return /Also listed under/.test(rampAlso(s));
+  }));
+/* THE APP MUST NOT STILL SAY THE DATA DOES NOT EXIST. This is the sentence the
+   whole release is the correction of, and a stale copy of it would be worse
+   than never having had the feature. */
+check('the panel no longer claims no launch list exists',
+  await page.evaluate(() => !/No published list of boat ramps/i.test(
+    document.getElementById('panel-layers').textContent)));
+/* Two controls with the same ACCESSIBLE NAME in one panel are indistinguishable
+   to anybody tabbing through it — which is what the launch toggle and the
+   access toggle became the moment this section landed, both reading "Show them
+   on the map".
+
+   The name, not the visible text: every row in these lists carries a button
+   labelled "Map", and those are correctly distinguished by an aria-label naming
+   the place. Asserting on textContent would fail on twenty-three honest
+   buttons, which is the shape of gate this repo has repeatedly had to narrow
+   (hub LESSONS §180). */
+const names = await page.evaluate(() =>
+  [...document.querySelectorAll('#panel-layers button')]
+    .map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
+check('no two controls in Layers answer to the same name',
+  names.filter((x, i) => names.indexOf(x) !== i).length === 0,
+  names.filter((x, i) => names.indexOf(x) !== i).join(' / ') || 'none repeated');
+
 check('the panel offers a way to the water', acc.heading, JSON.stringify(acc));
 check('and never calls it a boat ramp', acc.saysNotRamps, JSON.stringify(acc));
 check('it says the pin is the middle of a property, not the bank',
@@ -2579,7 +2819,11 @@ check('a public-land pin can be tapped and says what kind of place it is',
     if (!m) return false;
     const n = m.getPopup().getContent();
     const t = typeof n === 'string' ? n : n.textContent;
-    return /km to the river/.test(t) && /not a boat ramp/.test(t);
+    /* The claim, not the old wording: this pin denies being a launch and says
+       where the launches actually are. It read /not a boat ramp/ until 2.10.0,
+       when the app gained a real launch layer and the sentence had to change
+       from "no such list exists" to "they are their own layer". */
+    return /km to the river/.test(t) && /not a launch/.test(t) && /own layer/.test(t);
   }));
 /* --- A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT --------------------------
    Measured before the fix by walking out from each centre and asking the
@@ -2609,6 +2853,34 @@ const pinAt = async (off) => {
     return /Depth here|Not on the river/.test(pop.textContent) ? 'depth' : 'pin';
   });
 };
+
+/* THE SAME QUESTION OF THE LAUNCH PINS, because the answer is not inherited.
+   What makes a twelve-pixel pin reachable by a thumb is its layer's presence in
+   `pinLayers()`, and a layer that is drawn but not listed there is inert while
+   looking perfect in every screenshot. */
+const rampAt = async (off) => {
+  await page.evaluate(() => { state.map.closePopup();
+    const s = RAMPS.sacramento[0]; state.map.setView([s.lat, s.lon], 15); });
+  await page.waitForTimeout(500);
+  const pt = await page.evaluate(() => {
+    const p = state.map.latLngToContainerPoint([RAMPS.sacramento[0].lat, RAMPS.sacramento[0].lon]);
+    const b = state.map.getContainer().getBoundingClientRect();
+    return { x: b.x + p.x, y: b.y + p.y };
+  });
+  await page.mouse.click(pt.x + off, pt.y);
+  await page.waitForTimeout(700);
+  return page.evaluate(() => {
+    const pop = document.querySelector('.leaflet-popup-content');
+    if (!pop) return 'nothing';
+    if (/Depth here|Not on the river/.test(pop.textContent)) return 'depth';
+    return /low water|stage/.test(pop.textContent) ? 'launch' : 'other';
+  });
+};
+for (const off of [0, 10, 20]){
+  const got = await rampAt(off);
+  check('a press ' + off + ' px off a launch pin reaches the launch',
+    got === 'launch', 'got ' + got);
+}
 
 for (const off of [0, 10, 20]){
   check('a press ' + off + ' px off a public-land pin reaches the pin',
@@ -2718,12 +2990,12 @@ check('a reader reaches the last depth control without wading',
   panel.text.includes(frag)));
 
 const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
-await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.click('#panel-layers button:text-is("Show the public land on the map")');
 await page.waitForTimeout(600);
 check('they can be turned off',
   await page.evaluate(() => state.accessLayer.getLayers().length) === 0,
   'was ' + accBefore);
-await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.click('#panel-layers button:text-is("Show the public land on the map")');
 await page.waitForTimeout(600);
 check('and back on',
   await page.evaluate(() => state.accessLayer.getLayers().length) === accBefore);

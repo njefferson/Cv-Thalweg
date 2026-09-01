@@ -169,6 +169,11 @@ main{flex:1 1 auto; display:flex; min-height:0}
 .profhead h2{font-size:.8rem; margin:0; font-weight:600; letter-spacing:.04em}
 .profhead .grow{flex:1 1 auto}
 .profhead button{min-height:34px; min-width:34px; padding:.2rem .5rem; font-size:.8rem}
+/* The three view buttons sit together and read as one control. They are small
+   because the profile header is small; they are not the primary action on the
+   screen and the 44px floor is carried by the panel buttons that are. */
+#profviews{display:flex; gap:.25rem}
+#profviews button{min-height:34px; padding:.2rem .45rem; font-size:.75rem}
 /* Scroll IS the pan, so a finger already knows how to use it and no gesture
    has to be invented. The zoom buttons change how wide the drawing is; the
    container scrolls it. */
@@ -322,6 +327,14 @@ h2.sec:first-child{margin-top:0}
 ul.tight{margin:.3rem 0; padding-left:1.1rem}
 ul.tight li{margin:.2rem 0; font-size:.82rem}
 .rowline{display:flex; gap:.5rem; align-items:center; margin:.35rem 0; flex-wrap:wrap}
+/* 44 PIXELS, BECAUSE THESE ARE PRESSED WITH A THUMB ON A RIVERBANK. Every
+   primary action in a panel sits on a .rowline, and every one of them was 30px
+   tall — the layer toggles included, since the app's first week. It was found
+   by a check written for a NEW control in 2.10.0 that then failed on the one
+   beside it, which is the ordinary way a floor gets discovered: nothing was
+   measuring it, so nothing was wrong. The rest of the app's touch targets have
+   been held to 44 for releases; these had simply never been asked. */
+.rowline button{min-height:44px}
 .grow{flex:1 1 auto}
 input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
 .layer{border:1px solid #16302e; padding:.45rem .5rem; margin:.4rem 0}
@@ -482,6 +495,14 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 /* The access pin. A square, drawn to the same weights as the circles beside
    it so it reads as a member of the same family and not as a bug. */
 .accesspin{box-sizing:border-box; border:2px solid #9BD98C; background:#0D1A19}
+/* A TRIANGLE POINTING AT THE WATER, in the buff this app already uses to mean
+   ramp — it is the colour of the reader's own Ramp mark, and reusing it is the
+   point: buff means ramp here. The shape is what separates the two, because a
+   colour-blind reader gets no hue and sunlight takes hue first. Access land is
+   a square, a gauge and a tide station are circles, this is the only triangle
+   on the map. */
+.ramppin{width:0;height:0;border-left:6px solid transparent;
+  border-right:6px solid transparent;border-top:11px solid var(--buff)}
 .legend i.sw.sq{border-radius:0}
 .legend .keyhead{display:flex; align-items:center; gap:.5rem; justify-content:space-between}
 .legend .keyhead button{border:0; padding:0 .2rem; min-height:22px; color:var(--mute);
@@ -638,6 +659,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
       <div class="profhead">
         <h2 id="proftitle">Depth along your line</h2>
         <span class="grow"></span>
+        <!-- WHAT THE PICTURE IS OF. Three buttons rather than a select, because
+             this is a one-press change a reader makes while looking at the
+             drawing, and each carries aria-pressed so the state is not
+             something only the eye can have. Built from PROF_VIEWS. -->
+        <div id="profviews" role="group" aria-label="What the profile shows"></div>
         <button type="button" id="profout" aria-label="Show more of the line">&minus;</button>
         <button type="button" id="profin" aria-label="Stretch the line out">+</button>
         <button type="button" id="profclear">Clear</button>
@@ -734,6 +760,21 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      tools/fetch-access.mjs. Places the department says the public may go —
      NOT boat ramps, and nothing in this app calls them that. -->
 <script src="access-lands.js"></script>
+<!-- Public boating facilities on these rivers, baked by tools/fetch-ramps.mjs
+     from CDFW's own FishingGuide service. The app said for its whole life that
+     no such list existed; that sentence was written on evidence gathered
+     through a firewall, and six of the hosts that publish it had been refused
+     by the container rather than by the state. Every row carries the year
+     somebody last visited, or says it has no date — two thirds of the
+     department's records carry none, and dropping those would lose real
+     ramps. -->
+<script src="ramps.js"></script>
+<!-- How wide each river is along its own course, baked by tools/fetch-widths.mjs
+     by casting a line across USGS's NHD polygon of the mapped water surface.
+     It is the MAPPED channel at 1:24,000, not today's water, and a null is a
+     refusal rather than a gap: a confluence, a bypass, or a reach where USGS's
+     flowline and USGS's own area polygon do not agree. 11 KB. -->
+<script src="river-widths.js"></script>
 <!-- The sections of Title 14 this app quotes, baked by tools/fetch-regs.mjs
      from CDFW's own regulations service and re-baked monthly by a workflow.
      A regulation typed into source is right on the day it is typed and
@@ -764,7 +805,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.9.1';
+var VERSION = '2.11.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2117,6 +2158,7 @@ function loadCatalog(force){
     /* The moment the app knows where the surveys are, the map should say so. */
     drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
     sput('_shared', 'catalog', cat);
     return cat;
   });
@@ -3227,7 +3269,10 @@ function initMap(){
      stand is worth tapping, and a reading still wins over it. */
   m.createPane('accesspane');
   m.getPane('accesspane').style.zIndex = 375;
+  m.createPane('ramppane');
+  m.getPane('ramppane').style.zIndex = 376;
   state.accessLayer = L.layerGroup().addTo(m);
+  state.rampLayer = L.layerGroup().addTo(m);
 
   m.createPane('herepane');
   m.getPane('herepane').style.zIndex = 385;
@@ -4360,6 +4405,20 @@ function renderWater(){
     if (river.tidal){
       if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Tide'}));
       p.appendChild(tideSection(river));
+      /* THE MOON, UNDER THE FORTNIGHTLY SWING IT CAUSES — AND OUTSIDE
+         tideSection ON PURPOSE. That function returns early while the
+         predictions are loading and again when the station fails, and the moon
+         depends on neither: it is arithmetic about the sky, it needs no signal
+         and no station, and it is the one thing on this panel that is never
+         missing. Put inside, it disappeared exactly when everything else did.
+         This is the third time in this file a section has been written inside a
+         branch that had nothing to do with it — the light box inside the
+         hourly-curve branch, and the overlap caveat inside the branch that
+         found an overlap. */
+      if (rivers.length === 1){
+        p.appendChild(el('h2',{class:'sec',text:'The moon'}));
+        p.appendChild(moonBox());
+      }
       /* THE TIDE AT A PLACE, THEN THE TIDE ALONG THE RIVER. The section above
          predicts the water level at one station; this one shows which way the
          water is actually running at every gauge that measures it, in river
@@ -4758,6 +4817,190 @@ function solarEcliptic(days){
         + 0.0003 * Math.sin(3 * M * DEG);
   var L = (M + C + 180 + 102.9372) % 360;
   return { M:M, L:L, decl: Math.asin(Math.sin(L * DEG) * Math.sin(OBLIQ * DEG)) / DEG };
+}
+
+/* =====================================================================
+   THE MOON.
+
+   Computed, not fetched — the same shape as the sun above, and for the same
+   reason: it is arithmetic about the sky, it works with no signal, and there is
+   no service to be down. Meeus's low-precision series, which is good to a few
+   arc-minutes on the longitude and far better than the phase needs.
+
+   IT SITS BESIDE THE SPRING–NEAP FIGURES ON PURPOSE, and the two are worked out
+   from completely different things: that section measures the swing in NOAA's
+   published predictions, and this is the position of the moon. They should
+   agree — springs follow the new and the full by a day or two — and the app
+   says so rather than implying one is derived from the other. Where they
+   disagree, the water is the authority, which is this app's standing answer.
+
+   WHAT IT WILL NOT DO is tell you the fishing is better on a full moon. That is
+   a belief, widely held, and this app has no basis for it.
+   ===================================================================== */
+
+/* The moon's ecliptic longitude.
+
+   THE FIRST VERSION OF THIS CARRIED ONE PERIODIC TERM and it was measurably
+   wrong. The mean interval between the new moons it found came out at 29.517
+   days against the true 29.53059 — and the mean was not the problem, the
+   SCATTER was: with only the equation of centre, each individual new moon
+   lands up to a third of a day out, which is enough to print the wrong
+   calendar date. The two largest omitted terms are the evection (1.27°) and
+   the variation (0.66°), and at the moon's 12.19° a day of elongation those
+   are two and a half hours and an hour and a quarter of timing error.
+
+   So the series is the standard truncation, and the mean interval is asserted
+   against 29.53059 in tools/render-test.mjs — an invariant of the sky rather
+   than a number this code was tuned to. */
+function moonEcliptic(days){
+  var Lp = 218.316 + 13.176396 * days;          /* mean longitude          */
+  var M  = 134.963 + 13.064993 * days;          /* mean anomaly            */
+  var F  =  93.272 + 13.229350 * days;          /* argument of latitude    */
+  var D  = 297.850 + 12.190749 * days;          /* mean elongation         */
+  var Ms = 357.529 +  0.985600 * days;          /* the SUN's mean anomaly  */
+  var lon = Lp
+    + 6.289 * Math.sin(M * DEG)                 /* equation of centre      */
+    - 1.274 * Math.sin((2 * D - M) * DEG)       /* evection                */
+    + 0.658 * Math.sin(2 * D * DEG)             /* variation               */
+    - 0.186 * Math.sin(Ms * DEG)                /* annual equation         */
+    - 0.059 * Math.sin((2 * D - 2 * M) * DEG)
+    - 0.057 * Math.sin((2 * D - Ms - M) * DEG)
+    + 0.053 * Math.sin((2 * D + M) * DEG)
+    + 0.046 * Math.sin((2 * D - Ms) * DEG)
+    + 0.041 * Math.sin((M - Ms) * DEG)
+    - 0.035 * Math.sin(D * DEG)
+    - 0.031 * Math.sin((M + Ms) * DEG);
+  var lat = 5.128 * Math.sin(F * DEG);
+  return { lon: ((lon % 360) + 360) % 360, lat: lat };
+}
+
+/* THE SYNODIC MONTH, named once and asked of rather than typed into a dozen
+   sentences. 29.530588 days is the mean interval between new moons. */
+var SYNODIC_DAYS = 29.530588;
+
+/* The named phases, as a TABLE, because the prose that describes them has to
+   ask how many there are rather than counting by hand — and because the
+   boundaries are a convention this app is applying, not a fact about the sky,
+   so they should be visible in one place rather than buried in an if-chain. */
+var MOON_PHASES = [
+  { to:  22.5, name:'new',             lit:'no lit face at all' },
+  { to:  67.5, name:'waxing crescent', lit:'a crescent, filling' },
+  { to: 112.5, name:'first quarter',   lit:'half lit, filling' },
+  { to: 157.5, name:'waxing gibbous',  lit:'most of it lit, filling' },
+  { to: 202.5, name:'full',            lit:'the whole face' },
+  { to: 247.5, name:'waning gibbous',  lit:'most of it lit, emptying' },
+  { to: 292.5, name:'last quarter',    lit:'half lit, emptying' },
+  { to: 337.5, name:'waning crescent', lit:'a crescent, emptying' },
+  { to: 360.1, name:'new',             lit:'no lit face at all' }
+];
+
+/* Where the moon is in its cycle at one instant.
+
+   `elong` is the moon's angular distance from the sun along the ecliptic: 0 at
+   new, 180 at full. The lit fraction follows from it directly, and so does
+   which way it is going — under 180 is filling. */
+function moonPhase(date){
+  var d = daysSinceJ2000(date);
+  var m = moonEcliptic(d), sun = solarEcliptic(d);
+  var elong = ((m.lon - sun.L) % 360 + 360) % 360;
+  var band = MOON_PHASES.filter(function(p){ return elong < p.to; })[0] || MOON_PHASES[0];
+  return {
+    elong: elong,
+    /* The illuminated fraction of the disc, 0 to 1. */
+    illum: (1 - Math.cos(elong * DEG)) / 2,
+    waxing: elong < 180,
+    name: band.name,
+    lit: band.lit,
+    /* Days since the last new moon, which is what "the moon is four days old"
+       means on a tide table. */
+    age: elong / 360 * SYNODIC_DAYS
+  };
+}
+
+/* WHEN THE NEXT ONE IS, found rather than estimated. The elongation is
+   monotonic enough over a month that stepping to the crossing and then
+   bisecting it lands within a minute — and a minute is far finer than a phase
+   deserves, which is why the app prints a date and not a time. */
+function nextMoonEvent(from, target){
+  var step = 3600000 * 6, t = from.getTime(), limit = from.getTime() + 45 * 86400000;
+  function gap(when){
+    var e = moonPhase(new Date(when)).elong - target;
+    return ((e % 360) + 540) % 360 - 180;   /* signed, in (-180, 180] */
+  }
+  var a = gap(t);
+  while (t < limit){
+    var t2 = t + step, b = gap(t2);
+    if (a <= 0 && b > 0){
+      var lo = t, hi = t2;
+      for (var i = 0; i < 40; i++){
+        var mid = (lo + hi) / 2;
+        if (gap(mid) <= 0) lo = mid; else hi = mid;
+      }
+      return new Date((lo + hi) / 2);
+    }
+    t = t2; a = b;
+  }
+  return null;
+}
+
+/* The moon in words and a drawing, sitting under the spring–neap section
+   because it is the cause of it — and saying so without claiming the one was
+   derived from the other. */
+function moonBox(){
+  var now = new Date(), m = moonPhase(now);
+  var box = el('div', {});
+  var pct = Math.round(m.illum * 100);
+
+  /* THE SENTENCE FIRST. Everything the drawing shows exists in words, because
+     the drawing is a role="img" and a reader who never sees it must lose
+     nothing. */
+  var say = 'The moon is ' + m.name +
+    (m.name === 'new' || m.name === 'full' ? '' : ' \u2014 ' + m.lit) +
+    ', ' + pct + '% of the face lit, ' + fmt(m.age, 1) + ' days since the last new moon.';
+  box.appendChild(el('p', { class:'note', text:say }));
+
+  var nn = nextMoonEvent(now, 0), nf = nextMoonEvent(now, 180);
+  if (nn && nf){
+    var first = nn < nf ? ['new', nn, 'full', nf] : ['full', nf, 'new', nn];
+    box.appendChild(el('p', { class:'note',
+      /* dayLocal wants an ISO string; these are Dates, and what matters is the
+         LOCAL calendar day the event falls on, so the Date goes through
+         toLocaleDateString by the same route rather than being reformatted. */
+      text:'Next ' + first[0] + ' on ' + dayLocal(first[1].toISOString()) +
+        ', then ' + first[2] + ' on ' + dayLocal(first[3].toISOString()) + '.' }));
+  }
+
+  /* WHY IT IS HERE, and the limit of it, in the same breath. The spring–neap
+     figures above are measured out of NOAA's published predictions; this is
+     arithmetic about the sky. Neither is derived from the other, so their
+     agreement is worth something and their disagreement is worth saying. */
+  box.appendChild(el('p', { class:'note',
+    text:'The fortnightly swing above and this are worked out from different things \u2014 that from NOAA\u2019s published predictions for this station, this from where the moon is. The big tides follow the new and the full by a day or two, so the two should line up; where they do not, the water is the authority.' }));
+  box.appendChild(el('p', { class:'note',
+    text:'The times behind these dates are good to a few hours rather than to the minute, which is why a date is printed and not a time. And nothing here says the fishing is better on any phase: that is a belief, widely held, and this app has no basis for it.' }));
+
+  /* The disc. A circle with the lit part drawn as a half-disc plus an ellipse
+     for the terminator — the ordinary construction, and it gets the crescent
+     and the gibbous right from the same two shapes. */
+  var R = 26, W = R * 2 + 8, H = R * 2 + 8, cx = W / 2, cy = H / 2;
+  var sv = svg('svg', { width:String(W), height:String(H),
+    viewBox:'0 0 ' + W + ' ' + H, role:'img',
+    'aria-label':'The moon tonight: ' + m.name + ', ' + pct + ' per cent lit.' });
+  sv.appendChild(svg('circle', { cx:String(cx), cy:String(cy), r:String(R),
+    fill:'#0A1214', stroke:'#2E7C76', 'stroke-width':'1' }));
+  /* The terminator's half-width, signed: 1 at full, 0 at the quarters, -1 at
+     new. Two arcs sharing their endpoints draw every phase there is. */
+  var k = -Math.cos(m.elong * DEG);
+  var sweepOuter = m.waxing ? 1 : 0;
+  var sweepInner = k > 0 ? sweepOuter : 1 - sweepOuter;
+  var d = 'M ' + cx + ' ' + (cy - R) +
+    ' A ' + R + ' ' + R + ' 0 0 ' + sweepOuter + ' ' + cx + ' ' + (cy + R) +
+    ' A ' + Math.abs(k * R) + ' ' + R + ' 0 0 ' + sweepInner + ' ' + cx + ' ' + (cy - R) + ' Z';
+  if (pct > 0) sv.appendChild(svg('path', { d:d, fill:'#E6F0EF' }));
+  var wrap = el('div', { class:'rowline' });
+  wrap.appendChild(sv);
+  box.appendChild(wrap);
+  return box;
 }
 
 /* How high the sun is, in degrees, at one instant and one place. */
@@ -5340,6 +5583,76 @@ function renderLayers(){
     'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.',
     'Single beam data are points along the boat\u2019s track. The water between two tracks was never measured and is not drawn.']));
 
+  /* WHERE YOU CAN PUT A BOAT IN. This section is the correction of a claim the
+     app made for its whole life — that no published list of ramps for these
+     rivers existed. It does exist, it is CDFW's, and the reason the app said
+     otherwise is that the hosts publishing it were refused by a container and
+     a refusal reads exactly like an absence from inside. (Hub LESSONS §188.)
+
+     IT LEADS the access lands rather than following them, because the access
+     lands were only ever here as the substitute for this. */
+  var launches = rampsFor(river);
+  var rmeta = rampsMeta();
+  p.appendChild(el('h2',{class:'sec',text:'Where you can launch'}));
+  if (!launches.length){
+    p.appendChild(el('p',{class:'note',
+      text:'CDFW\u2019s record of boating facilities has none within a kilometre of the ' +
+        river.name + '\u2019s course. That is a gap in a survey that has not been fully redone since ' +
+        (rmeta ? rmeta.seenTo : 2014) + ', not a statement that there is nowhere to launch.'}));
+  } else {
+    /* THE AGE IS THE HEADLINE, not a footnote. A reader who takes this as
+       current and drives to a closed ramp with a boat on a trailer has been
+       failed worse than by a missing depth reading. */
+    p.appendChild(el('p',{class:'note',
+      text:countWord(launches.length) + ' public boating facilit' +
+        (launches.length === 1 ? 'y' : 'ies') + ' on this river, from CDFW\u2019s own record. ' +
+        'THAT RECORD IS OLD: it is interviews, the dated ones taken between ' +
+        (rmeta ? rmeta.seenFrom : 2010) + ' and ' + (rmeta ? rmeta.seenTo : 2014) +
+        ', and CDFW gives no date at all for many of them. Ring before you drive.'}));
+    var rampRow = el('div',{class:'rowline'});
+    var rampBtn = el('button',{type:'button',
+      'aria-pressed': state.showRamps === false ? 'false' : 'true',
+      /* NOT "Show them on the map". The access-lands section further down had
+         that exact label already, so this panel would have carried two buttons
+         reading the same four words — indistinguishable to anybody tabbing
+         through them, and to the test suite, which clicked the wrong one the
+         moment this section landed. Each names what it shows. */
+      text:'Show the launches on the map'});
+    rampBtn.addEventListener('click', function(){
+      state.showRamps = state.showRamps === false;
+      drawRamps(); updateLegend(); renderLayers();
+      announce(state.showRamps === false ? 'Launches hidden.' : 'Launches shown.');
+    });
+    rampRow.appendChild(rampBtn);
+    p.appendChild(rampRow);
+    p.appendChild(foldNote('What this list is, and what it cannot tell you', [
+      'It is CDFW\u2019s own record of boating facilities, from the service behind the department\u2019s Fishing Guide. Only facilities it marks as usable by the public are here, and each one is filed under the river whose course it actually sits nearest rather than by a box drawn round the river.',
+      'It is a record of visits, not a survey of what is standing today. Where CDFW recorded the year of the visit this app prints it; where it recorded none, the app says so rather than letting an undated entry read as current.',
+      'And nothing here knows the water. Low water closes a ramp for a whole season, and this record cannot see the stage. What is on this page is where a launch was; whether you can use it this weekend is a phone call.']));
+
+    var rul = el('ul',{class:'tight'});
+    launches.slice(0, 12).forEach(function(s){
+      var li = el('li',{});
+      li.appendChild(el('b',{text:s.name}));
+      var facts = rampFacts(s);
+      li.appendChild(document.createTextNode(' \u2014 ' + rampWhere(s) + '. ' +
+        (facts.length ? initialCap(joinNames(facts)) + '. ' : '') + rampSeen(s) + rampAlso(s)));
+      var go = el('button',{class:'gobtn',type:'button',
+        'aria-label':'Show ' + s.name + ' on the map', text:'Map'});
+      go.addEventListener('click', function(){
+        if (tabNames().indexOf('map') !== -1) selectTab('map');
+        mapView([[s.lat, s.lon], 14], { animate:!reduceMotion });
+      });
+      li.appendChild(document.createTextNode(' '));
+      li.appendChild(go);
+      rul.appendChild(li);
+    });
+    p.appendChild(rul);
+    if (launches.length > 12) p.appendChild(el('p',{class:'note',
+      text:'The twelve nearest the top of the alphabet, of ' + launches.length +
+        '. The rest are on the map.'}));
+  }
+
   /* GETTING TO THE WATER. Depth is no use from a road you cannot stop on. */
   var sites = accessSites(river);
   p.appendChild(el('h2',{class:'sec',text:'Getting to the water'}));
@@ -5355,7 +5668,7 @@ function renderLayers(){
     var accRow = el('div',{class:'rowline'});
     var accBtn = el('button',{type:'button',
       'aria-pressed': state.showAccess === false ? 'false' : 'true',
-      text:'Show them on the map'});
+      text:'Show the public land on the map'});
     accBtn.addEventListener('click', function(){
       state.showAccess = state.showAccess === false;
       drawAccessSites(); updateLegend(); renderLayers();
@@ -5365,7 +5678,7 @@ function renderLayers(){
     p.appendChild(accRow);
     p.appendChild(foldNote('What these places are, and what they are not', [
       'These are places the department says the public may go, in its words, with a link to its page where it has one.',
-      'No published list of boat ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
+      'These are not launches. Where you can put a boat in is its own section above, from CDFW\u2019s own record of boating facilities. Each pin here is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
 
     var ul = el('ul',{class:'tight'});
     sites.slice(0, 12).forEach(function(site){
@@ -5654,6 +5967,13 @@ function updateLegend(){
     var pl = el('i',{class:'sw',
       style:'width:16px;height:0;border-radius:0;border:0;border-top:3px solid #F2A65A'});
     rows.push(keyRow(pl, 'The line the depth below is measured along'));
+  }
+  if (state.rampLayer && state.rampLayer.getLayers().length){
+    /* The swatch is the pin: a buff triangle, the only one on the map. */
+    var rp = el('i',{class:'sw',
+      style:'width:0;height:0;border-radius:0;border-left:6px solid transparent;' +
+            'border-right:6px solid transparent;border-top:11px solid #C9A96A;background:none'});
+    rows.push(keyRow(rp, 'Where you can launch \u2014 CDFW\u2019s record, and it is old'));
   }
   if (state.accessLayer && state.accessLayer.getLayers().length){
     /* THE KEY HAS TO CARRY THE SHAPE. A round swatch beside a square pin is a
@@ -6318,6 +6638,7 @@ function selectRiver(id){
   if (home) home.hidden = !state.riverId;
   drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -8065,12 +8386,98 @@ function bedChange(model){
    thirty feet of water drawn true to scale is a flat line, and the shape is
    what the picture is for. The axis says so rather than letting the drawing
    imply a slope nobody measured. */
+/* =====================================================================
+   HOW WIDE THE RIVER IS, ALONG THE SAME LINE THE DEPTH IS DRAWN ON.
+
+   The depth profile answers one dimension of a channel. This is the other, and
+   a reader can see a narrows and a wide flat for what they are instead of
+   inferring them from the shape of a depth line.
+
+   IT IS THE MAPPED CHANNEL AND NOT TODAY'S WATER. USGS compiled the polygon at
+   1:24,000; the river is wider in a flood and narrower in a drought and this
+   does not move with the stage. Bank to bank, so bars and shallow margins are
+   inside it — the same relationship the depth surveys have to navigable water,
+   and the same reason neither is for navigation.
+
+   THE SAMPLES ARE PLACES ON THE COURSE, and they are put on the profile's
+   distance axis by projecting them onto the drawn line — the same projection
+   that puts YOU on it. A sample that is not near the line is not on the chart,
+   which is what makes this work on a hand-drawn line as well as on the river's
+   own course, and makes it show nothing at all on a cross-section, where the
+   width is the picture rather than a series in it.
+   ===================================================================== */
+function widthsFor(river){
+  var w = (typeof RIVER_WIDTHS === 'object' && RIVER_WIDTHS) || {};
+  return (w[river.id] || []);
+}
+function widthsMeta(){
+  return (typeof WIDTHS_META === 'object' && WIDTHS_META) || null;
+}
+function widthAlong(river, pts){
+  if (!river || !pts || pts.length < 2) return [];
+  var line = riverLineFor(river.id);
+  if (!line) return [];
+  var out = [];
+  widthsFor(river).forEach(function(sample){
+    if (sample.m === null) return;
+    var p = line[sample.i];
+    if (!p) return;
+    var pr = projectOnLine(pts, p[0], p[1]);
+    /* 150 m: wide enough that the course and a line drawn along it still
+       match, tight enough that a sample on a different reach is not dragged
+       onto this chart. */
+    if (!pr || pr.off > 150) return;
+    out.push({ along: pr.along, m: sample.m });
+  });
+  out.sort(function(a, b){ return a.along - b.along; });
+  return out;
+}
+/* Three states rather than a checkbox, because "width only" is a real way to
+   read this: a reader looking for a narrows does not want the bed in the way.
+   Declared as a table so the prose describing them can ask how many there
+   are. */
+var PROF_VIEWS = [
+  { id:'depth', label:'Depth',           says:'the bed, as the state surveyed it' },
+  { id:'both',  label:'Depth and width', says:'the bed, and how far it is bank to bank' },
+  { id:'width', label:'Width',           says:'how far it is bank to bank, on its own' }
+];
+function profView(){
+  var want = state.profShow || 'depth';
+  return PROF_VIEWS.filter(function(v){ return v.id === want; })[0] || PROF_VIEWS[0];
+}
+
+/* The three buttons, rebuilt with each render so aria-pressed can never be
+   stale. A control that says it is on when it is off is worse than none. */
+function renderProfViews(){
+  var host = $('#profviews');
+  if (!host) return;
+  host.innerHTML = '';
+  var have = state.profile && state.profile.widths && state.profile.widths.length > 1;
+  PROF_VIEWS.forEach(function(v){
+    /* THE WIDTH VIEWS ARE NOT OFFERED WHERE THERE IS NO WIDTH. A button that
+       switches to an empty picture teaches the reader the feature is broken. */
+    if (v.id !== 'depth' && !have) return;
+    var b = el('button',{type:'button', text:v.label,
+      'aria-pressed': profView().id === v.id ? 'true' : 'false',
+      'aria-label': v.label + ' \u2014 ' + v.says });
+    b.addEventListener('click', function(){
+      state.profShow = v.id;
+      renderProfile();
+      announce('Showing ' + v.says + '.');
+    });
+    host.appendChild(b);
+  });
+  /* One button on its own is not a choice; it is furniture. */
+  if (!have) host.innerHTML = '';
+}
+
 function renderProfile(){
   var m = state.profile;
   var sec = $('#profile'), svg = $('#profsvg'), note = $('#profnote');
   if (!m){ sec.hidden = true; svg.innerHTML = ''; renderBedChange(null); return; }
   sec.hidden = false;
   renderBedChange(m);
+  renderProfViews();
 
   var wrap = $('#profwrap');
   var H = Math.max(90, wrap.clientHeight || 150);
@@ -8095,7 +8502,19 @@ function renderProfile(){
   svg.appendChild(ttl);
   function name(t){ ttl.textContent = t; }
 
-  if (m.none || !isNum(m.deepest)){
+  /* WHICH OF THE THREE VIEWS, resolved before anything decides what to draw —
+     including the early return for a line with no depth, which the width view
+     has to be allowed past. */
+  var view = profView();
+
+  /* WIDTH SURVIVES A MISSING SURVEY. DWR sounded the bed and USGS mapped the
+     banks; the second does not stop existing because the first never happened,
+     and on these rivers most of the course has no survey at all. So the
+     no-depth return is skipped when the reader has asked for the width and
+     there is a width to show — which is the whole reason "Width" is its own
+     view rather than a tick beside the depth. */
+  var wOnly = view.id === 'width' && m.widths && m.widths.length > 1;
+  if ((m.none || !isNum(m.deepest)) && !wOnly){
     var why = m.none === 'nocatalog'
       ? 'The survey directory has not arrived, so this cannot be answered yet \u2014 which is not the same as there being no survey here.'
       : m.none === 'nowhere'
@@ -8107,8 +8526,10 @@ function renderProfile(){
   }
 
   /* Deepest at the bottom of the picture, with a little air under it. */
-  var maxD = Math.abs(m.deepest) * 1.08 + 1;
-  var x = function(d){ return padL + (d / (m.length || 1)) * (W - padL - padR); };
+  var maxD = isNum(m.deepest) ? Math.abs(m.deepest) * 1.08 + 1 : 1;
+  var axisLen = m.length || (m.widths && m.widths.length
+    ? m.widths[m.widths.length - 1].along : 1) || 1;
+  var x = function(d){ return padL + (d / axisLen) * (W - padL - padR); };
   var y = function(v){ return padT + (Math.abs(v) / maxD) * (H - padT - padB); };
 
   /* The water itself, so the picture reads as a section through a river and
@@ -8116,9 +8537,11 @@ function renderProfile(){
   svg.appendChild(node('rect', { x:padL, y:padT, width:W - padL - padR,
     height:H - padT - padB, fill:'#0B2430' }));
 
-  /* Depth grid, labelled, because a shape with no numbers is decoration. */
+  /* Depth grid, labelled, because a shape with no numbers is decoration.
+     Absent in width-only mode: a depth scale beside a width line is an
+     invitation to read one as the other. */
   var step = maxD > 60 ? 20 : maxD > 24 ? 10 : 5;
-  for (var d = step; d < maxD; d += step){
+  for (var d = view.id === 'width' ? maxD + 1 : step; d < maxD; d += step){
     svg.appendChild(node('line', { x1:padL, x2:W - padR, y1:y(d), y2:y(d),
       stroke:'#2E7C76', 'stroke-width':1, opacity:.45 }));
     var lab = node('text', { x:4, y:y(d) + 3, fill:'#9FB3B1', 'font-size':9 });
@@ -8130,7 +8553,7 @@ function renderProfile(){
      answers, measured on different days, and the app shows both rather than
      picking one and calling it the bottom. */
   var colours = ['#7BD5D9', '#C9A96A', '#9BD98C'];
-  m.bands.forEach(function(b, i){
+  (view.id === 'width' ? [] : (m.bands || [])).forEach(function(b, i){
     var col = colours[i % colours.length];
     /* Runs, split on missing data. A line drawn straight across a gap invents
        a bottom between two places nobody measured. */
@@ -8164,6 +8587,41 @@ function renderProfile(){
     });
   });
 
+  /* HOW WIDE IT IS, ON THE SAME DISTANCE AXIS. Its own scale on the right,
+     in metres, because a width and a depth are different quantities and
+     sharing an axis would invite reading one as the other. Mint, which is not
+     a colour any depth band or map pin uses. */
+  var widthPts = view.id === 'depth' ? [] : (m.widths || []);
+  if (widthPts.length > 1){
+    var wMax = 0;
+    widthPts.forEach(function(p){ if (p.m > wMax) wMax = p.m; });
+    wMax = wMax * 1.12 + 5;
+    /* In width-only mode the series owns the picture and reads upward from the
+       foot, which is what a width looks like. Shown with the depth it hangs
+       from the top on its own scale, so the two never touch. */
+    var wy = view.id === 'width'
+      ? function(v){ return (H - padB) - (v / wMax) * (H - padT - padB); }
+      : function(v){ return padT + (1 - v / wMax) * (H - padT - padB) * 0.42; };
+    var wd = widthPts.map(function(p){ return x(p.along).toFixed(1) + ',' + wy(p.m).toFixed(1); });
+    svg.appendChild(node('path', { fill:'none', stroke:'#8FD9B4', 'stroke-width':1.8,
+      'stroke-linejoin':'round', d:'M' + wd.join(' L') }));
+    /* The scale, labelled, on the side the series is on. A shape with no
+       numbers beside it is decoration. */
+    var wstep = wMax > 600 ? 200 : wMax > 240 ? 100 : wMax > 120 ? 50 : 20;
+    for (var wv = wstep; wv < wMax; wv += wstep){
+      var yy = wy(wv);
+      if (yy < padT || yy > H - padB) continue;
+      var wl = node('text', { x: view.id === 'width' ? 4 : W - padR - 2, y: yy + 3,
+        fill:'#8FD9B4', 'font-size':9,
+        'text-anchor': view.id === 'width' ? 'start' : 'end' });
+      wl.textContent = wv + 'm';
+      svg.appendChild(wl);
+      if (view.id === 'width')
+        svg.appendChild(node('line', { x1:padL, x2:W - padR, y1:yy, y2:yy,
+          stroke:'#2E7C76', 'stroke-width':1, opacity:.35 }));
+    }
+  }
+
   /* WHERE YOU ARE ON THE LINE. Only when you are actually near it — a marker
      for somebody two miles away is a lie about the picture. */
   var youText = '';
@@ -8182,13 +8640,49 @@ function renderProfile(){
   }
 
   /* Distance ticks along the foot. */
-  var span = m.length;
+  var span = m.length || (m.widths && m.widths.length
+    ? m.widths[m.widths.length - 1].along : 0);
   var dstep = span > 8000 ? 2000 : span > 3000 ? 1000 : span > 1200 ? 500 : 200;
   for (var q = 0; q <= span; q += dstep){
     var t = node('text', { x:x(q), y:H - 5, fill:'#9FB3B1', 'font-size':9,
       'text-anchor': q === 0 ? 'start' : 'middle' });
     t.textContent = kmText(q);
     svg.appendChild(t);
+  }
+
+  /* WHAT THE PICTURE IS OF, IN WORDS — the same sentence for the note under it
+     and for the drawing's accessible name, so a reader who never sees the
+     drawing loses nothing. In width-only mode there may be no survey at all
+     here, so the depth sentence must not be assembled. */
+  var wSay = '';
+  if (widthPts.length > 1){
+    var wMin = widthPts[0].m, wMaxSeen = widthPts[0].m;
+    widthPts.forEach(function(pt){
+      if (pt.m < wMin) wMin = pt.m;
+      if (pt.m > wMaxSeen) wMaxSeen = pt.m;
+    });
+    var wm = widthsMeta();
+    wSay = ' Bank to bank it runs from ' + wMin + ' m at its narrowest here to ' +
+      wMaxSeen + ' m at its widest, over ' + countWord(widthPts.length) +
+      ' places USGS has mapped along this line. That is the MAPPED channel at ' +
+      '1:24,000, not today\u2019s water \u2014 the river is wider in a flood and ' +
+      'narrower in a drought and this does not move with the stage. It is bank ' +
+      'to bank, so bars and shallow margins are inside it.' +
+      (wm ? '' : '');
+  }
+  if (view.id === 'width'){
+    var wLead = state.profWhole
+      ? 'Down the river\u2019s own line, '
+      : 'Along ' + kmText(axisLen) + ' of line, ';
+    var wSentence = wLead + 'how far it is from bank to bank.' + wSay + youText;
+    note.textContent = wSentence;
+    name(wSentence);
+    /* NO FINGER-TRACING IN THIS VIEW, and it is a real loss rather than an
+       oversight: the tracing reads a DEPTH at the point under the finger and
+       moves a mark along the line on the map, and there is no depth here to
+       read. Listed in the release notes as still not right rather than left
+       for somebody to discover. */
+    return;
   }
 
   var names = m.bands.filter(function(b){ return b.measured; })
@@ -8206,7 +8700,8 @@ function renderProfile(){
     fmt(Math.abs(m.deepest), 1) + ' feet, from ' +
     (names.length === 1 ? names[0] : names.length + ' surveys: ' + names.join('; ')) + '.' +
     youText +
-    ' Depths are as the survey published them; the vertical scale is stretched, so read the shape and the numbers, not the slope.';
+    ' Depths are as the survey published them; the vertical scale is stretched, so read the shape and the numbers, not the slope.' +
+    (view.id === 'both' ? wSay : '');
   note.textContent = sentence;
   name(sentence);
 
@@ -8341,7 +8836,7 @@ function renderHeld(held){
   if (na){
     box.appendChild(el('p',{class:'note',
       text:'Nearest public land: ' + na.site.name + ', ' + kmText(na.d) + ' away. ' +
-        'That is the middle of a property rather than a spot on the bank, and it is not a boat ramp.'}));
+        'That is the middle of a property rather than a spot on the bank, and it is not a launch.'}));
   } else {
     box.appendChild(el('p',{class:'note',
       text:'CDFW publishes no land of its own near here, which is not the same as there being nowhere to fish from.'}));
@@ -8513,6 +9008,77 @@ function accessSites(river){
   return (a[river.id] || []);
 }
 
+/* =====================================================================
+   WHERE YOU CAN PUT A BOAT IN.
+   CDFW's own boating facilities, baked. This section exists because the app
+   spent its whole life asserting there was no such list — a sentence written
+   on evidence gathered through a firewall, where a refused host and an absent
+   dataset look identical. (Hub LESSONS §188.)
+
+   TWO CAVEATS TRAVEL WITH EVERY ONE OF THESE and neither is optional. They
+   are interview records, so the year somebody last stood there is printed on
+   each, and where CDFW recorded no year the app SAYS there is none rather
+   than letting an undated row read as current. And nothing here knows today's
+   water: low water takes a ramp out of use for a season and this data has no
+   idea what the stage is.
+   ===================================================================== */
+function rampsFor(river){
+  var r = (typeof RAMPS === 'object' && RAMPS) || {};
+  return (r[river.id] || []);
+}
+function rampsMeta(){
+  return (typeof RAMPS_META === 'object' && RAMPS_META) || null;
+}
+/* "last seen in 2012" or the honest absence. Never a guess, and never a blank
+   that reads as recent. */
+function rampSeen(s){
+  return s.seen ? 'Last visited in ' + s.seen + '.'
+                : 'CDFW records no date for this one, so there is no telling how old it is.';
+}
+/* What the record actually offers, in the reader's terms, and nothing invented
+   from a field that was empty. */
+function rampFacts(s){
+  var out = [];
+  if (s.lanes) out.push(countWord(s.lanes) + ' ramp lane' + (s.lanes === 1 ? '' : 's'));
+  if (s.trailerSpaces) out.push(s.trailerSpaces + ' trailer space' + (s.trailerSpaces === 1 ? '' : 's'));
+  if (s.restrooms) out.push('restrooms');
+  if (s.fishCleaning) out.push('fish cleaning');
+  return out;
+}
+function rampWhere(s){
+  var bits = [];
+  if (s.type) bits.push(s.type);
+  if (s.county) bits.push(s.county + ' County');
+  if (s.owner) bits.push(s.gov ? s.owner : s.owner + ' (privately owned)');
+  return bits.join(' \u00b7 ');
+}
+/* A facility at a confluence is genuinely on both rivers and is listed under
+   both. Saying so is what stops it reading as two places. */
+function rampAlso(s){
+  if (!s.also || !s.also.length) return '';
+  var names = s.also.map(function(id){ var r = byId(id); return r ? r.short : id; });
+  return ' Also listed under ' + joinNames(names) + '.';
+}
+
+function drawRamps(){
+  if (!state.rampLayer) return;
+  state.rampLayer.clearLayers();
+  if (!state.riverId || state.showRamps === false) return;
+  var river = byId(state.riverId);
+  rampsFor(river).forEach(function(s){
+    var facts = rampFacts(s);
+    L.marker([s.lat, s.lon], {
+      pane:'ramppane', keyboard:false,
+      icon: L.divIcon({ className:'ramppin', html:'', iconSize:[12,11] })
+    }).bindPopup(labelNode(s.name,
+      facts.length ? [[String(s.lanes || ''), s.lanes ? 'lanes' : '']].filter(function(x){ return x[0]; }) : [],
+      rampWhere(s) + '. ' + (facts.length ? initialCap(joinNames(facts)) + '. ' : '') +
+      rampSeen(s) + rampAlso(s) +
+      ' Nothing here knows today\u2019s water \u2014 low water closes ramps and this record cannot see the stage.'
+    ), LABEL).addTo(state.rampLayer);
+  });
+}
+
 function drawAccessSites(){
   if (!state.accessLayer) return;
   state.accessLayer.clearLayers();
@@ -8535,8 +9101,8 @@ function drawAccessSites(){
     }).bindPopup(labelNode(s.name,
       [[String(s.km), 'km to the river']],
       s.type + '. ' + (s.access || 'CDFW does not say what the access is.') +
-      ' This pin is the middle of the property, not a place on the bank \u2014 and it is not a boat ramp; ' +
-      'no published list of those exists for this river.'
+      ' This pin is the middle of the property, not a place on the bank, and it is not a launch \u2014 ' +
+      'the launches are their own layer.'
     ), LABEL).addTo(state.accessLayer);
   });
 }
@@ -8649,6 +9215,7 @@ function goToDepth(river){
   mapView(b.pad(0.08), { animate:!reduceMotion });
   drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
   announce('Showing the reaches of the ' + river.name + ' the state has surveyed.');
 }
 
@@ -8792,7 +9359,8 @@ function profileRiverNow(river, claim){
   }
   var run = surveyedRun(line);
   if (!run){
-    state.profile = { none:'nowhere', pts:line };
+    state.profile = { none:'nowhere', pts:line,
+      widths: widthAlong(river, line) };
     $('#profile').hidden = false;
     renderProfile();
     $('#profnote').textContent = 'No published survey covers any part of the ' +
@@ -8836,6 +9404,12 @@ function runProfile(pts, claim){
   updateLegend();   /* the line is on the map now, so the key must say what it is */
   mapView(L.latLngBounds(pts).pad(0.15), { animate:!reduceMotion }, claim);
   buildProfile(pts).then(function(model){
+    /* THE WIDTH IS ATTACHED HERE, TO EVERY MODEL, INCLUDING THE ONES WITH NO
+       DEPTH IN THEM. The two come from different places — DWR surveyed the bed
+       and USGS mapped the banks — so a line the state has never sounded can
+       still have a width, and refusing to carry it because the depth failed
+       would be the app losing what it has because of what it has not. */
+    model.widths = widthAlong(byId(state.riverId) || {}, pts);
     state.profile = model;
     state.profZoom = 1;
     renderProfile();
@@ -8880,8 +9454,16 @@ var TOUCH_SLOP = 22;   /* half of the 44 px floor: the visible dot covers the re
    encode — a reading wins over a station, a station over a footprint. Rank
    only breaks a tie; a genuinely nearer pin wins regardless of what it is. */
 function pinLayers(){
+  /* A LAYER MISSING FROM THIS LIST IS A LAYER NOBODY CAN PRESS. The pins are
+     eleven and twelve pixels across and a finger is forty-four; what makes any
+     of them reachable is this list, not their styling. A new layer that is
+     drawn and not listed here looks correct in every screenshot and is inert
+     under a thumb — which is the doctrine's own worst case, a feature that is
+     present in the source and unreachable on the device. Launches rank below
+     the readings and beside the public land, so where a launch sits on top of
+     a gauge the reading still wins. */
   return [[state.gaugeLayer, 0], [state.markLayer, 0], [state.hereLayer, 1],
-          [state.tideLayer, 2], [state.accessLayer, 3]];
+          [state.tideLayer, 2], [state.rampLayer, 3], [state.accessLayer, 4]];
 }
 
 function nearestPin(latlng){
@@ -9113,6 +9695,33 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.11.0', date:'2026-09-01', changes:[
+      'How wide the river is, along the same line the depth is drawn on. The profile has three views now \u2014 Depth, Depth and width, and Width on its own \u2014 and the width has its own scale in metres so it can never be read as a depth.',
+      'It is measured rather than estimated: a line cast straight across USGS\u2019s mapped water surface, perpendicular to the river\u2019s own course, taking the distance between the two nearest banks. Six hundred metres between samples down the Sacramento.',
+      'It is the MAPPED channel at 1:24,000, not today\u2019s water \u2014 the river is wider in a flood and narrower in a drought and this does not move with the stage. Bank to bank, so bars and shallow margins are inside it. Same reason as the depth surveys: not for navigating by.',
+      'Where there is no single width \u2014 a confluence, a flooded bypass, a junction \u2014 nothing is drawn rather than a number invented. And where USGS\u2019s own centreline and its own water polygon disagree, which happens on the narrow upper reaches, the app says nothing rather than measuring from the wrong bank.',
+      'Width survives a missing survey. The state has sounded a small fraction of these rivers; USGS mapped the banks of all of them. So Width works on stretches where Depth has nothing to show, which is most of them.',
+      'The moon. Under the fortnightly swing it causes: which phase it is, how much of the face is lit, how many days since the new moon, and the dates of the next new and full. It needs no signal and no station \u2014 it is arithmetic about the sky \u2014 so it is the one thing on that panel that is never missing.',
+      'The moon and the tide are worked out from completely different things, and the app says so: the fortnightly swing comes from NOAA\u2019s published predictions and the moon from where the moon is. That they agree is checked on every run against the real service.',
+  ], broken:[
+      'Dragging a finger along the profile does not work in the Width view. The tracing reads a depth at the point under your finger and moves a mark along the line on the map, and there is no depth to read there.',
+      'No wake zones are not in the app and no dataset for them could be found. Asked of the state open-data portal, the State Geoportal, ArcGIS Online and the Division of Boating and Waterways on 1 September 2026, all of which answered; none publishes one. On this water they are set by county ordinance and by the signs on the bank, and this app will not invent them.',
+      'The width is USGS\u2019s mapped channel and the depth is DWR\u2019s survey. They were compiled by different people at different times for different purposes, and where they disagree about where the bank is, neither is corrected against the other.',
+      'Nothing here says the fishing is better on any phase of the moon. That is a belief, widely held, and this app has no basis for it.',
+  ] },
+  { v:'2.10.0', date:'2026-09-01', changes:[
+      'Where you can put a boat in. Every river now has a Where you can launch section in Layers and its own layer on the map \u2014 a buff triangle, the only triangle there \u2014 with the ramp lanes, the trailer parking, whether there are restrooms and somewhere to clean fish, who owns it, and a button that takes you to it.',
+      'This app told you for its whole life that no such list existed. It does exist, it is CDFW\u2019s own, and the reason the app said otherwise is that the six state sites that publish it were blocked before the request ever left \u2014 which looks exactly like the data not being there. That sentence is gone from the Layers panel and this is what replaced it.',
+      'THE RECORD IS OLD AND THE APP SAYS SO ON EVERY ENTRY. These are interviews \u2014 somebody visited and wrote it down \u2014 and the dated ones were taken between 2010 and 2014. Where CDFW recorded no date at all, which is true of many of them, the app tells you that instead of letting a blank read as recent. Ring before you drive.',
+      'A launch at a confluence is listed under both rivers and says so, because Discovery Park really is on the American and on the Sacramento, and showing it twice without a word would read as two places.',
+      'The public land already on the map is unchanged and is still not a launch. The two are separate layers with separate switches, because they answer different questions: one is where you are allowed to be, the other is where you can get a hull wet.',
+      'The buttons that switch those layers on are big enough to press now. Every primary button in a panel was thirty pixels tall, the whole time, in an app meant to be used one-handed on a bank \u2014 the floor is forty-four. It was found by a check written for the new launch toggle, which then failed on the one that had been sitting beside it since the first week.',
+      'And the two toggles no longer read the same. Both said \u201cShow them on the map\u201d, which to anyone moving through the panel by keyboard or screen reader is one control offered twice.',
+  ], broken:[
+      'Nothing here knows today\u2019s water. Low water closes a ramp for a whole season and this record cannot see the stage; what the app has is where a launch was, not whether you can use it this weekend.',
+      'Only facilities within a kilometre of a river\u2019s own course are listed, so a launch on a slough a little further off will not appear even though you could fish this river from it.',
+      'CDFW gives no date for roughly half the ones on these rivers. Those are shown, marked as undated \u2014 dropping them would have lost real ramps, but it does mean some of this could be very old indeed.',
+  ] },
   { v:'2.9.1', date:'2026-09-01', changes:[
       'The app no longer counts anything by hand. The first-visit page and the (i) panel both opened by saying "four rivers" and then naming them one at a time, while the list they describe sat two thousand lines away and every other sentence in the app asked it. Nothing was wrong on the screen today; it was wrong the moment a river was added, in two places, silently.',
       'One of those was only ever heard. Pressing Home announced "back to all four rivers" to a screen reader while the button\u2019s own label, right beside it, asked the list and said it properly. The half that went stale was the half nobody looking at the screen could see.',
@@ -9518,7 +10127,7 @@ function renderAbout(){
   b.appendChild(ta);
 
   h('Where the numbers come from');
-  para('Nothing here is measured by this app. It redraws what four public services publish, and says which one each number came from.');
+  para('Nothing here is measured by this app. It redraws what public services publish, and says which one each number came from.');
   var u3 = el('ul',{class:'tight'});
   [ ['River flow, height and temperature — the US Geological Survey',
      'https://waterdata.usgs.gov/ca/nwis/current/?type=flow'],
@@ -9529,7 +10138,11 @@ function renderAbout(){
     ['Depth surveys — California DWR',
      'https://data.cnra.ca.gov/dataset/i06-singlebeam-bathymetry'],
     ['Season and limits — CDFW, Title 14 section 7.40',
-     'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing']
+     'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing'],
+    ['Public land, and where you can launch — CDFW, from the service behind its own Fishing Guide',
+     'https://wildlife.ca.gov/Fishing/Guide'],
+    ['How wide the river is — the US Geological Survey’s National Hydrography Dataset, mapped at 1:24,000',
+     'https://www.usgs.gov/national-hydrography/national-hydrography-dataset']
   ].forEach(function(s){
     var li = el('li',{});
     li.appendChild(el('a',{href:s[1],rel:'noopener noreferrer',target:'_blank',text:s[0]}));

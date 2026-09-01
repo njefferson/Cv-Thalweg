@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 /* fetch-access — where a person is allowed to be, baked at build time.
  *
- * NOT BOAT RAMPS, and the app must never call them that. There is no published
- * boat-ramp dataset for these rivers that this session could reach: the state's
- * open-data portal returns nothing for boating facilities or launch ramps, and
- * the one "Public Access Points" service is coastal beaches — 1,500 of them
- * across the coastal counties and ZERO inside any of these four river boxes.
+ * NOT BOAT RAMPS, and the app must never call them that. The launches are their
+ * own dataset and their own layer — see `tools/fetch-ramps.mjs`.
+ *
+ * THIS HEADER USED TO SAY THERE WAS NO PUBLISHED RAMP DATASET FOR THESE RIVERS,
+ * and that was false. It was written on evidence gathered through a firewall:
+ * six of the hosts that publish it were refused at the CONNECT tunnel by this
+ * container's egress and never reached, and a refusal reads exactly like an
+ * absence from inside (hub LESSONS §188). CDFW publishes 677 boating facilities
+ * through the service behind its own Fishing Guide; 97 of them are on these
+ * rivers. What is still true is that the "Public Access Points" service is
+ * coastal beaches — 1,500 across the coastal counties and ZERO inside any of
+ * these river boxes — and that these lands are a different thing from a launch.
  *
  * What does exist is CDFW's own lands: places the department owns or operates
  * and says you may go. On these rivers that is 32 sites typed "Public Access"
