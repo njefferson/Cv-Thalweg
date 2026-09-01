@@ -58,13 +58,27 @@ const USGS_BODY = { value: { timeSeries: [
    exercises the failure branch and calls it a pass.
    Twelve-hour period, turns at the real peaks and troughs: now sits halfway
    up a flood, which is the ordinary case and the one worth drawing. */
+/* AND THE FORTNIGHT HAS TO HAVE A FORTNIGHT'S SHAPE IN IT. The app now asks
+   whether today is a big tide or a small one, which is a question about the
+   ENVELOPE of the swing across about fourteen days — so a fixture with a
+   constant amplitude answers it with "every day is the same" and the feature
+   is measured against a tide that does not exist anywhere.
+   Amplitude is modulated over a 14.8-day cycle, with now placed at a peak of
+   it: today is the biggest swing in the window, which is the state worth
+   asserting because it is the one that changes what somebody does. */
 const hourly = [], hilo = [];
-const tideAt = i => 2.5 + 1.8 * Math.sin(Math.PI * i / 6);
+const HOURS = 16 * 24;
+const envelope = i => 1.15 + 0.75 * Math.cos(Math.PI * i / (14.8 * 12));
+const tideAt = i => 2.5 + envelope(i) * Math.sin(Math.PI * i / 6);
 for (let i = -6; i < 30; i++) {
   const d = new Date(now.getTime() + i * 3600000);
   hourly.push({ t: coopsT(d), v: tideAt(i).toFixed(3) });
 }
-for (let i = -3; i < 30; i += 6) {
+/* A turn every six hours, starting a day and a half back so TODAY is a
+   complete day rather than a clipped one — the real request begins yesterday
+   for the same reason, and a clipped day reports a span the water never
+   stopped at. Out to the end of the sixteen days the app asks for. */
+for (let i = -39; i < HOURS; i += 6) {
   const d = new Date(now.getTime() + i * 3600000);
   hilo.push({ t: coopsT(d), v: tideAt(i).toFixed(3),
     type: ((i - 3) % 12 === 0) ? 'H' : 'L' });
@@ -1075,7 +1089,14 @@ check('and gets the direction right for the fixture', phase.rising === true,
   JSON.stringify(phase));
 check('with how far through the swing it is', phase.through > 0.3 && phase.through < 0.7,
   String(phase.through));
-check('and how big the swing is', Math.abs(phase.range - 3.6) < 0.05, String(phase.range));
+/* DERIVED FROM THE FIXTURE, NOT TYPED. The stub's amplitude now varies over a
+   fortnight so the spring-and-neap question has a cycle to answer against, and
+   a hardcoded 3.6 was a constant belonging to the version before it. Asserting
+   the app's figure equals the fixture's own two turns keeps this true whatever
+   the envelope is next changed to. */
+check('and how big the swing is',
+  Math.abs(phase.range - Math.abs(tideAt(3) - tideAt(-3))) < 0.02,
+  String(phase.range) + ' against ' + Math.abs(tideAt(3) - tideAt(-3)));
 /* A HIGH LOWER THAN THE LOWS EITHER SIDE OF IT IS NOT A TIDE. Better to say
    nothing than to draw an arrow off a broken prediction. */
 check('an incoherent prediction gets no direction at all', phase.incoherentIsNull,
@@ -1095,6 +1116,92 @@ check('and says it is the level at one station, not the current where you are',
    them disagreeing has not found a fault. */
 check('the measured section says the two need not agree',
   /need not agree|not the same thing/i.test(along.text), along.text.slice(0, 400));
+
+/* --- IS TODAY A BIG TIDE OR A SMALL ONE ----------------------------------
+   After "which way" and "when", this is the question. The swing between high
+   and low grows and shrinks over about fourteen and a half days, and on this
+   water a spring day and a neap day are a couple of feet apart at the same
+   station. Two days both described as "rising, high at 4pm" can be completely
+   different afternoons, and nothing in this app said which. */
+const spring = await page.evaluate(() => {
+  const river = byId('sacramento');
+  const sn = springNeap(river);
+  const days = tideDayRanges(river);
+  const panel = document.getElementById('panel-water').textContent;
+
+  /* A CLIPPED DAY IS NOT A SMALL TIDE. A day holding one high and one low
+     when it really had four reports a span the water never stopped at. */
+  const kept = state.tides[river.id].hilo;
+  const stamp = ms => new Date(ms).toISOString().replace('T', ' ').slice(0, 16);
+  const t0 = Date.now();
+  state.tides[river.id].hilo = kept.concat([
+    { t: stamp(t0 + 40 * 86400000), v: 3.0, type: 'H' },
+    { t: stamp(t0 + 40 * 86400000 + 3600000), v: 2.9, type: 'L' }
+  ]);
+  const withClipped = tideDayRanges(river).some(d => d.n < 3);
+
+  /* Every day the same size is not a cycle, and naming one of them a spring
+     tide would be naming rounding. */
+  state.tides[river.id].hilo = kept.map((h, i) => ({
+    t: h.t, type: h.type, v: h.type === 'H' ? 3.0 : 2.9
+  }));
+  const flat = springNeap(river);
+  state.tides[river.id].hilo = kept;
+
+  return {
+    got: !!sn, band: sn ? sn.band : null,
+    todayRange: sn ? sn.today.range : null,
+    biggest: sn ? sn.biggest.range : null,
+    smallest: sn ? sn.smallest.range : null,
+    windowDays: sn ? sn.windowDays : 0,
+    allDays: days.length,
+    everyDayHasBoth: days.every(d => d.hi !== null && d.lo !== null && d.n >= 3),
+    clippedDayDropped: !withClipped,
+    flatIsNull: flat === null,
+    figure: !!document.querySelector('#panel-water svg[aria-label*="water covers"], #panel-water svg[aria-label*="biggest tide"], #panel-water svg[aria-label*="smallest tide"]'),
+    /* THE CLAIM, not the prose around it. Checking the whole panel for the
+       words "biggest of the month" fails on the app's own sentence promising
+       NOT to say it — the same trap this suite already carries a note about
+       for the tide-turn check, and hub LESSONS 180: a gate keyed on copy pins
+       the copy, and pins the disclaimer with it. The figure's accessible name
+       IS the claim, so that is what gets read. */
+    claim: (document.querySelector('#panel-water svg[aria-label*="ft"]') || {})
+      .getAttribute ? document.querySelector('#panel-water svg[aria-label*="ft"]').getAttribute('aria-label') : '',
+    panel: panel
+  };
+});
+check('the app works out how big today’s tide is', spring.got, JSON.stringify(spring).slice(0, 200));
+/* A WEEK CANNOT ANSWER A FORTNIGHTLY QUESTION. The turns are now asked for
+   over sixteen days so the window contains both a biggest and a smallest. */
+check('and reads a fortnight of days, not a week',
+  spring.windowDays >= 12, JSON.stringify({ windowDays: spring.windowDays }));
+/* THE FIXTURE HAS A REAL ENVELOPE and now sits at the spring end of it. */
+check('it places today at the big end of the cycle', spring.band === 'spring',
+  JSON.stringify({ band: spring.band, today: spring.todayRange,
+                   biggest: spring.biggest, smallest: spring.smallest }));
+check('with a real spread between the biggest day and the smallest',
+  spring.biggest - spring.smallest > 1, JSON.stringify(spring).slice(0, 160));
+/* THE GREAT DIURNAL RANGE, not one high minus the next low. This coast has
+   two UNEQUAL highs and lows a day; taking a pair would report whichever the
+   arithmetic landed on and swing about for a reason that is not the moon. */
+check('every counted day has both a high and a low in it',
+  spring.everyDayHasBoth, JSON.stringify({ days: spring.allDays }));
+check('a clipped day is dropped rather than reported as a small tide',
+  spring.clippedDayDropped, JSON.stringify(spring).slice(0, 160));
+/* Every day the same size is not a cycle. */
+check('a tide with no cycle in it gets no spring-or-neap claim',
+  spring.flatIsNull, JSON.stringify({ flat: spring.flatIsNull }));
+check('the fortnight is drawn as well as said', spring.figure);
+/* IT SAYS "FORTNIGHT" AND MEANS IT — sixteen days of predictions cannot say
+   this is the biggest tide of the month or the year, and must not imply it. */
+check('it claims only the window it can actually see',
+  /fortnight/.test(spring.claim) && !/(month|year)/i.test(spring.claim),
+  spring.claim);
+/* THE SWING IS THE ASTRONOMICAL TIDE AT ONE STATION. What moves where somebody
+   stands is that plus whatever the river is carrying, and a tall bar must not
+   be allowed to imply the second. */
+check('and says the river’s own water is not in this figure',
+  /river is carrying/.test(spring.panel), spring.panel.slice(0, 300));
 
 /* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
    The map's key promised it; tapping a station opened a label naming the
