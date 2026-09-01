@@ -16,7 +16,12 @@
 # about WHAT is being committed rather than where. The patch notes are the one
 # thing in this app that a passing test suite cannot protect: a release can be
 # perfect and still reach a reader as an update that will not say what it did.
+#
+# And a count typed into reader-facing copy is the same kind of defect: correct
+# on the day it was written, silently wrong the moment the array behind it
+# grows, and invisible to every test that only asks whether the app renders.
 also=tools/notes-check.mjs
+also=tools/copy-count.mjs
 
 work=staging
 promote=main

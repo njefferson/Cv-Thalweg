@@ -5,12 +5,14 @@ session needs before it touches anything.
 
 ## State
 
-- **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
-  verified by reading that address rather than the push output.
-- Staged candidate: **2.9.0** at https://staging.cv-thalweg.pages.dev — the
-  band is whole or replaced by an offer that says what is behind it; each river
-  to its own scale with its length on the row; a sideways view of the bars;
-  first and last light on the tide chart; and 2.5.1's four device defects.
+- **2.9.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
+  verified by reading that address rather than the push output — the page and
+  the service worker both serve 2.9.0. Gates went green against that exact head
+  SHA on both branches, which is a different claim from the newest run being
+  green.
+- Staged candidate: **2.9.1** at https://staging.cv-thalweg.pages.dev — nothing
+  the reader can see is different unless they use a screen reader; it is the
+  release that stops the app counting anything by hand.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -766,6 +768,70 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   to say. Set the focus explicitly — a `tabindex="-1"` heading, focused after
   `showModal()` — and assert `activeElement` by name, which fails in both
   engines when nothing set it. (Hub LESSONS §175.)
+
+## The gate that was named in a comment and never written
+
+The comment above `riverCount()` in `public/index.html` said, in as many words,
+that `tools/copy-count.mjs` refuses a hardcoded count in reader-facing copy —
+"because a rule in a comment is what this repo has just demonstrated does not
+hold". **The comment was written and the script was not.** So the rule went
+straight back to being a paragraph, which is the exact failure it was written
+about, in the file it was written in.
+
+What that cost, found on the run that finally wrote the script:
+
+- The first-run page and the About panel both opened with "four rivers" and
+  then named the four by hand, four sentences apart in two functions. Neither
+  knew `RIVERS` existed. Correct on the screen every day so far, and wrong the
+  moment a river is added, in two places, silently.
+- **The Home button's label asked the list and its spoken announcement did
+  not.** `#homebtn` is labelled from `riversPhrase()`; the `announce()` beside
+  it said "Back to all four rivers." — typed. The stale half was the half only
+  a screen-reader user ever receives, sitting one line below the half that was
+  correct.
+- The water-clarity key was a typed second copy of `TURB_BANDS`: the same four
+  words and three thresholds written twice, so moving a boundary would have
+  left the key explaining the old one.
+
+**THE FIRST VERSION OF THE GATE FLAGGED NINETY LINES AND NEARLY ALL OF THEM
+WERE HONEST** — "a mark belongs to one river", "two surveys here", "one of the
+four subsections amended". That is hub LESSONS §108 arriving again: honest
+prose and a stale count are the same shape, so the shape cannot be what is
+matched. What is matched instead is the COINCIDENCE — a spelled number is
+flagged only where it equals the current size of one of this app's own tables
+and sits next to that table's noun or stands bare for the set. A number that
+matches no table is talking about something else; a number that matches is
+correct today and is precisely what goes stale. Ninety became three, and all
+three were worth reading: two were real defects and one was a fact about a
+regulation, which is the single line in `.copy-count-allow`.
+
+The counts are read out of the arrays on every run, so the gate cannot fall
+behind the table any more than the copy may. Release notes are out of scope by
+construction rather than by declaration — version 1.0.0 really did open on four
+rivers, and rewriting that sentence when a river is added would be a lie about
+the past.
+
+**And the same question is asked a second time of the RENDERED page**, in
+`tools/a11y.mjs`: the first-run panel and the About panel must carry the app's
+own river-count phrase and every river's name, with the expected strings
+computed from `RIVERS` in the page itself. A helper can be called and the
+sentence around it can still name three of four rivers by hand. This is the
+print-tracker shape, where a welcome describing three job types outlived the
+fourth being added.
+
+**A THIRD CHECK WAS WRITTEN THERE, RUN, AND TAKEN OUT.** It flagged every
+"all <number>" in the panel that was not the river count, and what it found was
+"three numbers", "two surveys", "the one survey" and "all five" ribbon rows —
+twenty-two hits across the About panel, every one honest. Asking loosely a
+second time what the source gate already asks precisely would have bought
+nothing and cost twenty-two declarations, which is how an allow-list stops
+being read.
+
+Both halves were seen red on a LOCAL plant and never on a pushed one:
+`copy-count.mjs` on a restored "Back to all four rivers." and on a declaration
+that no longer matches anything, and the a11y check on a `riverNamesPhrase()`
+that drops its last river.
+
 
 ## Scratch
 

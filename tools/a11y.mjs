@@ -74,6 +74,43 @@ async function dialogFits(page, id, label) {
     JSON.stringify(m));
 }
 
+/* THE PROSE THAT DESCRIBES THIS APP, HELD TO THE TABLE IT DESCRIBES.
+   `tools/copy-count.mjs` reads the source and refuses a number typed beside an
+   array. This asks the other half of the question, of the RENDERED page: does
+   the reader actually get the river count and every river's name, spelled the
+   way the app spells them. A helper can be called and still be wrong — the
+   sentence around it can name three of four rivers by hand and nothing about
+   the source would look off. This is the print-tracker shape, where a welcome
+   describing three job types outlived the fourth being added.
+
+   It cannot pass by accident: the expected phrases are computed from RIVERS in
+   the page itself, so a river added to the table changes what is demanded. */
+async function copyMatchesRivers(page, name, sel, where) {
+  const r = await page.evaluate(id => {
+    const rivers = RIVERS.filter(x => !x.network), nets = RIVERS.filter(x => x.network);
+    const t = document.getElementById(id).textContent;
+    return {
+      count: riverCountPhrase(),
+      hasCount: t.includes(riverCountPhrase()),
+      missing: rivers.map(x => x.short).filter(n => !t.includes(n)),
+      netMissing: nets.map(x => x.short).filter(n => !t.includes(n)),
+      /* A THIRD CHECK WAS WRITTEN HERE AND TAKEN OUT, having been run: it
+         flagged every "all <number>" in the panel that was not the river
+         count, and what it found was "three numbers", "two surveys", "the one
+         survey" and "all five" rows of the ribbon — twenty-two hits across the
+         About panel, every one of them honest. Honest prose and a stale count
+         are the same shape (hub LESSONS §108), and that half of the question is
+         answered at the source by tools/copy-count.mjs, which flags a number
+         only where it EQUALS the size of a table. Asking it loosely a second
+         time here would have bought nothing and cost twenty-two declarations. */
+    };
+  }, sel);
+  check(`${name}: ${where} says how many rivers there are, from the list`,
+    r.hasCount, JSON.stringify(r));
+  check(`${name}: ${where} names every river in the list`,
+    !r.missing.length && !r.netMissing.length, JSON.stringify(r));
+}
+
 async function welcomeChecks(page, name) {
   const open = await page.evaluate(() => {
     const d = document.getElementById('welcome'), b = document.getElementById('welcomebody');
@@ -129,6 +166,8 @@ async function welcomeChecks(page, name) {
       const i = t.search(/first release/i);
       return i === -1 ? 'clean' : t.slice(Math.max(0, i - 60), i + 80);
     }));
+  await copyMatchesRivers(page, name, 'welcomebody', 'the first-run page');
+
   check(`${name}: first run offers a way out at the end as well`,
     open.bottomOut, JSON.stringify(open));
   check(`${name}: first run is bounded by the screen`,
@@ -815,6 +854,8 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
       const i = t.indexOf('If it was useful');
       return i === -1 ? '(section missing)' : t.slice(i, i + 220);
     }));
+
+  await copyMatchesRivers(page, name, 'aboutbody', 'the About panel');
 
   check(`${name}: the About panel opens at the top of itself`,
     await page.evaluate(() => document.getElementById('aboutbody').scrollTop === 0 &&

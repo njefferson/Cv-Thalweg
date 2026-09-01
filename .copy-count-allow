@@ -1,0 +1,16 @@
+# Copy where a spelled number happens to equal the size of one of this app's
+# tables and is NOT about that table. One exact literal per line.
+#
+# tools/copy-count.mjs prints every line declared here on every run, so this
+# file cannot grow quietly, and it FAILS when a declaration no longer matches
+# anything — a line that has been reworded stopped having the reason it was
+# allowed for.
+#
+# A stale count is never declarable. If the number is the size of a table, the
+# copy asks the table.
+
+# Four subsections of Title 14 section 7.40(b) were amended on 6 May 2026.
+# That is a fact about the regulation, published by the department, and it does
+# not move when a river is added to this app. It coincides with the river count
+# and with the weir count, and means neither.
+This reach is subsection 7.40(b)(4)(C), one of the four subsections amended on 6 May 2026. Before that amendment its text read "July 16 through December 31. No take or possession of Chinook Salmon." The amendment is what removed that sentence.

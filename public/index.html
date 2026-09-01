@@ -764,7 +764,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.9.0';
+var VERSION = '2.9.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4081,6 +4081,16 @@ function riverCard(river){
    reader-facing copy, because a rule in a comment is what this repo has just
    demonstrated does not hold.
 
+   AND THIS PARAGRAPH SPENT SEVERAL RELEASES NAMING A GATE THAT DID NOT EXIST.
+   The comment was written with the fix and the script was not, so the rule was
+   back to being a paragraph — and the first-run page and the About panel both
+   went on saying "four rivers" and naming them by hand, four sentences apart
+   in two functions, neither aware the table was there. The gate exists now and
+   runs on every commit and in CI. On the run that added it, it found two more:
+   the Home button's spoken announcement, which said four while the button's own
+   label beside it asked the list, and the water-clarity key, which was a typed
+   second copy of TURB_BANDS.
+
    The Delta is counted apart on purpose: it is where the four arrive, not a
    fifth of them, and a sentence calling it a river would be a different
    defect from the one being fixed. */
@@ -4231,10 +4241,41 @@ var COUNTWORDS = ['no','one','two','three','four','five','six','seven','eight','
 function countWord(n){ return COUNTWORDS[n] || String(n); }
 function riverCount(){ return RIVERS.filter(function(r){ return !r.network; }).length; }
 function networkCount(){ return RIVERS.filter(function(r){ return r.network; }).length; }
+/* "four rivers", from the list itself. */
+function riverCountPhrase(){
+  var n = riverCount();
+  return countWord(n) + ' river' + (n === 1 ? '' : 's');
+}
+/* THE PROSE THAT DESCRIBES THIS APP IS BUILT FROM THE RIVER TABLE, NOT TYPED
+   BESIDE IT. The first-run page and the About panel both opened with "four
+   rivers" and then named them, four sentences apart in two functions, and
+   neither knew the table existed. Add a river and both keep saying four; the
+   app is then one file with two answers, which is the exact defect the ribbon
+   copy already routes through countWord() to avoid. `tools/a11y.mjs` holds the
+   rendered copy to this table on every run so it cannot drift back. */
+function riverNamesPhrase(){
+  return joinNames(RIVERS.filter(function(r){ return !r.network; })
+    .map(function(r){ return 'the ' + r.short; }));
+}
+function networkNamesPhrase(){
+  return joinNames(RIVERS.filter(function(r){ return r.network; })
+    .map(function(r){ return r.name.replace(/^The /, 'the '); }));
+}
+/* A river that is not the first one, for the sentence that contrasts one
+   against the rest. Naming it in prose pins it to the table the same way. */
+function otherRiverExample(){
+  var list = RIVERS.filter(function(r){ return !r.network; });
+  return (list[1] || list[0] || { short:'river' }).short;
+}
+function joinNames(names){
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
 /* "four rivers" or "four rivers and the Delta", from the list itself. */
 function riversPhrase(){
-  var n = riverCount(), k = networkCount();
-  var base = countWord(n) + ' river' + (n === 1 ? '' : 's');
+  var k = networkCount();
+  var base = riverCountPhrase();
   if (!k) return base;
   var names = RIVERS.filter(function(r){ return r.network; })
     .map(function(r){ return r.short; });
@@ -6101,14 +6142,19 @@ function renderBrief(){
 
   p.appendChild(el('h2',{class:'sec',text:'Water clarity'}));
   var uc = el('ul',{class:'tight'});
-  [ 'Under 5 FNU — clear.',
-    '5 to 25 FNU — lightly coloured.',
-    '25 to 100 FNU — stained.',
-    'Over 100 FNU — muddy.'
-  ].forEach(function(t){ uc.appendChild(el('li',{text:t})); });
+  /* READ OFF TURB_BANDS. This list was a typed copy of that table — same four
+     words, same three thresholds, written twice — so changing a boundary in
+     one place left the key describing the old one. */
+  TURB_BANDS.forEach(function(b, i){
+    var low = i ? TURB_BANDS[i - 1].under : null;
+    var range = low === null ? 'Under ' + b.under + ' FNU'
+      : b.under === Infinity ? 'Over ' + low + ' FNU'
+      : low + ' to ' + b.under + ' FNU';
+    uc.appendChild(el('li',{text:range + ' \u2014 ' + b.word + '.'}));
+  });
   p.appendChild(uc);
   p.appendChild(el('p',{class:'note',
-    text:'FNU is Formazin Nephelometric Units — how much light the water scatters, which is how much it is carrying. The four descriptions above are this app’s own plain words for how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, and what the fish do about it is not something this app knows.'}));
+    text:'FNU is Formazin Nephelometric Units — how much light the water scatters, which is how much it is carrying. The ' + countWord(TURB_BANDS.length) + ' descriptions above are this app’s own plain words for how water at those readings looks. They are not a published standard, and none of them is a statement about fishing: what the light does in the water is a measurement, and what the fish do about it is not something this app knows.'}));
   p.appendChild(el('p',{class:'note',
     text:'Most gauges have no turbidity sensor. On the Sacramento three of six report it and on the Mokelumne two of three; the American has four gauges and none of them, and the state publishes none for the Feather. Where there is no sensor the app says so rather than showing a dash, because a dash would read as water so clear it could not be measured.'}));
 
@@ -6701,7 +6747,8 @@ function weirSection(river){
     });
   } else {
     box.appendChild(el('p',{class:'note',
-      text:'None of the four weirs is over its crest, so the river is in its own channel.'}));
+      text:'None of the ' + countWord((river.weirs && river.weirs.list ? river.weirs.list : []).length) +
+        ' weirs is over its crest, so the river is in its own channel.'}));
   }
   if (w.unknown.length) box.appendChild(el('p',{class:'note',
     text:'No figure published for ' + w.unknown.map(function(x){ return x.w ? x.w.name : x.name; }).join(' or ') +
@@ -9066,6 +9113,13 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.9.1', date:'2026-09-01', changes:[
+      'The app no longer counts anything by hand. The first-visit page and the (i) panel both opened by saying "four rivers" and then naming them one at a time, while the list they describe sat two thousand lines away and every other sentence in the app asked it. Nothing was wrong on the screen today; it was wrong the moment a river was added, in two places, silently.',
+      'One of those was only ever heard. Pressing Home announced "back to all four rivers" to a screen reader while the button\u2019s own label, right beside it, asked the list and said it properly. The half that went stale was the half nobody looking at the screen could see.',
+      'The water-clarity key was a typed copy of the table it describes \u2014 the same four words and three thresholds written twice \u2014 so moving a boundary would have left the key explaining the old one. It is read off the table now.',
+  ], broken:[
+      'The check that found these reads reader-facing text only, and only where a number matches the size of a table this app keeps. A count written as a digit, or one that happens to differ from every table, is still on trust.',
+  ] },
   { v:'2.9.0', date:'2026-09-01', changes:[
       'On the front page the river bars are now all of them or none of them. They are there for one thing the cards underneath cannot do \u2014 the water temperature ALONG each river, on one scale, all five at once \u2014 and reading that needs them together and big enough to read. Two rows at a time, scrolled, defeats the only job they have.',
       'Where there is not the height for them, they give way to a panel that tells you what you are missing and opens it: five rivers side by side, the temperature along each, how far up the tide reaches, and where every gauge sits. One press and they are there at full size on the long side of the screen.',
@@ -9404,8 +9458,8 @@ function renderAbout(){
   });
 
   h('What Thalweg is');
-  para('Three numbers for four rivers, in one place: how deep the water is, when the tide turns, and how much water is coming down. The Sacramento, the Feather, the American and the Mokelumne, plus the Delta they run into.');
-  para('It opens on all four at once because that is usually the real question — not what the Feather is doing, but which of the four is worth the drive. The stacked bars put every gauge where it sits on its river, downstream on the left, coloured by water temperature on one scale so the rivers can be compared at a glance. Pick a single river for its tide, its depth and your own marks.');
+  para('Three numbers for ' + riverCountPhrase() + ', in one place: how deep the water is, when the tide turns, and how much water is coming down. ' + initialCap(riverNamesPhrase()) + ', plus ' + networkNamesPhrase() + ' they run into.');
+  para('It opens on all ' + countWord(riverCount()) + ' at once because that is usually the real question — not what the ' + otherRiverExample() + ' is doing, but which of the ' + countWord(riverCount()) + ' is worth the drive. The stacked bars put every gauge where it sits on its river, downstream on the left, coloured by water temperature on one scale so the rivers can be compared at a glance. Pick a single river for its tide, its depth and your own marks.');
 
   var againRow = el('div',{class:'rowline'});
   var again = el('button',{type:'button',text:'Show the first-visit page again'});
@@ -9670,10 +9724,10 @@ function showWelcome(){
   function para(t, cls){ b.appendChild(el('p', cls ? {class:cls, text:t} : {text:t})); }
   function head(t){ b.appendChild(el('h3',{text:t})); }
 
-  para('Three numbers for four rivers, in one place: how deep the water is, when the tide turns, and how much water is coming down. The Sacramento, the Feather, the American and the Mokelumne, and the Delta they run into.');
+  para('Three numbers for ' + riverCountPhrase() + ', in one place: how deep the water is, when the tide turns, and how much water is coming down. ' + initialCap(riverNamesPhrase()) + ', and ' + networkNamesPhrase() + ' they run into.');
 
   head('What you are looking at');
-  para('It opens on all four rivers at once, because that is usually the real question — not what the Feather is doing, but which of the four is worth the drive. Each bar is one river with its gauges where they sit along it, downstream on the left, and every dot is coloured by water temperature on the same scale, so the four can be read against each other.');
+  para('It opens on all ' + riverCountPhrase() + ' at once, because that is usually the real question — not what the ' + otherRiverExample() + ' is doing, but which of the ' + countWord(riverCount()) + ' is worth the drive. Each bar is one river with its gauges where they sit along it, downstream on the left, and every dot is coloured by water temperature on the same scale, so the ' + countWord(riverCount()) + ' can be read against each other.');
   para('Pick a single river from the top and you get its tide, its published depth surveys, and somewhere to drop your own marks. On a phone the map is a tab of its own beside Water, Layers, Marks and Brief, so the readings keep the screen until you ask for it.');
 
   head('Worth knowing before you rely on it');
@@ -9921,7 +9975,12 @@ function boot(){
     selectTab('water');
     var panel = $('#panel-water');
     if (panel) panel.scrollTop = 0;
-    announce('Back to all four rivers.');
+    /* THE BUTTON ASKED THE LIST AND THE ANNOUNCEMENT DID NOT. `#homebtn`'s
+       label is built from riversPhrase(); this sentence, which is the only
+       version of it a screen-reader user ever gets, was typed. One file, two
+       answers, and the stale one was the one nobody looking at the screen
+       could see. Found by tools/copy-count.mjs on the run that added it. */
+    announce('Back to all ' + riversPhrase() + '.');
   });
 
   var initial = Store.s.getItem('thalweg:_shared:river');

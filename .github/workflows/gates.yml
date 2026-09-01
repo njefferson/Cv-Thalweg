@@ -79,6 +79,14 @@ jobs:
       - name: The patch notes
         run: node tools/notes-check.mjs
 
+      # A number in copy that names how many rivers, weirs or clarity bands there
+      # are is a claim about an array two thousand lines away, and nothing was
+      # comparing the two. The Home button's own label asked the list while the
+      # sentence a screen-reader user hears in its place said "four rivers" —
+      # one file, two answers, and the stale half was the half nobody could see.
+      - name: Counts in copy are asked of their tables
+        run: node tools/copy-count.mjs
+
       # The river centrelines are generated too, and a line that teleports would
       # draw a profile straight across country. This asks USGS nothing — it
       # reads what was committed and refuses a line with an impossible step in
