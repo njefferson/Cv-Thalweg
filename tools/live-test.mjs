@@ -12,6 +12,21 @@
  */
 import { chromium } from 'playwright-core';
 import { chromiumLaunch, OFFLINE_ARGS } from './lib-browser.mjs';
+import { spawnSync } from 'node:child_process';
+
+/* THE FIFTH TOOL IN THIS REPO TO NEED THESE THREE LINES (hub LESSONS 173).
+   Node's own fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, and
+   it reads it at STARTUP — so the relay below went direct, every request came
+   back refused, and the whole suite reported the public agencies as down. It
+   is a harder trap here than in the bakes, because this is the one suite whose
+   job is to talk to real services: a red run looks exactly like the thing it
+   is built to detect. */
+if (!process.env.NODE_USE_ENV_PROXY &&
+    (process.env.HTTPS_PROXY || process.env.https_proxy)) {
+  const r = spawnSync(process.execPath, [import.meta.filename, ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+  process.exit(r.status === null ? 1 : r.status);
+}
 const BASE = process.argv[2] || 'http://127.0.0.1:8787';
 
 let pass = 0, fail = 0;
@@ -26,7 +41,7 @@ const browser = await chromium.launch({
    request. The service worker and offline behaviour are tools/a11y.mjs. */
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, serviceWorkers: 'block' });
 
-const relayed = { ok: 0, fail: 0, hosts: new Set(), bytes: 0, boot: 0 };
+const relayed = { ok: 0, fail: 0, hosts: new Set(), refused: new Set(), bytes: 0, boot: 0 };
 
 /* Wait for the STATE, not for a number of seconds.
  *
@@ -51,6 +66,22 @@ await ctx.route(url => !url.hostname.startsWith('127.0.0.1') && url.hostname !==
     try {
       const res = await fetch(req.url(), { method: req.method(), redirect: 'follow' });
       const body = Buffer.from(await res.arrayBuffer());
+      /* A REFUSAL IS NOT AN ANSWER, AND COUNTING IT AS ONE IS HOW A BLOCKED
+         RUN COMES TO READ AS AN OUTAGE. The relay used to fulfil any HTTP
+         response and increment `ok`, so a container whose egress refuses
+         everything with a 403 produced a suite reporting that USGS, NOAA, DWR
+         and CDEC were all down at once — which is not a thing that happens,
+         and was the one clue that the failure was local. Three states look
+         identical from inside: the service said no, the egress said no, and
+         the request never left. This tells the first two apart by NAME, so
+         the run says what to ask for rather than what to disbelieve.
+         The body is still passed through: the app's own handling of a bad
+         status is worth exercising, and hiding it would be a second lie. */
+      if (res.status === 403 || res.status === 407) {
+        relayed.refused.add(new URL(req.url()).hostname);
+        console.log('  REFUSED ' + res.status + ' ' + req.url().slice(0, 110) +
+          ' — that is an egress or gateway refusal, not the service saying no.');
+      }
       relayed.ok++; relayed.hosts.add(new URL(req.url()).hostname);
       relayed.bytes += body.length;
       await route.fulfill({
@@ -484,6 +515,17 @@ console.log(`\nlanding cost ${(relayed.boot / 1024).toFixed(0)}KB; whole run ` +
   `${(relayed.bytes / 1024 / 1024).toFixed(1)}MB`);
 console.log(`relayed ${relayed.ok} live responses from ${[...relayed.hosts].join(', ')}` +
   (relayed.fail ? `, ${relayed.fail} failed` : ''));
+/* AND SAY IT AGAIN AT THE END, BY NAME. A refusal printed a thousand lines up
+   is a refusal nobody reads, and the failures underneath it read as findings
+   about the app. Naming the hosts is what turns a red run into a question
+   somebody can act on in one step rather than an afternoon of disbelief. */
+if (relayed.refused.size) {
+  console.log(`\n${relayed.refused.size} host(s) REFUSED this run rather than answering it:`);
+  [...relayed.refused].forEach(h => console.log('  ' + h));
+  console.log('A 403 or 407 from a gateway is a fact about where this ran and');
+  console.log('nothing whatever about the service or the app. Every failure below');
+  console.log('that depends on one of these hosts says nothing until they are reachable.');
+}
 console.log(`${pass} passed, ${fail} failed.`);
 await browser.close();
 process.exit(fail ? 1 : 0);

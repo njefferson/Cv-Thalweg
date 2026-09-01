@@ -3,6 +3,31 @@
  * Cloudflare Pages serves these files as-is; nothing here is a build step.
  */
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+
+/* THE SIXTH TOOL HERE TO NEED THESE THREE LINES (hub LESSONS 173 and 201).
+   This server is not only static: it runs worker.js's `handle` at /bathy,
+   exactly as Pages does, and that calls Node's own fetch — which ignores
+   HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, read at STARTUP. Without it
+   the proxy answered HTTP 403 for DWR's bathymetry AND for CDEC, which the
+   app routes through the same path, so the live suite reported nine failures
+   about missing surveys and a Feather with no flow. Every one of those was
+   this file, and none of them said so. */
+/* AND UNLIKE THE BAKE TOOLS, THIS ONE HAS TO FORWARD SIGNALS. They re-exec
+   and exit; this is a long-running server that CI and every walk stop with
+   `kill $!` — and `$!` is the PARENT. A child that outlives the kill keeps
+   port 8787, so the next run cannot bind it and the suite after it measures a
+   server it did not start, from a tree it does not know. Forward the signal,
+   and leave when the child leaves. */
+const REEXEC = !process.env.NODE_USE_ENV_PROXY &&
+  !!(process.env.HTTPS_PROXY || process.env.https_proxy);
+if (REEXEC) {
+  const child = spawn(process.execPath, [import.meta.filename, ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1' } });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+    process.on(sig, () => { try { child.kill(sig); } catch { /* already gone */ } });
+  child.on('exit', (code, sig) => process.exit(sig ? 1 : (code == null ? 1 : code)));
+}
 import { handle } from '../worker.js';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
@@ -27,7 +52,7 @@ const TYPES = {
   '.png':'image/png', '.geojson':'application/geo+json'
 };
 
-createServer(async (req, res) => {
+if (!REEXEC) createServer(async (req, res) => {
   /* Serve the bathymetry proxy at /bathy, exactly as Pages does through
      functions/bathy/[[path]].js, so local work and production take the
      same path through the same allow-list. */

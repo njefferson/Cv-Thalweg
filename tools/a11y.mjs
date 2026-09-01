@@ -412,6 +412,82 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await noOverflow(page, `${name}: nothing reaches past the edge on ${tab}`);
   }
 
+  /* A NEW SURFACE JOINS THIS LIST IN THE SAME COMMIT, OR IT SHIPS UNMEASURED
+     (hub LESSONS 28). Two arrived together and neither is reachable from the
+     states above: the species regulations sit inside folds that arrive shut,
+     and a shut <details> is invisible to axe; the tide's rising-or-falling
+     strip needs a tidal river AND a prediction, and this walk is offline on
+     purpose so NOAA never answers.
+
+     So the walk drives the app into both rather than hoping to pass through
+     them. The tide is planted, not fetched — the state under test is the
+     strip's contrast, its target sizes and its text, none of which cares
+     where the numbers came from. */
+  await page.click('#tab-brief');
+  await page.waitForTimeout(400);
+  const folded = await page.evaluate(() => {
+    const f = [...document.querySelectorAll('#panel-brief details.foldbox')];
+    f.forEach(d => { d.open = true; });
+    return f.length;
+  });
+  check(`${name}: the brief has folds to open`, folded > 0, String(folded));
+  await page.waitForTimeout(300);
+  await audit(page, `${name}: brief panel, every fold open`);
+  await noOverflow(page, `${name}: nothing reaches past the edge with the rules open`);
+
+  await page.selectOption('#riverpick', 'sacramento');
+  await page.waitForTimeout(1200);
+  await page.click('#tab-water');
+  await page.waitForTimeout(400);
+  const planted = await page.evaluate(() => {
+    /* Halfway up a flood: a low three hours behind and a high three ahead,
+       which is the ordinary case and the one the strip is drawn for. */
+    const t = state.tides.sacramento || {};
+    const stamp = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 16);
+    const now = Date.now();
+    state.tides.sacramento = Object.assign({}, t, {
+      /* OFFLINE, THIS KEY IS ALREADY SET, and it survives the merge — the
+         panel checks it before anything else and draws the failure box, so
+         the planted tide rendered nothing and the strip was measured as
+         absent rather than as broken. */
+      failed: null,
+      offline: false,
+      station: (t.station || '9415316'),
+      stations: t.stations && t.stations.length ? t.stations
+        : [{ id: '9415316', name: 'Rio Vista', lat: 38.1417, lon: -121.6853 }],
+      hourly: [],
+      hourlyUnavailable: true,
+      hilo: [
+        { t: stamp(now - 3 * 3600000), v: 0.7, type: 'L' },
+        { t: stamp(now + 3 * 3600000), v: 4.3, type: 'H' },
+        { t: stamp(now + 9 * 3600000), v: 0.7, type: 'L' }
+      ]
+    });
+    renderWater();
+    const strip = document.querySelector('#panel-water .tidephase');
+    return { drawn: !!strip, says: strip ? strip.textContent : '',
+             /* When it does not draw, what the panel said instead is the
+                whole diagnosis and a bare false is not. */
+             instead: strip ? '' : (document.getElementById('panel-water').textContent || '').slice(0, 140) };
+  });
+  check(`${name}: the tide strip draws when there is a tide to draw`,
+    planted.drawn && /rising/i.test(planted.says), JSON.stringify(planted).slice(0, 200));
+  await page.waitForTimeout(300);
+  await audit(page, `${name}: the tide rising-or-falling strip`);
+  await noOverflow(page, `${name}: nothing reaches past the edge with the tide strip up`);
+  /* THE ARROW IS DECORATION AND EVERYTHING IT MEANS IS IN THE SENTENCE. A
+     reader who cannot see it must not lose the answer, and one who can must
+     not be told it twice out loud. */
+  check(`${name}: the tide arrow is hidden from anything that reads aloud`,
+    await page.evaluate(() => {
+      const a = document.querySelector('#panel-water .tidephase svg');
+      return !!a && a.getAttribute('aria-hidden') === 'true';
+    }));
+  await page.selectOption('#riverpick', '');
+  await page.waitForTimeout(1200);
+  await page.click('#tab-water');
+  await page.waitForTimeout(300);
+
   /* Closing the first-run panel returned focus to nothing, because nothing
      opened it: a keyboard or screen-reader user was left with no position in
      the app at all. BODY is not "somewhere real". */

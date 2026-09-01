@@ -49,12 +49,25 @@ const USGS_BODY = { value: { timeSeries: [
   ts('11425500', 'SACRAMENTO R A VERONA CA',    38.7844, -121.5983, '72255', 2.10, 'm/sec')
 ] } };
 
+/* A SEMIDIURNAL CURVE AND ITS OWN EXTREMES, rather than a sine sampled on a
+   grid that does not line up with it. The old fixture put its turns every six
+   hours and read the height off a curve with a period of 24.5, so a row
+   labelled "high" could be a foot BELOW the low either side of it. Nothing
+   noticed for as long as the app only listed the turns; the moment it worked
+   out whether the water is rising, an incoherent tide is a fixture that
+   exercises the failure branch and calls it a pass.
+   Twelve-hour period, turns at the real peaks and troughs: now sits halfway
+   up a flood, which is the ordinary case and the one worth drawing. */
 const hourly = [], hilo = [];
+const tideAt = i => 2.5 + 1.8 * Math.sin(Math.PI * i / 6);
 for (let i = -6; i < 30; i++) {
   const d = new Date(now.getTime() + i * 3600000);
-  hourly.push({ t: coopsT(d), v: (2.5 + 1.8 * Math.sin(i / 3.9)).toFixed(3) });
-  if (i % 6 === 0) hilo.push({ t: coopsT(d), v: (2.5 + 1.8 * Math.sin(i / 3.9)).toFixed(3),
-    type: i % 12 === 0 ? 'H' : 'L' });
+  hourly.push({ t: coopsT(d), v: tideAt(i).toFixed(3) });
+}
+for (let i = -3; i < 30; i += 6) {
+  const d = new Date(now.getTime() + i * 3600000);
+  hilo.push({ t: coopsT(d), v: tideAt(i).toFixed(3),
+    type: ((i - 3) % 12 === 0) ? 'H' : 'L' });
 }
 
 const FOLDER = { services: [
@@ -548,6 +561,107 @@ check('and quotes them in the regulation\u2019s own words',
   /gap greater than 1 inch/.test(deltaSeason) &&
   /12-inch total length minimum size limit/.test(deltaSeason) &&
   /south of Interstate 80/.test(deltaSeason));
+/* --- THE RULES ARE NOT TYPED INTO THE APP --------------------------------
+   They used to be: four Delta sections copied into the river record by hand,
+   and two of the four had already drifted from the regulation in the copying
+   — one had lost its own pointer to another section, one had been rewritten
+   into a sentence CDFW never published. Neither was noticeable by reading the
+   file, which is what a hand copy of somebody else's rule always looks like.
+
+   So they are baked from the department's own service and re-baked monthly,
+   and the app renders what came back. These checks are the difference between
+   that being true and it looking true. */
+const regs = await page.evaluate(() => ({
+  loaded: typeof REGULATIONS !== 'undefined' && Array.isArray(REGULATIONS),
+  n: typeof REGULATIONS !== 'undefined' ? REGULATIONS.length : 0,
+  meta: typeof REGULATIONS_META !== 'undefined' ? REGULATIONS_META : null,
+  /* Nothing may be typed into the river record any more — a topic name, and
+     the words come from the bake. */
+  deltaHasNoTypedRules: !('rules' in byId('delta')),
+  deltaTopics: byId('delta').ruleTopics || [],
+  /* The rendered text has to be the SERVICE's text, character for character,
+     for every section the Delta shows. */
+  matchesSource: (typeof REGULATIONS === 'undefined' ? [] :
+    REGULATIONS.filter(r => r.topic === 'delta'))
+    .every(r => document.body.textContent.indexOf(r.text) !== -1)
+}));
+check('the regulations are baked and loaded', regs.loaded && regs.n >= 10,
+  JSON.stringify({ loaded: regs.loaded, n: regs.n }));
+check('nothing about the Delta’s rules is typed into the river record',
+  regs.deltaHasNoTypedRules && regs.deltaTopics.indexOf('delta') !== -1,
+  JSON.stringify(regs));
+check('and what is on the screen is the service’s own text, character for character',
+  regs.matchesSource, JSON.stringify(regs));
+/* THE PARAPHRASES THAT WERE THERE. 5.00(a)(1) had lost the regulation's own
+   pointer to section 1.71, and it is back because it was never removed. */
+check('the section that lost its own cross-reference has it back',
+  /see Section 1\.71 for definition of the Delta/.test(deltaSeason),
+  deltaSeason.slice(0, 200));
+/* A REGULATION WITH NO DATE ON IT IS A CLAIM ABOUT TODAY NOBODY CHECKED. */
+check('the reader is told when the rules were read',
+  /Read from CDFW/.test(deltaSeason) && /re-read every month/.test(deltaSeason),
+  deltaSeason.slice(0, 200));
+check('and told the printed regulations are the authority',
+  /printed regulations are the authority/.test(deltaSeason));
+check('the bake itself carries the date it was read',
+  !!(regs.meta && /^\d{4}-\d{2}-\d{2}$/.test(regs.meta.fetchedAt)),
+  JSON.stringify(regs.meta));
+
+/* --- THE OTHER FISH IN THE SAME WATER ------------------------------------
+   The season being shut is not the same thing as the river being empty. The
+   sturgeon rules are why this is in the app rather than behind a link: the
+   white sturgeon season is written against the Carquinez Bridge, the Feather
+   confluence and the I-5 bridge, and there is a year-round closure from
+   Keswick Dam to the Highway 162 bridge — places on the two rivers this app
+   draws. */
+const species = await page.evaluate(() => {
+  const p = document.getElementById('panel-brief');
+  const h = [...p.querySelectorAll('h2')].find(x => /What else is legal/.test(x.textContent));
+  const folds = [...p.querySelectorAll('details.foldbox')]
+    .filter(d => /Striped bass|Sturgeon|Black bass/.test(d.querySelector('summary').textContent));
+  /* SHUT BY DEFAULT: three species of Title 14 unfolded above the tide would
+     push the thing this app is for off the screen, which is what the fold
+     pattern here exists to stop. Measured before opening them. */
+  const wereShut = folds.every(d => !d.open);
+  folds.forEach(d => { d.open = true; });
+  return { heading: !!h, folds: folds.length, wereShut: wereShut,
+    summaries: folds.map(d => d.querySelector('summary').textContent.trim()),
+    text: folds.map(d => d.textContent).join(' ') };
+});
+check('the other species have a section of their own', species.heading,
+  JSON.stringify({ heading: species.heading }));
+check('and one fold each for striped bass, sturgeon and black bass',
+  species.folds === 3, JSON.stringify(species.summaries));
+/* A SHUT FOLD WITH A BARE NOUN ON IT GIVES NOBODY A REASON TO OPEN IT. */
+check('and they arrive shut, so they do not push the fishery off the screen',
+  species.wereShut, JSON.stringify({ wereShut: species.wereShut }));
+check('each fold says how many sections are behind it',
+  species.summaries.every(t => /\d+ sections? of Title 14/.test(t)),
+  JSON.stringify(species.summaries));
+/* "Open season:" with nothing after it is a section number in front of
+   nothing. The dates live in three children and they have to come with it. */
+check('the sturgeon season carries the sub-sections that hold the dates',
+  /5\.80\(a\)\(1\)/.test(species.text) && /Carquinez/.test(species.text) &&
+  /October 1 through June 30/.test(species.text),
+  species.text.slice(0, 400));
+check('and the closure that names water this app actually draws',
+  /Keswick Dam/.test(species.text) && /Highway 162/.test(species.text),
+  species.text.slice(0, 400));
+check('the zero limits are there, which is the part worth knowing before driving out',
+  /Daily limit: Zero fish/.test(species.text) &&
+  /zero fish per calendar year/.test(species.text),
+  species.text.slice(0, 400));
+/* DOCTRINE 2: a table does not render where this is read and loses its
+   columns without saying so. The service publishes several of them and the
+   bake refuses them; this is the second line of that. */
+check('no table markup reached the reader',
+  !/\[row\]/.test(species.text) && !/\|[^|]+\|/.test(species.text),
+  species.text.slice(0, 200));
+/* Every section on the screen carries its number, so a reader can check it. */
+check('every species rule shows its section number',
+  await page.evaluate(() => [...document.querySelectorAll('#panel-brief details.foldbox .rdg')]
+    .every(b => /Title 14, section \S+/.test(b.textContent))));
+
 /* A COURSE IT DOES NOT HAVE IS NOT OFFERED. Read the panel only once it has
    actually drawn its profile section — the first version of this asserted
    against a panel still saying "reading the service directory", where the
@@ -742,6 +856,85 @@ check('the figure is described in words for anything that cannot see it',
   JSON.stringify({ describedBy: along.describedBy, descId: along.descId,
                    lines: along.descLines }));
 
+/* --- HOW FAR UP THE TIDE ACTUALLY GOT ------------------------------------
+   The ribbon's dashed mark is the furthest tide STATION and never moves. This
+   one is measured: the highest gauge that really ran backwards in the last
+   day. It is a FLOOR — the next gauge up may have reversed and simply not be
+   instrumented — and the app has to say so, because a rule drawn across a
+   figure invites the reader to take it for the limit of the tide.
+
+   Driven with a synthetic day rather than through the fetch: the point under
+   test is which row gets the mark and what the words around it claim, and a
+   fixture that has to produce a plausible tidal day at three sites to prove
+   that is a fixture testing itself. */
+const rev = await page.evaluate(() => {
+  const river = byId('sacramento');
+  const t0 = Date.now() - 20 * 3600000, q = 15 * 60000;
+  const mk = (vals) => vals.map((v, i) => ({ t: t0 + i * q, v: v }));
+  /* Downstream first, the order the figure draws in. */
+  const gs = [
+    { id: 'A', name: 'LOWEST CA',  vel: -0.8 },
+    { id: 'B', name: 'MIDDLE CA',  vel:  0.4 },
+    { id: 'C', name: 'HIGHER CA',  vel:  0.9 },
+    { id: 'D', name: 'HIGHEST CA', vel:  1.2 }
+  ];
+  /* A and B reverse; C runs down all day; D publishes no day at all. */
+  const hist = {
+    A: mk([-0.9, -1.1, -0.7, 0.5, 0.9, 1.0]),
+    B: mk([ 0.8,  0.5, -0.4, -0.6, 0.3, 0.7]),
+    C: mk([ 1.2,  1.1,  0.9,  1.0, 1.3, 1.4]),
+    D: []
+  };
+  const m = maxReversal(river, gs, hist);
+  const none = maxReversal(river, gs, { A: mk([1, 1.2, 1.1]), B: mk([0.9, 1.1]) });
+  const top  = maxReversal(river, gs, Object.assign({}, hist, { D: mk([0.5, -0.9, -1.2]) }));
+  const wrap = tideAlongFigure(river, gs, hist);
+  const fig = wrap.querySelector('svg[role="img"]');
+  return {
+    picked: m ? m.row.id : null,
+    withDay: m ? m.withDay : null,
+    topmost: m ? m.topmost : null,
+    above: m && m.above ? m.above.id : null,
+    /* Nothing reversed at all is a different answer from "no data". */
+    noneIsNull: none === null,
+    /* When the highest gauge is the one that reversed there is no ceiling. */
+    topPicked: top ? top.row.id : null,
+    topIsTopmost: top ? top.topmost : null,
+    key: fig ? fig.textContent : '',
+    desc: wrap.querySelector('[id^=alongdesc-]')
+      ? wrap.querySelector('[id^=alongdesc-]').textContent : '',
+    rules: fig ? fig.querySelectorAll('line[stroke-dasharray]').length : 0
+  };
+});
+check('the mark lands on the highest gauge that really ran backwards',
+  rev.picked === 'B', JSON.stringify(rev));
+check('and not on one that ran downstream all day',
+  rev.picked !== 'C' && rev.picked !== 'D', JSON.stringify(rev));
+check('it counts only the gauges that published a day',
+  rev.withDay === 3, JSON.stringify(rev));
+check('and names the gauge above it, which is what bounds the answer',
+  rev.above === 'C', JSON.stringify(rev));
+check('nothing reversing is not the same as no reading', rev.noneIsNull,
+  JSON.stringify(rev));
+/* WHERE THE HIGHEST GAUGE IS THE ONE THAT REVERSED, the data has no ceiling
+   and the app must not imply one. */
+check('the topmost gauge reversing is reported as having no gauge above it',
+  rev.topPicked === 'D' && rev.topIsTopmost === true, JSON.stringify(rev));
+/* A MARK NOBODY NAMED IS THE DEFECT THE COLOUR KEY ALREADY FIXED ONCE. */
+check('the figure names the mark in its own key',
+  /pushed back at least this far/.test(rev.key), rev.key.slice(0, 300));
+check('and the mark is drawn, not only described',
+  rev.rules >= 1, String(rev.rules));
+/* IT IS A FLOOR AND NEVER A LIMIT, in the words as well as in the drawing —
+   "at least" is the whole claim, and the description says it too because the
+   drawing is inside a role="img" and reaches nobody who cannot see it. */
+check('the words say "at least", never that the tide reaches there',
+  /at least/.test(rev.key) && /at least/.test(rev.desc) &&
+  !/the tide reaches (this|as far as)/i.test(rev.desc),
+  rev.desc.slice(0, 300));
+check('and the description says it is a floor rather than the limit',
+  /floor, not the limit|floor and not a limit/i.test(rev.desc), rev.desc.slice(0, 300));
+
 /* A DRAWING MUST FILL THE BOX IT RESERVES. width:100% with an explicit height
    is a contradiction: the viewBox scales down to fit the width, the element
    keeps the height it was told, and the picture floats in the middle of the
@@ -836,6 +1029,72 @@ check('agreeing to the day is remembered, and the readings are not cached',
     sput(river.id, 'velday', false);
     return remembered && !cached;
   }));
+
+/* --- WHICH WAY THE TIDE IS MOVING ----------------------------------------
+   Everything the app said about the tide was a direction on the MAP: the sea
+   is downstream, the flood pushes up, the wash marks how far. None of it told
+   a reader standing on a bank whether the water in front of them is coming up
+   or going down, which is a direction in TIME and the one an afternoon gets
+   planned around. It was derivable from the highs and lows already on the
+   screen the whole time. */
+const phase = await page.evaluate(() => {
+  const river = byId('sacramento');
+  const ph = tidePhase(river);
+  const panel = document.getElementById('panel-water');
+  const strip = panel.querySelector('.tidephase');
+  /* A tide whose "high" is lower than the lows either side of it is a broken
+     prediction, not a tide, and an arrow drawn from it would be a guess. */
+  const kept = state.tides[river.id].hilo;
+  const now = Date.now();
+  const bad = [
+    { t: new Date(now - 2 * 3600000).toISOString().replace('T', ' ').slice(0, 16), v: 4.0, type: 'L' },
+    { t: new Date(now + 2 * 3600000).toISOString().replace('T', ' ').slice(0, 16), v: 1.0, type: 'H' }
+  ];
+  state.tides[river.id].hilo = bad;
+  const incoherent = tidePhase(river);
+  /* And with only the turn ahead of us, there is no phase to state. */
+  state.tides[river.id].hilo = [kept[kept.length - 1]];
+  const oneSided = tidePhase(river);
+  state.tides[river.id].hilo = kept;
+  return {
+    got: !!ph, rising: ph ? ph.rising : null,
+    through: ph ? ph.through : null,
+    range: ph ? ph.range : null,
+    minutes: ph ? ph.minutes : null,
+    incoherentIsNull: incoherent === null,
+    oneSidedIsNull: oneSided === null,
+    strip: strip ? strip.textContent : '',
+    card: (document.getElementById('panel-water').textContent || '')
+  };
+});
+check('the app works out whether the tide is rising or falling', phase.got,
+  JSON.stringify(phase));
+/* The fixture puts now halfway up a flood: three hours past a low of 0.70 and
+   three hours short of a high of 4.30. */
+check('and gets the direction right for the fixture', phase.rising === true,
+  JSON.stringify(phase));
+check('with how far through the swing it is', phase.through > 0.3 && phase.through < 0.7,
+  String(phase.through));
+check('and how big the swing is', Math.abs(phase.range - 3.6) < 0.05, String(phase.range));
+/* A HIGH LOWER THAN THE LOWS EITHER SIDE OF IT IS NOT A TIDE. Better to say
+   nothing than to draw an arrow off a broken prediction. */
+check('an incoherent prediction gets no direction at all', phase.incoherentIsNull,
+  JSON.stringify(phase));
+/* The turn AHEAD on its own would make the direction right by luck. */
+check('and neither does one with no turn behind it', phase.oneSidedIsNull,
+  JSON.stringify(phase));
+check('the tide panel says it in words, not only in an arrow',
+  /rising/i.test(phase.strip), phase.strip.slice(0, 200));
+/* IT IS A LEVEL PREDICTION AT ONE STATION AND MUST SAY SO. The water can run
+   upstream while the level falls; a reader told "rising" with nothing else is
+   being handed a current reading that is not one. */
+check('and says it is the level at one station, not the current where you are',
+  /level/i.test(phase.strip) && /not the current/i.test(phase.strip),
+  phase.strip.slice(0, 300));
+/* And the measured section says the two need not agree, so a reader who finds
+   them disagreeing has not found a fault. */
+check('the measured section says the two need not agree',
+  /need not agree|not the same thing/i.test(along.text), along.text.slice(0, 400));
 
 /* --- THE KEY SAID "tap to switch" AND TAPPING DID NOT SWITCH -------------
    The map's key promised it; tapping a station opened a label naming the
