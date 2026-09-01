@@ -322,6 +322,14 @@ h2.sec:first-child{margin-top:0}
 ul.tight{margin:.3rem 0; padding-left:1.1rem}
 ul.tight li{margin:.2rem 0; font-size:.82rem}
 .rowline{display:flex; gap:.5rem; align-items:center; margin:.35rem 0; flex-wrap:wrap}
+/* 44 PIXELS, BECAUSE THESE ARE PRESSED WITH A THUMB ON A RIVERBANK. Every
+   primary action in a panel sits on a .rowline, and every one of them was 30px
+   tall — the layer toggles included, since the app's first week. It was found
+   by a check written for a NEW control in 2.10.0 that then failed on the one
+   beside it, which is the ordinary way a floor gets discovered: nothing was
+   measuring it, so nothing was wrong. The rest of the app's touch targets have
+   been held to 44 for releases; these had simply never been asked. */
+.rowline button{min-height:44px}
 .grow{flex:1 1 auto}
 input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
 .layer{border:1px solid #16302e; padding:.45rem .5rem; margin:.4rem 0}
@@ -482,6 +490,14 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 /* The access pin. A square, drawn to the same weights as the circles beside
    it so it reads as a member of the same family and not as a bug. */
 .accesspin{box-sizing:border-box; border:2px solid #9BD98C; background:#0D1A19}
+/* A TRIANGLE POINTING AT THE WATER, in the buff this app already uses to mean
+   ramp — it is the colour of the reader's own Ramp mark, and reusing it is the
+   point: buff means ramp here. The shape is what separates the two, because a
+   colour-blind reader gets no hue and sunlight takes hue first. Access land is
+   a square, a gauge and a tide station are circles, this is the only triangle
+   on the map. */
+.ramppin{width:0;height:0;border-left:6px solid transparent;
+  border-right:6px solid transparent;border-top:11px solid var(--buff)}
 .legend i.sw.sq{border-radius:0}
 .legend .keyhead{display:flex; align-items:center; gap:.5rem; justify-content:space-between}
 .legend .keyhead button{border:0; padding:0 .2rem; min-height:22px; color:var(--mute);
@@ -734,6 +750,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      tools/fetch-access.mjs. Places the department says the public may go —
      NOT boat ramps, and nothing in this app calls them that. -->
 <script src="access-lands.js"></script>
+<!-- Public boating facilities on these rivers, baked by tools/fetch-ramps.mjs
+     from CDFW's own FishingGuide service. The app said for its whole life that
+     no such list existed; that sentence was written on evidence gathered
+     through a firewall, and six of the hosts that publish it had been refused
+     by the container rather than by the state. Every row carries the year
+     somebody last visited, or says it has no date — two thirds of the
+     department's records carry none, and dropping those would lose real
+     ramps. -->
+<script src="ramps.js"></script>
 <!-- The sections of Title 14 this app quotes, baked by tools/fetch-regs.mjs
      from CDFW's own regulations service and re-baked monthly by a workflow.
      A regulation typed into source is right on the day it is typed and
@@ -764,7 +789,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.9.1';
+var VERSION = '2.10.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2117,6 +2142,7 @@ function loadCatalog(force){
     /* The moment the app knows where the surveys are, the map should say so. */
     drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
     sput('_shared', 'catalog', cat);
     return cat;
   });
@@ -3227,7 +3253,10 @@ function initMap(){
      stand is worth tapping, and a reading still wins over it. */
   m.createPane('accesspane');
   m.getPane('accesspane').style.zIndex = 375;
+  m.createPane('ramppane');
+  m.getPane('ramppane').style.zIndex = 376;
   state.accessLayer = L.layerGroup().addTo(m);
+  state.rampLayer = L.layerGroup().addTo(m);
 
   m.createPane('herepane');
   m.getPane('herepane').style.zIndex = 385;
@@ -5340,6 +5369,76 @@ function renderLayers(){
     'Dense aquatic vegetation defeats the sounder, so DWR drops those cells. A blank patch beside a tule edge is missing data, not flat bottom. In vegetated water a return may be the top of the weed rather than the bed.',
     'Single beam data are points along the boat\u2019s track. The water between two tracks was never measured and is not drawn.']));
 
+  /* WHERE YOU CAN PUT A BOAT IN. This section is the correction of a claim the
+     app made for its whole life — that no published list of ramps for these
+     rivers existed. It does exist, it is CDFW's, and the reason the app said
+     otherwise is that the hosts publishing it were refused by a container and
+     a refusal reads exactly like an absence from inside. (Hub LESSONS §188.)
+
+     IT LEADS the access lands rather than following them, because the access
+     lands were only ever here as the substitute for this. */
+  var launches = rampsFor(river);
+  var rmeta = rampsMeta();
+  p.appendChild(el('h2',{class:'sec',text:'Where you can launch'}));
+  if (!launches.length){
+    p.appendChild(el('p',{class:'note',
+      text:'CDFW\u2019s record of boating facilities has none within a kilometre of the ' +
+        river.name + '\u2019s course. That is a gap in a survey that has not been fully redone since ' +
+        (rmeta ? rmeta.seenTo : 2014) + ', not a statement that there is nowhere to launch.'}));
+  } else {
+    /* THE AGE IS THE HEADLINE, not a footnote. A reader who takes this as
+       current and drives to a closed ramp with a boat on a trailer has been
+       failed worse than by a missing depth reading. */
+    p.appendChild(el('p',{class:'note',
+      text:countWord(launches.length) + ' public boating facilit' +
+        (launches.length === 1 ? 'y' : 'ies') + ' on this river, from CDFW\u2019s own record. ' +
+        'THAT RECORD IS OLD: it is interviews, the dated ones taken between ' +
+        (rmeta ? rmeta.seenFrom : 2010) + ' and ' + (rmeta ? rmeta.seenTo : 2014) +
+        ', and CDFW gives no date at all for many of them. Ring before you drive.'}));
+    var rampRow = el('div',{class:'rowline'});
+    var rampBtn = el('button',{type:'button',
+      'aria-pressed': state.showRamps === false ? 'false' : 'true',
+      /* NOT "Show them on the map". The access-lands section further down had
+         that exact label already, so this panel would have carried two buttons
+         reading the same four words — indistinguishable to anybody tabbing
+         through them, and to the test suite, which clicked the wrong one the
+         moment this section landed. Each names what it shows. */
+      text:'Show the launches on the map'});
+    rampBtn.addEventListener('click', function(){
+      state.showRamps = state.showRamps === false;
+      drawRamps(); updateLegend(); renderLayers();
+      announce(state.showRamps === false ? 'Launches hidden.' : 'Launches shown.');
+    });
+    rampRow.appendChild(rampBtn);
+    p.appendChild(rampRow);
+    p.appendChild(foldNote('What this list is, and what it cannot tell you', [
+      'It is CDFW\u2019s own record of boating facilities, from the service behind the department\u2019s Fishing Guide. Only facilities it marks as usable by the public are here, and each one is filed under the river whose course it actually sits nearest rather than by a box drawn round the river.',
+      'It is a record of visits, not a survey of what is standing today. Where CDFW recorded the year of the visit this app prints it; where it recorded none, the app says so rather than letting an undated entry read as current.',
+      'And nothing here knows the water. Low water closes a ramp for a whole season, and this record cannot see the stage. What is on this page is where a launch was; whether you can use it this weekend is a phone call.']));
+
+    var rul = el('ul',{class:'tight'});
+    launches.slice(0, 12).forEach(function(s){
+      var li = el('li',{});
+      li.appendChild(el('b',{text:s.name}));
+      var facts = rampFacts(s);
+      li.appendChild(document.createTextNode(' \u2014 ' + rampWhere(s) + '. ' +
+        (facts.length ? initialCap(joinNames(facts)) + '. ' : '') + rampSeen(s) + rampAlso(s)));
+      var go = el('button',{class:'gobtn',type:'button',
+        'aria-label':'Show ' + s.name + ' on the map', text:'Map'});
+      go.addEventListener('click', function(){
+        if (tabNames().indexOf('map') !== -1) selectTab('map');
+        mapView([[s.lat, s.lon], 14], { animate:!reduceMotion });
+      });
+      li.appendChild(document.createTextNode(' '));
+      li.appendChild(go);
+      rul.appendChild(li);
+    });
+    p.appendChild(rul);
+    if (launches.length > 12) p.appendChild(el('p',{class:'note',
+      text:'The twelve nearest the top of the alphabet, of ' + launches.length +
+        '. The rest are on the map.'}));
+  }
+
   /* GETTING TO THE WATER. Depth is no use from a road you cannot stop on. */
   var sites = accessSites(river);
   p.appendChild(el('h2',{class:'sec',text:'Getting to the water'}));
@@ -5355,7 +5454,7 @@ function renderLayers(){
     var accRow = el('div',{class:'rowline'});
     var accBtn = el('button',{type:'button',
       'aria-pressed': state.showAccess === false ? 'false' : 'true',
-      text:'Show them on the map'});
+      text:'Show the public land on the map'});
     accBtn.addEventListener('click', function(){
       state.showAccess = state.showAccess === false;
       drawAccessSites(); updateLegend(); renderLayers();
@@ -5365,7 +5464,7 @@ function renderLayers(){
     p.appendChild(accRow);
     p.appendChild(foldNote('What these places are, and what they are not', [
       'These are places the department says the public may go, in its words, with a link to its page where it has one.',
-      'No published list of boat ramps for these rivers could be found, and this app will not invent one. Each pin is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
+      'These are not launches. Where you can put a boat in is its own section above, from CDFW\u2019s own record of boating facilities. Each pin here is the middle of a property rather than a spot on the bank, which is why the distance to the river is given.']));
 
     var ul = el('ul',{class:'tight'});
     sites.slice(0, 12).forEach(function(site){
@@ -5654,6 +5753,13 @@ function updateLegend(){
     var pl = el('i',{class:'sw',
       style:'width:16px;height:0;border-radius:0;border:0;border-top:3px solid #F2A65A'});
     rows.push(keyRow(pl, 'The line the depth below is measured along'));
+  }
+  if (state.rampLayer && state.rampLayer.getLayers().length){
+    /* The swatch is the pin: a buff triangle, the only one on the map. */
+    var rp = el('i',{class:'sw',
+      style:'width:0;height:0;border-radius:0;border-left:6px solid transparent;' +
+            'border-right:6px solid transparent;border-top:11px solid #C9A96A;background:none'});
+    rows.push(keyRow(rp, 'Where you can launch \u2014 CDFW\u2019s record, and it is old'));
   }
   if (state.accessLayer && state.accessLayer.getLayers().length){
     /* THE KEY HAS TO CARRY THE SHAPE. A round swatch beside a square pin is a
@@ -6318,6 +6424,7 @@ function selectRiver(id){
   if (home) home.hidden = !state.riverId;
   drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
@@ -8341,7 +8448,7 @@ function renderHeld(held){
   if (na){
     box.appendChild(el('p',{class:'note',
       text:'Nearest public land: ' + na.site.name + ', ' + kmText(na.d) + ' away. ' +
-        'That is the middle of a property rather than a spot on the bank, and it is not a boat ramp.'}));
+        'That is the middle of a property rather than a spot on the bank, and it is not a launch.'}));
   } else {
     box.appendChild(el('p',{class:'note',
       text:'CDFW publishes no land of its own near here, which is not the same as there being nowhere to fish from.'}));
@@ -8513,6 +8620,77 @@ function accessSites(river){
   return (a[river.id] || []);
 }
 
+/* =====================================================================
+   WHERE YOU CAN PUT A BOAT IN.
+   CDFW's own boating facilities, baked. This section exists because the app
+   spent its whole life asserting there was no such list — a sentence written
+   on evidence gathered through a firewall, where a refused host and an absent
+   dataset look identical. (Hub LESSONS §188.)
+
+   TWO CAVEATS TRAVEL WITH EVERY ONE OF THESE and neither is optional. They
+   are interview records, so the year somebody last stood there is printed on
+   each, and where CDFW recorded no year the app SAYS there is none rather
+   than letting an undated row read as current. And nothing here knows today's
+   water: low water takes a ramp out of use for a season and this data has no
+   idea what the stage is.
+   ===================================================================== */
+function rampsFor(river){
+  var r = (typeof RAMPS === 'object' && RAMPS) || {};
+  return (r[river.id] || []);
+}
+function rampsMeta(){
+  return (typeof RAMPS_META === 'object' && RAMPS_META) || null;
+}
+/* "last seen in 2012" or the honest absence. Never a guess, and never a blank
+   that reads as recent. */
+function rampSeen(s){
+  return s.seen ? 'Last visited in ' + s.seen + '.'
+                : 'CDFW records no date for this one, so there is no telling how old it is.';
+}
+/* What the record actually offers, in the reader's terms, and nothing invented
+   from a field that was empty. */
+function rampFacts(s){
+  var out = [];
+  if (s.lanes) out.push(countWord(s.lanes) + ' ramp lane' + (s.lanes === 1 ? '' : 's'));
+  if (s.trailerSpaces) out.push(s.trailerSpaces + ' trailer space' + (s.trailerSpaces === 1 ? '' : 's'));
+  if (s.restrooms) out.push('restrooms');
+  if (s.fishCleaning) out.push('fish cleaning');
+  return out;
+}
+function rampWhere(s){
+  var bits = [];
+  if (s.type) bits.push(s.type);
+  if (s.county) bits.push(s.county + ' County');
+  if (s.owner) bits.push(s.gov ? s.owner : s.owner + ' (privately owned)');
+  return bits.join(' \u00b7 ');
+}
+/* A facility at a confluence is genuinely on both rivers and is listed under
+   both. Saying so is what stops it reading as two places. */
+function rampAlso(s){
+  if (!s.also || !s.also.length) return '';
+  var names = s.also.map(function(id){ var r = byId(id); return r ? r.short : id; });
+  return ' Also listed under ' + joinNames(names) + '.';
+}
+
+function drawRamps(){
+  if (!state.rampLayer) return;
+  state.rampLayer.clearLayers();
+  if (!state.riverId || state.showRamps === false) return;
+  var river = byId(state.riverId);
+  rampsFor(river).forEach(function(s){
+    var facts = rampFacts(s);
+    L.marker([s.lat, s.lon], {
+      pane:'ramppane', keyboard:false,
+      icon: L.divIcon({ className:'ramppin', html:'', iconSize:[12,11] })
+    }).bindPopup(labelNode(s.name,
+      facts.length ? [[String(s.lanes || ''), s.lanes ? 'lanes' : '']].filter(function(x){ return x[0]; }) : [],
+      rampWhere(s) + '. ' + (facts.length ? initialCap(joinNames(facts)) + '. ' : '') +
+      rampSeen(s) + rampAlso(s) +
+      ' Nothing here knows today\u2019s water \u2014 low water closes ramps and this record cannot see the stage.'
+    ), LABEL).addTo(state.rampLayer);
+  });
+}
+
 function drawAccessSites(){
   if (!state.accessLayer) return;
   state.accessLayer.clearLayers();
@@ -8535,8 +8713,8 @@ function drawAccessSites(){
     }).bindPopup(labelNode(s.name,
       [[String(s.km), 'km to the river']],
       s.type + '. ' + (s.access || 'CDFW does not say what the access is.') +
-      ' This pin is the middle of the property, not a place on the bank \u2014 and it is not a boat ramp; ' +
-      'no published list of those exists for this river.'
+      ' This pin is the middle of the property, not a place on the bank, and it is not a launch \u2014 ' +
+      'the launches are their own layer.'
     ), LABEL).addTo(state.accessLayer);
   });
 }
@@ -8649,6 +8827,7 @@ function goToDepth(river){
   mapView(b.pad(0.08), { animate:!reduceMotion });
   drawSurveyBoxes();
   drawAccessSites();
+  drawRamps();
   announce('Showing the reaches of the ' + river.name + ' the state has surveyed.');
 }
 
@@ -8880,8 +9059,16 @@ var TOUCH_SLOP = 22;   /* half of the 44 px floor: the visible dot covers the re
    encode — a reading wins over a station, a station over a footprint. Rank
    only breaks a tie; a genuinely nearer pin wins regardless of what it is. */
 function pinLayers(){
+  /* A LAYER MISSING FROM THIS LIST IS A LAYER NOBODY CAN PRESS. The pins are
+     eleven and twelve pixels across and a finger is forty-four; what makes any
+     of them reachable is this list, not their styling. A new layer that is
+     drawn and not listed here looks correct in every screenshot and is inert
+     under a thumb — which is the doctrine's own worst case, a feature that is
+     present in the source and unreachable on the device. Launches rank below
+     the readings and beside the public land, so where a launch sits on top of
+     a gauge the reading still wins. */
   return [[state.gaugeLayer, 0], [state.markLayer, 0], [state.hereLayer, 1],
-          [state.tideLayer, 2], [state.accessLayer, 3]];
+          [state.tideLayer, 2], [state.rampLayer, 3], [state.accessLayer, 4]];
 }
 
 function nearestPin(latlng){
@@ -9113,6 +9300,19 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.10.0', date:'2026-09-01', changes:[
+      'Where you can put a boat in. Every river now has a Where you can launch section in Layers and its own layer on the map \u2014 a buff triangle, the only triangle there \u2014 with the ramp lanes, the trailer parking, whether there are restrooms and somewhere to clean fish, who owns it, and a button that takes you to it.',
+      'This app told you for its whole life that no such list existed. It does exist, it is CDFW\u2019s own, and the reason the app said otherwise is that the six state sites that publish it were blocked before the request ever left \u2014 which looks exactly like the data not being there. That sentence is gone from the Layers panel and this is what replaced it.',
+      'THE RECORD IS OLD AND THE APP SAYS SO ON EVERY ENTRY. These are interviews \u2014 somebody visited and wrote it down \u2014 and the dated ones were taken between 2010 and 2014. Where CDFW recorded no date at all, which is true of many of them, the app tells you that instead of letting a blank read as recent. Ring before you drive.',
+      'A launch at a confluence is listed under both rivers and says so, because Discovery Park really is on the American and on the Sacramento, and showing it twice without a word would read as two places.',
+      'The public land already on the map is unchanged and is still not a launch. The two are separate layers with separate switches, because they answer different questions: one is where you are allowed to be, the other is where you can get a hull wet.',
+      'The buttons that switch those layers on are big enough to press now. Every primary button in a panel was thirty pixels tall, the whole time, in an app meant to be used one-handed on a bank \u2014 the floor is forty-four. It was found by a check written for the new launch toggle, which then failed on the one that had been sitting beside it since the first week.',
+      'And the two toggles no longer read the same. Both said \u201cShow them on the map\u201d, which to anyone moving through the panel by keyboard or screen reader is one control offered twice.',
+  ], broken:[
+      'Nothing here knows today\u2019s water. Low water closes a ramp for a whole season and this record cannot see the stage; what the app has is where a launch was, not whether you can use it this weekend.',
+      'Only facilities within a kilometre of a river\u2019s own course are listed, so a launch on a slough a little further off will not appear even though you could fish this river from it.',
+      'CDFW gives no date for roughly half the ones on these rivers. Those are shown, marked as undated \u2014 dropping them would have lost real ramps, but it does mean some of this could be very old indeed.',
+  ] },
   { v:'2.9.1', date:'2026-09-01', changes:[
       'The app no longer counts anything by hand. The first-visit page and the (i) panel both opened by saying "four rivers" and then naming them one at a time, while the list they describe sat two thousand lines away and every other sentence in the app asked it. Nothing was wrong on the screen today; it was wrong the moment a river was added, in two places, silently.',
       'One of those was only ever heard. Pressing Home announced "back to all four rivers" to a screen reader while the button\u2019s own label, right beside it, asked the list and said it properly. The half that went stale was the half nobody looking at the screen could see.',
@@ -9518,7 +9718,7 @@ function renderAbout(){
   b.appendChild(ta);
 
   h('Where the numbers come from');
-  para('Nothing here is measured by this app. It redraws what four public services publish, and says which one each number came from.');
+  para('Nothing here is measured by this app. It redraws what public services publish, and says which one each number came from.');
   var u3 = el('ul',{class:'tight'});
   [ ['River flow, height and temperature — the US Geological Survey',
      'https://waterdata.usgs.gov/ca/nwis/current/?type=flow'],
@@ -9529,7 +9729,9 @@ function renderAbout(){
     ['Depth surveys — California DWR',
      'https://data.cnra.ca.gov/dataset/i06-singlebeam-bathymetry'],
     ['Season and limits — CDFW, Title 14 section 7.40',
-     'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing']
+     'https://wildlife.ca.gov/Regulations/Freshwater-Sport-Fishing'],
+    ['Public land, and where you can launch — CDFW, from the service behind its own Fishing Guide',
+     'https://wildlife.ca.gov/Fishing/Guide']
   ].forEach(function(s){
     var li = el('li',{});
     li.appendChild(el('a',{href:s[1],rel:'noopener noreferrer',target:'_blank',text:s[0]}));

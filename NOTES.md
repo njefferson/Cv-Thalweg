@@ -10,9 +10,9 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- Staged candidate: **2.9.1** at https://staging.cv-thalweg.pages.dev — nothing
-  the reader can see is different unless they use a screen reader; it is the
-  release that stops the app counting anything by hand.
+- Staged candidate: **2.10.0** at https://staging.cv-thalweg.pages.dev — where
+  you can launch, from CDFW's own record, and the correction of a claim this app
+  made for its whole life.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -472,12 +472,16 @@ Worth carrying to LESSONS in the hub; each cost real time here.
   The address is a paypal.me handle rather than an email: an email in a public
   repo under the owner's name gets scraped, and a handle takes payments without
   publishing one. Venmo sits beside it — same coffee, whichever route is less trouble.
-- **THERE IS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS**, and the app does
-  not invent one. The state's open-data portal returns nothing for boating
-  facilities, boat launch ramps or DBW; the one "Public Access Points" service
-  is coastal beaches — 1,500 across the coastal counties and ZERO inside any of
-  the four river boxes, which was checked rather than assumed. What CDFW does
-  publish is its own lands, and `tools/fetch-access.mjs` bakes those.
+- **THAT LINE SAID THERE WAS NO PUBLISHED BOAT-RAMP DATASET FOR THESE RIVERS,
+  AND IT WAS WRONG.** It read as a finding about the state and was a fact about
+  this container: the hosts that publish it were refused at the CONNECT tunnel
+  and never reached. CDFW publishes 677 boating facilities through the service
+  behind its own Fishing Guide, 97 of them on these rivers, and
+  `tools/fetch-ramps.mjs` bakes them. What survives of the old note is narrower
+  and still true: the "Public Access Points" service is coastal beaches — 1,500
+  across the coastal counties and ZERO inside any of the river boxes, checked
+  rather than assumed — and CDFW's own lands are a different thing from a
+  launch, which is why they are a separate layer.
 - **A BOUNDING BOX CANNOT SAY WHICH RIVER A PLACE IS ON.** Every one of these
   boxes is hundreds of kilometres across, so a property only has to clip a
   corner to be listed — which filed the Yolo Bypass Wildlife Area under the
@@ -856,6 +860,70 @@ left far enough behind would check out a hub that does not contain the file at
 all — failing with a missing module instead of a diagnosis. Taken from
 solve-ent, which was the only sibling that had it and, measured on 2026-09-01,
 the only sibling whose marker and pin agreed.
+
+
+## The data the app said did not exist
+
+`public/index.html` told the reader, in the Layers panel, that **"No published
+list of boat ramps for these rivers could be found, and this app will not invent
+one."** `tools/fetch-access.mjs` opened with the same claim in its header, and
+`NOTES.md` stated it as a finding. It was false.
+
+**It was false because of where the session stood, not because of what the state
+publishes.** Six of the hosts that carry it — `data.ca.gov`, `dbw.parks.ca.gov`,
+`www.parks.ca.gov`, `opendata.arcgis.com`, `map.dfg.ca.gov`, `water.ca.gov` —
+and later `www.arcgis.com`, the item-search endpoint, were all refused at the
+CONNECT tunnel by this container's egress. A refusal and an absence are
+indistinguishable from inside, and the app wrote the absence down. That is hub
+LESSONS §188 exactly, and this is what it cost: a real dataset written off in
+shipped copy, and a feature nobody built because the record said there was
+nothing to build it from.
+
+**What is actually published.** CDFW's `FishingGuide` feature service, the one
+behind the department's own Fishing Guide map. Layer 0, `FGuideBoating`, is 677
+boating facilities statewide. **97 rows land within a kilometre of these five
+rivers' own courses.** Each carries the facility type, the owner and whether that
+owner is government, ramp lanes usable at one time, trailer parking, restrooms,
+fish cleaning, a phone number, and CDFW's own `Water_Body` string — which names
+"Sacramento River", "Feather River", "American River" and
+"Sacramento-SanJoaquinDelta-Mokelumne River" outright.
+
+**THE FIRST VERSION OF THE GENERATOR THREW AWAY TWO THIRDS OF IT.** It required
+every facility to carry the interview date, on the reasoning that the age is the
+caveat and an undated row would read as current — and only 237 of the 677 carry
+one. That rule was invented by the generator, not by the data, and it dropped
+111 real facilities to keep the file tidy. Undated rows are KEPT and marked, and
+the app says "CDFW records no date for this one" rather than showing a blank —
+which is this repo's standing answer to a missing figure everywhere else. The
+split is printed on every run so the proportion cannot change quietly. Of the 97
+on these rivers, 49 carry a year and 48 do not.
+
+**A launch at a confluence is on both rivers and is listed under both.**
+Discovery Park is on the American and on the Sacramento; twenty rows are one
+facility filed twice. Each names the others, and the check refuses a one-way
+`also` — a row claiming a listing the other river does not have would be the app
+inventing a place.
+
+**The layer nearly shipped unpressable.** The pins are twelve pixels across and
+what makes any pin on this map reachable by a thumb is its layer's presence in
+`pinLayers()`, not its styling. Drawn and unlisted, the launches looked perfect
+in every screenshot and were inert: measured on a plant, a press twenty pixels
+off a launch pin returned a DEPTH READING for the water underneath. That is the
+doctrine's own worst case — a feature present in the source and unreachable on
+the device — and it is asserted now at 0, 10 and 20 px.
+
+**And a check written for the new control failed on the old one beside it.**
+Every primary button in a panel was thirty pixels tall, in an app read
+one-handed on a riverbank, since the first week. The layer toggles included.
+Nothing was measuring it, so nothing was wrong. `.rowline button` has a 44px
+floor now.
+
+**Both toggles also read "Show them on the map".** Two controls with one
+accessible name in one panel is one control offered twice to anybody moving
+through it by keyboard — and the rendering suite proved it by clicking the wrong
+one the moment the section landed. Each names what it shows, and the suites
+assert on the accessible name rather than the visible text, because every row in
+these lists carries a "Map" button correctly distinguished by an `aria-label`.
 
 
 ## Scratch

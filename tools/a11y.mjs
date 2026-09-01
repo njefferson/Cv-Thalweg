@@ -1071,6 +1071,44 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   check(`${name}: the depth-at-a-point control is offered without a pointer`,
     await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
       .some(b => /Read the depth at the map centre/.test(b.textContent))));
+
+  /* THE TWO LAYER TOGGLES ARE DIFFERENT CONTROLS AND MUST SOUND DIFFERENT.
+     When the launch section landed in 2.10.0 both read "Show them on the map",
+     which to anybody tabbing through this panel is one control offered twice —
+     and the rendering suite proved it by clicking the wrong one. Measured on
+     the accessible name, not the visible text, because every row in these lists
+     carries a "Map" button correctly distinguished by an aria-label. */
+  const toggles = await page.evaluate(() =>
+    [...document.querySelectorAll('#panel-layers button')]
+      .filter(b => /on the map$/.test(b.textContent.trim()))
+      .map(b => {
+        const r = b.getBoundingClientRect();
+        return { name: (b.getAttribute('aria-label') || b.textContent).trim(),
+                 w: Math.round(r.width), h: Math.round(r.height),
+                 pressed: b.getAttribute('aria-pressed') };
+      }));
+  check(`${name}: each layer toggle answers to its own name`,
+    toggles.length > 1 &&
+      new Set(toggles.map(t => t.name)).size === toggles.length,
+    JSON.stringify(toggles));
+  /* 44 by 44. These are pressed with a thumb, outdoors, on a riverbank. */
+  check(`${name}: and is big enough to press`,
+    toggles.length > 0 && toggles.every(t => t.h >= 44), JSON.stringify(toggles));
+  /* A toggle that does not say whether it is on is a toggle a screen-reader
+     user has to guess at. */
+  check(`${name}: and says whether its layer is showing`,
+    toggles.length > 0 && toggles.every(t => t.pressed === 'true' || t.pressed === 'false'),
+    JSON.stringify(toggles));
+  /* THE AGE OF THE LAUNCH DATA IS THE CAVEAT, and a caveat that reaches only
+     the eye has not reached the reader who most needs it. */
+  check(`${name}: the launch list says out loud how old it is`,
+    await page.evaluate(() => /THAT RECORD IS OLD/.test(
+      document.getElementById('panel-layers').innerText)),
+    await page.evaluate(() => {
+      const t = document.getElementById('panel-layers').innerText;
+      const i = t.indexOf('Where you can launch');
+      return i === -1 ? '(section missing)' : t.slice(i, i + 200);
+    }));
   /* The local dev server proxies /bathy upstream, so DWR is reachable here
      even with the browser's own egress cut — which is the production shape
      too. The no-catalogue state is therefore forced rather than waited for:

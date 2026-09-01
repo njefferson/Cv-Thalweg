@@ -111,6 +111,13 @@ jobs:
       - name: The baked access lands
         run: node tools/fetch-access.mjs --check
 
+      # And the launches, which are a different dataset answering a different
+      # question. This asks CDFW nothing: it reads what was committed and
+      # refuses a facility with no position, no kind, no statement of whether it
+      # carries a date, or one filed under a river it is nowhere near.
+      - name: The baked boating facilities
+        run: node tools/fetch-ramps.mjs --check
+
       # The Delta's boundary and its ninety-seven channels are baked too, and a
       # baked artefact that nothing checks is one that goes stale in the tree.
       # This asks nobody anything: it reads what was committed and refuses a

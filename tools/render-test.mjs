@@ -2553,6 +2553,87 @@ const acc = await page.evaluate(() => {
     source: /wildlife\.ca\.gov|arcgis/.test(ACCESS_META.source)
   };
 });
+/* --- WHERE YOU CAN LAUNCH -------------------------------------------------
+   The app asserted for its whole life that this data did not exist, on
+   evidence gathered through a firewall. These assert the correction: that the
+   data is there, that it is filed by the river's own course rather than a box,
+   and — the part that matters most — that its AGE reaches the reader on every
+   entry, because a ramp that closed in 2015 is still in CDFW's file. */
+const ramp = await page.evaluate(() => {
+  const t = document.getElementById('panel-layers').textContent;
+  return {
+    heading: /Where you can launch/.test(t),
+    saysOld: /THAT RECORD IS OLD/.test(t),
+    saysNoStage: /cannot see the stage|knows today/.test(t),
+    /* THE SELECTED RIVER'S, not every river's. The map draws one river at a
+       time, and comparing its layer count against the whole baked file asks a
+       question with no true answer. */
+    baked: (RAMPS[state.riverId] || []).length,
+    bakedAll: Object.values(RAMPS).reduce((n, v) => n + v.length, 0),
+    meta: !!(RAMPS_META && RAMPS_META.source && RAMPS_META.fetchedAt),
+    onMap: state.rampLayer.getLayers().length,
+    /* Undated rows are KEPT and marked. The first generator dropped them and
+       lost two thirds of the data to a rule it had invented. */
+    undated: Object.values(RAMPS).flat().filter(x => x.seen === null).length,
+    unseenKeyed: Object.values(RAMPS).flat().every(x => 'seen' in x),
+    farthest: Math.max(...Object.values(RAMPS).flat().map(x => x.km))
+  };
+});
+check('the panel says where you can launch', ramp.heading, JSON.stringify(ramp));
+check('the launches are baked in and say where they came from',
+  ramp.bakedAll > 10 && ramp.meta, JSON.stringify(ramp));
+check('and they are drawn on the map', ramp.onMap === ramp.baked, JSON.stringify(ramp));
+/* A launch is a slope into THIS river, not a facility somewhere in a box that
+   is hundreds of kilometres across. */
+check('no launch is filed under a river it is not on',
+  ramp.farthest <= 1.2, JSON.stringify(ramp));
+/* THE AGE IS THE WHOLE CAVEAT. If this stops reaching the reader the feature
+   becomes a list of ramps that may not be there, presented as current. */
+check('the panel says out loud that the record is old', ramp.saysOld, JSON.stringify(ramp));
+check('and that it cannot see today\u2019s water', ramp.saysNoStage, JSON.stringify(ramp));
+check('every launch says whether it has a date, including the ones that do not',
+  ramp.unseenKeyed && ramp.undated > 0, JSON.stringify(ramp));
+check('an undated launch is shown as undated rather than dropped or dated',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.seen === null);
+    return !!s && /no date for this one/.test(rampSeen(s)) && !/\d{4}/.test(rampSeen(s));
+  }));
+check('a dated launch prints its year',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.seen);
+    return !!s && rampSeen(s).indexOf(String(s.seen)) !== -1;
+  }));
+/* A facility at a confluence is listed under both rivers on purpose, and
+   saying so is what stops it reading as two places. */
+check('a launch listed under two rivers names the other one',
+  await page.evaluate(() => {
+    const s = Object.values(RAMPS).flat().find(x => x.also && x.also.length);
+    if (!s) return true;
+    return /Also listed under/.test(rampAlso(s));
+  }));
+/* THE APP MUST NOT STILL SAY THE DATA DOES NOT EXIST. This is the sentence the
+   whole release is the correction of, and a stale copy of it would be worse
+   than never having had the feature. */
+check('the panel no longer claims no launch list exists',
+  await page.evaluate(() => !/No published list of boat ramps/i.test(
+    document.getElementById('panel-layers').textContent)));
+/* Two controls with the same ACCESSIBLE NAME in one panel are indistinguishable
+   to anybody tabbing through it — which is what the launch toggle and the
+   access toggle became the moment this section landed, both reading "Show them
+   on the map".
+
+   The name, not the visible text: every row in these lists carries a button
+   labelled "Map", and those are correctly distinguished by an aria-label naming
+   the place. Asserting on textContent would fail on twenty-three honest
+   buttons, which is the shape of gate this repo has repeatedly had to narrow
+   (hub LESSONS §180). */
+const names = await page.evaluate(() =>
+  [...document.querySelectorAll('#panel-layers button')]
+    .map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
+check('no two controls in Layers answer to the same name',
+  names.filter((x, i) => names.indexOf(x) !== i).length === 0,
+  names.filter((x, i) => names.indexOf(x) !== i).join(' / ') || 'none repeated');
+
 check('the panel offers a way to the water', acc.heading, JSON.stringify(acc));
 check('and never calls it a boat ramp', acc.saysNotRamps, JSON.stringify(acc));
 check('it says the pin is the middle of a property, not the bank',
@@ -2579,7 +2660,11 @@ check('a public-land pin can be tapped and says what kind of place it is',
     if (!m) return false;
     const n = m.getPopup().getContent();
     const t = typeof n === 'string' ? n : n.textContent;
-    return /km to the river/.test(t) && /not a boat ramp/.test(t);
+    /* The claim, not the old wording: this pin denies being a launch and says
+       where the launches actually are. It read /not a boat ramp/ until 2.10.0,
+       when the app gained a real launch layer and the sentence had to change
+       from "no such list exists" to "they are their own layer". */
+    return /km to the river/.test(t) && /not a launch/.test(t) && /own layer/.test(t);
   }));
 /* --- A PIN IS 13 PIXELS WIDE AND A FINGER IS NOT --------------------------
    Measured before the fix by walking out from each centre and asking the
@@ -2609,6 +2694,34 @@ const pinAt = async (off) => {
     return /Depth here|Not on the river/.test(pop.textContent) ? 'depth' : 'pin';
   });
 };
+
+/* THE SAME QUESTION OF THE LAUNCH PINS, because the answer is not inherited.
+   What makes a twelve-pixel pin reachable by a thumb is its layer's presence in
+   `pinLayers()`, and a layer that is drawn but not listed there is inert while
+   looking perfect in every screenshot. */
+const rampAt = async (off) => {
+  await page.evaluate(() => { state.map.closePopup();
+    const s = RAMPS.sacramento[0]; state.map.setView([s.lat, s.lon], 15); });
+  await page.waitForTimeout(500);
+  const pt = await page.evaluate(() => {
+    const p = state.map.latLngToContainerPoint([RAMPS.sacramento[0].lat, RAMPS.sacramento[0].lon]);
+    const b = state.map.getContainer().getBoundingClientRect();
+    return { x: b.x + p.x, y: b.y + p.y };
+  });
+  await page.mouse.click(pt.x + off, pt.y);
+  await page.waitForTimeout(700);
+  return page.evaluate(() => {
+    const pop = document.querySelector('.leaflet-popup-content');
+    if (!pop) return 'nothing';
+    if (/Depth here|Not on the river/.test(pop.textContent)) return 'depth';
+    return /low water|stage/.test(pop.textContent) ? 'launch' : 'other';
+  });
+};
+for (const off of [0, 10, 20]){
+  const got = await rampAt(off);
+  check('a press ' + off + ' px off a launch pin reaches the launch',
+    got === 'launch', 'got ' + got);
+}
 
 for (const off of [0, 10, 20]){
   check('a press ' + off + ' px off a public-land pin reaches the pin',
@@ -2718,12 +2831,12 @@ check('a reader reaches the last depth control without wading',
   panel.text.includes(frag)));
 
 const accBefore = await page.evaluate(() => state.accessLayer.getLayers().length);
-await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.click('#panel-layers button:text-is("Show the public land on the map")');
 await page.waitForTimeout(600);
 check('they can be turned off',
   await page.evaluate(() => state.accessLayer.getLayers().length) === 0,
   'was ' + accBefore);
-await page.click('#panel-layers button:text-is("Show them on the map")');
+await page.click('#panel-layers button:text-is("Show the public land on the map")');
 await page.waitForTimeout(600);
 check('and back on',
   await page.evaluate(() => state.accessLayer.getLayers().length) === accBefore);
