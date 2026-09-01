@@ -498,9 +498,37 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     });
     check(`${name}: what does not fit in the ribbon can be scrolled to`,
       reach.ok, JSON.stringify(reach));
-    if (reach.needed)
+    if (reach.needed){
       check(`${name}: and the band says it scrolls`,
         /scrollable/i.test(reach.label), JSON.stringify(reach));
+      /* AND IT SAYS SO TO THE EYE. The aria-label above told everything except
+         the reader looking at it: a band that simply ended, with rivers below
+         the fold and nothing suggesting they were there. */
+      const seen = await page.evaluate(async () => {
+        const w = document.getElementById('ribbonwrap');
+        const masked = () => { const cs = getComputedStyle(w);
+          return (cs.maskImage || cs.webkitMaskImage || 'none') !== 'none'; };
+        w.scrollTop = 0;
+        markRibbonScrollEnd();
+        const atTop = masked();
+        w.scrollTop = w.scrollHeight;
+        markRibbonScrollEnd();
+        const atBottom = masked();
+        w.scrollTop = 0; markRibbonScrollEnd();
+        return { atTop, atBottom,
+                 note: (document.getElementById('ribbonnote') || {}).textContent || '' };
+      });
+      check(`${name}: the scrolling band is faded at its edge so it looks scrollable`,
+        seen.atTop, JSON.stringify(seen).slice(0, 200));
+      /* And the fade goes at the end, so the last row is not left dimmed by a
+         hint about content already on screen. */
+      check(`${name}: and the fade goes once there is nothing more to reach`,
+        !seen.atBottom, JSON.stringify(seen).slice(0, 200));
+      /* A fade is a hint; a number is an instruction. */
+      check(`${name}: the note says how many rivers are below the fold`,
+        /Scroll (for|the band for) /.test(seen.note) && /\d/.test(seen.note),
+        seen.note.slice(-90));
+    }
   }
   /* THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED. Safari's engine has
      no screen.orientation.lock at all, so the device stays put and the drawing

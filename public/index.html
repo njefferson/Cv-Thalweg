@@ -129,6 +129,24 @@ select,input[type=text]{font-family:inherit; font-size:.9rem; color:var(--ink);
   clip-path:inset(50%); white-space:nowrap}
 #ribbon{display:block; width:100%; min-width:520px}
 @media (max-width:900px){ #ribbon{min-width:0} }
+/* A SCROLLING BAND HAS TO LOOK LIKE ONE.
+
+   When the rows will not all fit, the band scrolls — and it said so only in an
+   aria-label, which is to say it said so to everything except the eye. A
+   sighted reader saw a band that ended, with two rivers below the fold and
+   nothing suggesting they were there. Content you cannot see and cannot know
+   to look for is content that is not there.
+
+   The mask fades the bottom of the VISIBLE area rather than the bottom of the
+   content, which is what a scroll container needs: an absolutely positioned
+   child scrolls away with the rest. It is removed at the end of the scroll so
+   the last row is not permanently dimmed. The words in the note carry the same
+   fact for anyone the fade does not reach. */
+#ribbonwrap.scrolls{
+  -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+  mask-image:linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+#ribbonwrap.scrolls.atend{ -webkit-mask-image:none; mask-image:none }
 .ribbon-note{color:var(--mute); font-size:.7rem; padding:0 .2rem .3rem}
 
 /* ---------- main ---------- */
@@ -746,7 +764,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.8.0';
+var VERSION = '2.8.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2835,11 +2853,16 @@ function drawRibbon(again, opts){
     wrap.style.overscrollBehavior = 'contain';
     wrap.setAttribute('aria-label',
       'River ribbon, ' + list.length + ' rivers, scrollable');
+    /* AND IT HAS TO LOOK SCROLLABLE, not merely be announced as one. The
+       aria-label above told everything except the eye. */
+    wrap.classList.add('scrolls');
+    markRibbonScrollEnd();
   } else if (!sideways){
     wrap.style.maxHeight = '';
     wrap.style.overflowY = '';
     wrap.style.overscrollBehavior = '';
     wrap.setAttribute('aria-label', 'River ribbon');
+    wrap.classList.remove('scrolls', 'atend');
   }
   var g = svg('g', {});
   var plotted = 0, missing = 0;
@@ -2911,7 +2934,19 @@ function drawRibbon(again, opts){
                        'kilometres it covers — with one temperature scale across them all') + '. ' +
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
-  $('#ribbonnote').textContent = note + '.';
+  /* AND IT SAYS THERE IS MORE BELOW, with the count, because a fade is a hint
+     and a number is an instruction. How many are out of sight is worked out
+     from the band's own box rather than assumed: the drawing knows its row
+     height and the wrapper knows how much of it is showing. */
+  note += '.';
+  if (RIB.scrolls && isNum(RIB.budget) && rowH > 0){
+    var shown = Math.max(1, Math.floor((RIB.budget - RIB.top) / rowH));
+    var below = Math.max(0, list.length - shown);
+    if (below > 0)
+      note += ' ' + (RIB.narrow ? 'Scroll for ' + below + ' more.'
+                                : 'Scroll the band for the other ' + below + '.');
+  }
+  $('#ribbonnote').textContent = note;
 
   /* And then check. The legend and the note are measured at the size they
      had BEFORE this draw, so the first pass can still overshoot; one
@@ -4035,6 +4070,15 @@ function riverCard(river){
    reader to work out where the choosing happens. */
 /* The one sentence that explains a missing ribbon, owned by neither renderer
    and written by whichever ran last. */
+/* The fade goes when there is nothing more to reach, so the last row is not
+   left permanently dimmed by a hint about content that is already on screen. */
+function markRibbonScrollEnd(){
+  var wrap = document.getElementById('ribbonwrap');
+  if (!wrap) return;
+  var more = wrap.scrollHeight - wrap.clientHeight - wrap.scrollTop;
+  wrap.classList.toggle('atend', more <= 4);
+}
+
 function syncRibbonDropNote(){
   var slot = document.getElementById('ribbondropped');
   if (!slot) return;
@@ -8990,6 +9034,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.8.1', date:'2026-09-01', changes:[
+      'The river bars now LOOK like they scroll, on a phone where they do. They were scrolling and saying so only to a screen reader \u2014 which is to say saying so to everything except the eye: the band simply ended, with rivers below the fold and nothing suggesting they were there.',
+      'The bottom edge fades while there is more to reach, and the note underneath says how many rivers are below it. The fade goes once you are at the end, so the last row is not left dimmed by a hint about something already on screen.',
+  ], broken:[
+      'Content you cannot see and cannot know to look for is content that is not there. That was true here for two releases and it was found on a phone, not by a gate \u2014 the gate was asserting the band announced itself, and it did, silently.',
+  ] },
   { v:'2.8.0', date:'2026-09-01', changes:[
       'Every river now gets the whole width of its bar, drawn to its own scale. They were all squeezed onto one distance scale set by the longest, and the longest is the Sacramento \u2014 359 km across, against the American\u2019s 30. So the American was drawn at EIGHT PER CENT of the width with its gauges piled on top of each other, the Feather and the Mokelumne at about a fifth, and the only river you could actually read was the one that needed no help.',
       'And every row says how many kilometres it covers, because that is the whole reason this is allowed. Bars of one width covering different distances is a lie for exactly as long as nothing says what they cover \u2014 so the comparison of length moves out of the drawing, where it was crushing four rivers to flatter one, and into a number that states it exactly. The note under the bars says out loud that the widths are no longer comparable.',
@@ -9817,6 +9867,8 @@ function boot(){
       }, 0);
     });
     /* A rotation that survives the screen changing under it. */
+    var band = document.getElementById('ribbonwrap');
+    if (band) band.addEventListener('scroll', markRibbonScrollEnd, { passive: true });
     var swTimer = null;
     window.addEventListener('resize', function(){
       if (!d || !d.open) return;

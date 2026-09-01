@@ -7,10 +7,10 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.8.0** at https://staging.cv-thalweg.pages.dev — each
-  river drawn to its own scale with its length on the row; a sideways view of
-  the bars; the bars scroll rather than vanishing on a short screen; first and
-  last light on the tide chart; and 2.5.1's four device-reported defects.
+- Staged candidate: **2.8.1** at https://staging.cv-thalweg.pages.dev — the
+  scrolling band now looks like one; each river drawn to its own scale with its
+  length on the row; a sideways view of the bars; first and last light on the
+  tide chart; and 2.5.1's four device-reported defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -942,6 +942,35 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## The band scrolled and only said so to a screen reader
+
+Reported from the device, and the gate that should have caught it was the one
+that missed it. 2.6.1 made the band scroll instead of vanishing and set an
+`aria-label` reading "River ribbon, 5 rivers, scrollable" — and the walk
+asserted exactly that label was there. It was. **To the eye the band simply
+ended**, with two rivers below the fold and nothing suggesting they existed.
+
+**A check that asserts a thing was announced is not a check that it was
+shown.** The label was the whole of the evidence, and the label is invisible.
+
+Two additions, because a fade is a hint and a number is an instruction:
+
+- The bottom edge fades while there is more to reach. It is a `mask-image` on
+  the scroller rather than an absolutely positioned overlay, because an
+  absolute child of a scroll container scrolls away with the content — the
+  mask applies to the VISIBLE area, which is what this needs.
+- The fade is removed at the end of the scroll, so the last row is not left
+  permanently dimmed by a hint about content that is already on screen.
+- The note counts what is below: "Scroll for 3 more", worked out from the
+  band's own box rather than assumed.
+
+**And the check moved to where the state exists.** The scrolling band cannot be
+reached at 1280x900 at all — a budget only applies on a screen that is narrow or
+short — so a desktop check driving it by hand would be measuring a state the app
+never enters on that geometry. It is asserted in the walk, at 375 and 390, where
+the overflow is real. Same split as the sideways view: mechanics where they are
+geometry-free, geometry where the geometry is.
 
 ## The shared distance scale was crushing four rivers to flatter one
 

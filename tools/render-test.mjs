@@ -1320,6 +1320,13 @@ check('a band too small keeps the rows legible and scrolls instead',
 check('a band too small to show even one row is still dropped',
   shortBand.sliver.tooTight, JSON.stringify(shortBand.sliver));
 
+/* THE SCROLL HINT IS ASSERTED IN THE WALK, not here. A band only gets a
+   height budget on a screen that is narrow or short, and this suite runs at
+   1280x900 — so the scrolling state cannot be reached here at all, and a check
+   that drives it by hand would be measuring a state the app never enters on
+   this geometry. Same split as the sideways view: mechanics where they are
+   geometry-free, geometry where the geometry is real. */
+
 /* --- THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED ---------------
    Asked for as a button that rotates the screen. No web page can do that on
    this hardware — Safari's engine has no screen.orientation.lock at all and
