@@ -466,7 +466,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     drawRibbon(); drawRibbon(); drawRibbon();
     const wrap = document.getElementById('ribbonwrap');
     const hits = document.getElementById('riverhits');
-    return { hidden: wrap.hidden, rowH: RIB.rowH,
+    return { hidden: wrap.hidden, rowH: RIB.rowH, floor: RIB.floor,
              h: Math.round(wrap.getBoundingClientRect().height),
              pct: Math.round(wrap.getBoundingClientRect().height / window.innerHeight * 100),
              buttons: hits ? hits.querySelectorAll('button').length : 0,
@@ -477,7 +477,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      must not happen is dropping it because the arithmetic ate itself — so the
      assertion is on the row height, which is what tells the two apart. */
   check(`${name}: the ribbon's own overlay does not eat its height budget`,
-    band.hidden ? band.rowH > 0 : band.rowH >= 22,
+    band.hidden ? band.rowH > 0 : band.rowH >= (band.floor || 22),
     JSON.stringify(band));
   /* A BAND THAT CANNOT FIT SCROLLS RATHER THAN VANISHING. Five rows at a
      legible height need more than a short screen has, and the old answer was

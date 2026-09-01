@@ -1266,7 +1266,7 @@ const ribbonBand = await page.evaluate(() => {
   drawRibbon(); drawRibbon(); drawRibbon();
   const hits = document.getElementById('riverhits');
   return {
-    hidden: wrap.hidden, rowH: RIB.rowH, tooTight: RIB.tooTight,
+    hidden: wrap.hidden, rowH: RIB.rowH, floor: RIB.floor, tooTight: RIB.tooTight,
     rows: document.querySelectorAll('#ribbon rect[stroke="#1F5B57"]').length,
     hitButtons: hits ? hits.querySelectorAll('button').length : 0,
     rivers: RIVERS.length,
@@ -1278,7 +1278,8 @@ const ribbonBand = await page.evaluate(() => {
 check('the ribbon survives being redrawn', !ribbonBand.hidden && ribbonBand.rowH > 0,
   JSON.stringify(ribbonBand));
 check('and its budget is never driven negative by its own overlay',
-  ribbonBand.rowH >= 22, JSON.stringify({ rowH: ribbonBand.rowH }));
+  ribbonBand.rowH >= (ribbonBand.floor || 22),
+  JSON.stringify({ rowH: ribbonBand.rowH, floor: ribbonBand.floor }));
 /* The overlay is still where it was — the fix is to stop COUNTING it, not to
    move it, and a test that passes because the overlay went away would be
    measuring a different app. */
@@ -1300,7 +1301,7 @@ const shortBand = await page.evaluate(async () => {
   /* Drive the metrics directly: the viewport cannot be resized from in here,
      and what is under test is the arithmetic, not the browser. */
   ribbonMetrics(360, 5, 112, true);
-  const tight = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  const tight = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight, floor: RIB.floor };
   ribbonMetrics(360, 5, 300, true);
   const roomy = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
   ribbonMetrics(360, 5, 40, true);
@@ -1313,8 +1314,8 @@ check('a band with room shows every row without scrolling',
   JSON.stringify(shortBand.roomy));
 /* THE ROWS KEEP THEIR HEIGHT. An illegible row is not a smaller row. */
 check('a band too small keeps the rows legible and scrolls instead',
-  shortBand.tight.scrolls && shortBand.tight.rowH >= 22 && !shortBand.tight.tooTight,
-  JSON.stringify(shortBand.tight));
+  shortBand.tight.scrolls && shortBand.tight.rowH >= shortBand.tight.floor &&
+  !shortBand.tight.tooTight, JSON.stringify(shortBand.tight));
 /* And the one case where scrolling would be a sliver of a bar still drops. */
 check('a band too small to show even one row is still dropped',
   shortBand.sliver.tooTight, JSON.stringify(shortBand.sliver));

@@ -7,10 +7,10 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.7.0** at https://staging.cv-thalweg.pages.dev — a
-  sideways view of the river bars; the bars scroll rather than vanishing on a
-  short screen; first and last light on the tide chart; and 2.5.1's four
-  device-reported defects.
+- Staged candidate: **2.8.0** at https://staging.cv-thalweg.pages.dev — each
+  river drawn to its own scale with its length on the row; a sideways view of
+  the bars; the bars scroll rather than vanishing on a short screen; first and
+  last light on the tide chart; and 2.5.1's four device-reported defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -942,6 +942,50 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## The shared distance scale was crushing four rivers to flatter one
+
+Reported from the device: the Sacramento seems to be what makes the others
+cramped. Measured off the baked centrelines, across each river's own axis:
+
+- Sacramento, 359 km — the bar that sets the scale.
+- Feather, 84 km — 24% of it.
+- Mokelumne, 77 km — 21%.
+- **American, 30 km — eight per cent.**
+
+So the American was a stub about a twelfth of the width with its gauges piled
+on top of each other, and the only river that could be read was the one nobody
+needed help reading.
+
+**This reverses an earlier fix, and the reason it is allowed is the half that
+was missing the first time.** The bars were originally all stretched to the
+same width whatever they covered, and four equal bars said four equal rivers.
+The shared scale told the truth about length and paid for it with the thing the
+drawing is actually for — where the gauges sit along THIS river.
+
+**What made equal bars a lie was that nothing said what they covered.** So each
+bar gets the full width AND its own length in kilometres on the row, and the
+note says out loud that the widths are no longer comparable. The comparison of
+length moves out of the drawing and into a number that states it exactly.
+Saying it is not a footnote on the change; it is the change.
+
+**The length goes under the name, not at the end of the bar.** The end of the
+bar is where the tide mark and its caption already live, and this is a property
+of the row rather than of its right-hand edge.
+
+**And the legibility floor had to move with it.** 22px was set for a dot and its
+figure; a multi-river row now also carries the name and, under it, the distance.
+Left at 22 the length would print into the top of the next river's bar — which
+is precisely how the Delta's tide caption came to sit on the Mokelumne's
+temperature two releases ago, and the lesson from that one was that a line added
+to a row needs the row to be told about it. The floor is a property of the
+metrics now rather than a constant in three places, and both suites read it from
+there rather than repeating the number.
+
+**The cost, stated in the release note rather than discovered:** rows are taller,
+so fewer fit on a short screen than before. That is what 2.6.1's scrolling band
+and 2.7.0's sideways view are for, and they arrived first by luck rather than by
+plan.
 
 ## The screen cannot be rotated by a web page, so the picture is
 

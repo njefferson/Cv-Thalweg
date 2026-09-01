@@ -604,7 +604,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 <div id="ribbonwrap" role="region" aria-label="River ribbon" tabindex="0">
   <svg id="ribbon" role="img" aria-labelledby="ribbontitle ribbondesc" preserveAspectRatio="xMidYMid meet">
     <title id="ribbontitle">River ribbon</title>
-    <desc id="ribbondesc">Gauges plotted at their latitude, downstream on the left, coloured by water temperature.</desc>
+    <desc id="ribbondesc">Gauges plotted along each river, downstream on the left, coloured by water temperature. Each river is drawn to its own scale and its length is given on its row.</desc>
   </svg>
   <p class="ribbon-note" id="ribbonnote"></p>
 </div>
@@ -746,7 +746,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.7.0';
+var VERSION = '2.8.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2263,6 +2263,10 @@ function ribbonMetrics(W, rowCount, budget, tidal){
      and the two read as one label. Rows carrying a caption get the height it
      needs rather than borrowing it from the row underneath. */
   if (tidal && rowCount > 1) m.rowH += 14;
+  /* AND THE LENGTH SITS UNDER THE NAME, on the multi-river view where the
+     names are drawn at all. A line added to a row without room made for it is
+     how the Delta's caption came to sit on the Mokelumne's temperature. */
+  if (rowCount > 1) m.rowH += 10;
   /* SHRINK TO FIT, AND WHEN IT WILL NOT FIT, SCROLL RATHER THAN VANISH.
 
      A row has a floor below which a dot and its figure are not legible, and
@@ -2280,11 +2284,19 @@ function ribbonMetrics(W, rowCount, budget, tidal){
      which is the one thing a stacked comparison must not do. */
   m.natural = m.rowH;
   m.scrolls = false;
+  /* THE FLOOR IS WHAT THE ROW HAS TO HOLD, and the row grew. 22 was set for a
+     dot and its figure; a multi-river row now also carries the river's name
+     and, under it, how many kilometres its bar covers. Left at 22 the length
+     would print into the top of the next river's bar — which is exactly how
+     the Delta's tide caption came to sit on the Mokelumne's temperature, and
+     the lesson from that one was that a line added to a row needs the row to
+     be told about it. */
+  m.floor = rowCount > 1 ? 32 : 22;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
     if (fit < m.rowH){
-      if (fit >= 22) m.rowH = fit;          /* still legible: shrink to fit */
+      if (fit >= m.floor) m.rowH = fit;     /* still legible: shrink to fit */
       else m.scrolls = true;                /* below the floor: keep the size */
     }
   }
@@ -2468,6 +2480,26 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W, list1){
       'font-weight':'600', 'pointer-events':'none' });
     rn.textContent = river.short + ' \u203a';
     g.appendChild(rn);
+  }
+
+  /* HOW LONG THIS BAR ACTUALLY IS.
+
+     Bars of equal width covering different distances is the exact defect the
+     shared scale was introduced to fix, and it was a real one — the only thing
+     that made it a lie was that nothing said what each bar covered. It says so
+     now, on the row, in kilometres. The number is the comparison; the bar is
+     the layout of the gauges along this river.
+
+     Under the name rather than at the end of the bar: the end of the bar is
+     where the tide mark and its caption already are, and this is a property of
+     the row, not of its right-hand edge. */
+  if (showName && span && isNum(span.metres) && span.metres > 0){
+    var kmTxt = svg('text', { x:6, y:y + 4 + RIB.name + 2, fill:'#6E8785',
+      'font-size':String(Math.max(8, RIB.note)), 'pointer-events':'none' });
+    kmTxt.textContent = (span.metres >= 10000
+      ? Math.round(span.metres / 1000)
+      : (span.metres / 1000).toFixed(1)) + ' km';
+    g.appendChild(kmTxt);
   }
 
   /* Gauges bunch up — three of them sit within a few miles on the lower
@@ -2822,8 +2854,25 @@ function drawRibbon(again, opts){
     var rows = (payload && payload.rows) || [];
     var onRiver = rows.filter(function(r){ return !r.context; });
     var sp = spans[i];
-    var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
-    var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
+    /* EVERY BAR GETS THE WHOLE WIDTH, AND EVERY BAR SAYS HOW LONG IT IS.
+
+       These were drawn to ONE distance scale, which was itself a fix: before
+       that they were all stretched to the same width whatever they covered,
+       and four equal bars said four equal rivers. The shared scale told the
+       truth and cost too much for it. Measured off the baked centrelines, the
+       Sacramento is 359 km across its axis and the American is 30 — so the
+       American came out at EIGHT PER CENT of the longest bar, a stub with its
+       gauges piled on top of each other, and the Feather and the Mokelumne at
+       about a fifth. The one river that fits is the one nobody needed help
+       reading.
+
+       The thing that made equal bars a lie was that nothing said what they
+       covered. So each bar is given the full width AND its own length in
+       kilometres, printed on the row: the comparison of length moves from the
+       drawing, where it was crushing four rivers to flatter one, into a number
+       that states it exactly. What the bar is for is where the gauges sit
+       along THIS river, and that is the thing a shared scale was destroying. */
+    var x1 = x0 + full;
     var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W, list.length);
     plotted += n;
     missing += onRiver.length - n;
@@ -2845,14 +2894,21 @@ function drawRibbon(again, opts){
      same as no control, and a row that opens a river looks like a chart. */
   var tapHint = state.riverId ? '' : (RIB.narrow ? 'Tap a river to open it. '
                                                  : 'Press a river to open it. ');
+  /* THE NOTE HAS TO SAY THE SCALES DIFFER, and it is the whole reason giving
+     each bar its own is allowed. Bars of one width covering different
+     distances is a lie exactly as long as nothing says what they cover — so
+     the length is on every row, and this says out loud that the widths are no
+     longer comparable. Saying it is not a footnote on the change; it IS the
+     change. */
   var note = RIB.narrow
     ? tapHint + 'Downstream left' +
-      (state.riverId ? '' : '; one distance scale, longest ' + Math.round(maxM / 1000) + ' km') +
+      (state.riverId ? '' : '; each river to its own scale, length on each row') +
       '. ' + plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted'
     : tapHint + 'Downstream on the left; ' +
       (state.riverId ? byId(state.riverId).axisLabel
-                     : 'all rivers to one distance scale — the longest bar is ' +
-                       Math.round(maxM / 1000) + ' km — and one temperature scale') + '. ' +
+                     : 'each river drawn to its OWN scale so its gauges can be read — ' +
+                       'the bars are not comparable lengths, and each row says how many ' +
+                       'kilometres it covers — with one temperature scale across them all') + '. ' +
       plotted + ' gauge' + (plotted === 1 ? '' : 's') + ' plotted';
   if (missing) note += RIB.narrow ? ', ' + missing + ' not' : ', ' + missing + ' not plotted (no position or no data)';
   $('#ribbonnote').textContent = note + '.';
@@ -8934,6 +8990,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.8.0', date:'2026-09-01', changes:[
+      'Every river now gets the whole width of its bar, drawn to its own scale. They were all squeezed onto one distance scale set by the longest, and the longest is the Sacramento \u2014 359 km across, against the American\u2019s 30. So the American was drawn at EIGHT PER CENT of the width with its gauges piled on top of each other, the Feather and the Mokelumne at about a fifth, and the only river you could actually read was the one that needed no help.',
+      'And every row says how many kilometres it covers, because that is the whole reason this is allowed. Bars of one width covering different distances is a lie for exactly as long as nothing says what they cover \u2014 so the comparison of length moves out of the drawing, where it was crushing four rivers to flatter one, and into a number that states it exactly. The note under the bars says out loud that the widths are no longer comparable.',
+      'What a bar is for is where the gauges sit along THAT river, and a shared scale was destroying it for four rivers out of five.',
+  ], broken:[
+      'The bars can no longer be compared to each other by eye, on purpose. Read the kilometres on each row instead; that is what the number is there for.',
+      'Rows carry a line more than they did, so fewer of them fit on a short screen than before. Where they do not fit the bars scroll, and the sideways view shows all of them at once.',
+  ] },
   { v:'2.7.0', date:'2026-09-01', changes:[
       'A button that turns the river bars sideways, where there is no room for them upright. It gives them the LONG side of the screen: on an iPhone 13 the bars go from 22 pixels tall in a 390-wide box to 45 tall in a 667-wide one, with every river on screen at once and nothing to scroll.',
       'It turns the picture, not the phone, and it says so. A web page cannot rotate the screen itself on an iPhone or an iPad \u2014 Safari has no way to do it, and a button that quietly did nothing would be worse than no button. Turning the drawing is the half that works, and it is the better half: a phone held upright has more screen to give than the same phone turned over, because the browser keeps its own bars either way.',
