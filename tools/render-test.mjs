@@ -1117,6 +1117,125 @@ check('and says it is the level at one station, not the current where you are',
 check('the measured section says the two need not agree',
   /need not agree|not the same thing/i.test(along.text), along.text.slice(0, 400));
 
+/* --- THE LANDING PAGE, AS IT IS ACTUALLY READ ----------------------------
+   Four reports from a real device in one message, and three of them were the
+   same kind of defect: something correct when it was written, left behind by
+   the app growing a fifth entry or a new overlay. */
+
+/* HOME LOST ITS RIBBON, ON EVERY GEOMETRY.
+
+   The tappable river rows are HTML buttons laid over the drawing inside
+   `#ribbonwrap` — absolutely positioned, exactly as tall as the ribbon. The
+   height budget summed the wrapper's children as furniture that pushes the
+   ribbon down the page, and counted that overlay among them. It does not push
+   anything: it IS the ribbon, drawn over itself. So each redraw subtracted the
+   previous draw's own height from the space left for the next, and the budget
+   reached MINUS 26 on a 390x664 phone before a row was measured.
+
+   Then it latched: below the floor the draw returns early, before the line
+   that clears the stale overlay, so the overlay stayed and the budget could
+   never recover. */
+/* THIS BLOCK IS ABOUT THE LANDING PAGE, so it has to BE on the landing page —
+   and it has to put the suite back where it found it. The row overlay only
+   exists when more than one river is drawn, so with a river still selected
+   these checks measured an empty overlay and called it a defect; and leaving
+   All rivers selected afterwards failed three tide-station checks forty lines
+   later, which is the same state leak this suite has been bitten by before. */
+const riverBefore = await page.evaluate(() => state.riverId);
+await page.evaluate(() => {
+  const sel = document.getElementById('riverpick');
+  sel.value = ''; sel.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(1500);
+
+const ribbonBand = await page.evaluate(() => {
+  const wrap = document.getElementById('ribbonwrap');
+  /* Redraw several times: one pass was always fine, and the defect only
+     appeared once a previous draw had left its overlay behind. */
+  drawRibbon(); drawRibbon(); drawRibbon();
+  const hits = document.getElementById('riverhits');
+  return {
+    hidden: wrap.hidden, rowH: RIB.rowH, tooTight: RIB.tooTight,
+    rows: document.querySelectorAll('#ribbon rect[stroke="#1F5B57"]').length,
+    hitButtons: hits ? hits.querySelectorAll('button').length : 0,
+    rivers: RIVERS.length,
+    /* The overlay must never be counted as furniture again. */
+    overlayInWrap: !!(hits && hits.parentNode === wrap),
+    overlayAbsolute: hits ? getComputedStyle(hits).position : null
+  };
+});
+check('the ribbon survives being redrawn', !ribbonBand.hidden && ribbonBand.rowH > 0,
+  JSON.stringify(ribbonBand));
+check('and its budget is never driven negative by its own overlay',
+  ribbonBand.rowH >= 22, JSON.stringify({ rowH: ribbonBand.rowH }));
+/* The overlay is still where it was — the fix is to stop COUNTING it, not to
+   move it, and a test that passes because the overlay went away would be
+   measuring a different app. */
+check('the row buttons are still laid over the ribbon inside its wrapper',
+  ribbonBand.overlayInWrap && ribbonBand.overlayAbsolute === 'absolute',
+  JSON.stringify(ribbonBand));
+check('there is a button for every river the ribbon draws',
+  ribbonBand.hitButtons === ribbonBand.rivers,
+  JSON.stringify({ buttons: ribbonBand.hitButtons, rivers: ribbonBand.rivers }));
+
+/* NO SENTENCE NAMES A COUNT THAT LIVES IN AN ARRAY. Every one of them said
+   FOUR, and there have been five entries since the Delta arrived. */
+const copy = await page.evaluate(() => ({
+  water: document.getElementById('panel-water').textContent,
+  home: (document.getElementById('homebtn') || {}).title || '',
+  phrase: typeof riversPhrase === 'function' ? riversPhrase() : null,
+  riverCount: typeof riverCount === 'function' ? riverCount() : null,
+  ribbonRows: typeof ribbonRowCount === 'function' ? ribbonRowCount() : null
+}));
+check('the landing copy counts the rivers rather than naming a number',
+  /Four rivers, one temperature scale/.test(copy.water) === false &&
+  new RegExp(copy.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(copy.water),
+  JSON.stringify({ phrase: copy.phrase, has: copy.water.slice(0, 160) }));
+check('and the phrase comes from the river list',
+  copy.riverCount === 4 && copy.ribbonRows === 5 && /four rivers/i.test(copy.phrase),
+  JSON.stringify(copy));
+/* The Delta is counted apart: it is where the four arrive, not a fifth. */
+check('the Delta is named rather than counted as a river',
+  /and the Delta/i.test(copy.phrase), copy.phrase);
+check('the Home button offers what is actually there',
+  !/four rivers/i.test(copy.home) || /and the Delta/i.test(copy.home), copy.home);
+
+/* DEPTH SAT ON A SPINNER THAT COULD NEVER RESOLVE. The catalogue is fetched
+   for a river; with no river the request is never made, so "Reading the DWR
+   service directory…" was a permanent claim that the app was busy on your
+   behalf. A spinner tells a reader to wait; this one had to tell them to act. */
+const noRiver = await page.evaluate(async () => {
+  const out = {};
+  for (const t of ['layers', 'marks']) {
+    selectTab(t);
+    await new Promise(r => setTimeout(r, 400));
+    const el = document.getElementById('panel-' + t);
+    out[t] = { text: el.textContent,
+               route: [...el.querySelectorAll('button')]
+                 .some(b => /Choose a river/.test(b.textContent)) };
+  }
+  selectTab('water');
+  return out;
+});
+check('Depth with no river says what it is for, not that it is loading',
+  !/Reading the DWR service directory/.test(noRiver.layers.text) &&
+  /Depth belongs to a reach/.test(noRiver.layers.text),
+  noRiver.layers.text.slice(0, 200));
+/* AND NAMES THE ROUTE. "Pick one above" is an instruction to go and find a
+   control; the control belongs where the refusal is. */
+check('and offers the way to pick one', noRiver.layers.route);
+check('Marks with no river does the same', noRiver.marks.route &&
+  /A mark belongs to one river/.test(noRiver.marks.text),
+  noRiver.marks.text.slice(0, 160));
+
+/* Put the suite back on the river it was reading, and wait for it, so what
+   follows measures the app rather than this block's leftovers. */
+await page.evaluate((id) => {
+  const sel = document.getElementById('riverpick');
+  sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true }));
+}, riverBefore);
+await page.waitForTimeout(2500);
+
 /* --- IS TODAY A BIG TIDE OR A SMALL ONE ----------------------------------
    After "which way" and "when", this is the question. The swing between high
    and low grows and shrinks over about fourteen and a half days, and on this

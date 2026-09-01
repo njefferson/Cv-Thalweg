@@ -7,11 +7,10 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- **2.5.0 at https://staging.cv-thalweg.pages.dev** is the same build: nothing
-  is staged ahead of production at the moment. These are two numbers on purpose
-  and they happen to be equal right now; the next commit to `staging` makes them
-  differ again, and writing one of them here covering both is how a handoff
-  comes to name a build nobody can open.
+- Staged candidate: **2.5.1** at https://staging.cv-thalweg.pages.dev — four
+  defects reported from a real device in one message, three of them the same
+  shape: something correct when written, left behind by the app growing a fifth
+  entry or a new overlay.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -943,6 +942,114 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## Home lost its ribbon on every screen, and the note blamed the screen
+
+Reported from the device. The ribbon was gone from the landing page at every
+geometry, and the sentence underneath explained it as four rows not fitting on
+a short screen — which was wrong twice over: there are five rows, and the rows
+were not the reason.
+
+**The row overlay was being counted as furniture in the ribbon's own budget.**
+The tappable river rows are HTML buttons laid over the drawing inside
+`#ribbonwrap` (§194 — they cannot be inside the `role="img"`), positioned
+absolutely and exactly as tall as the ribbon. `drawRibbon` sums the wrapper's
+children as things that push the ribbon down the page and take space from it.
+The overlay pushes nothing: **it IS the ribbon, drawn over itself.** So every
+redraw subtracted the previous draw's own height from the space left for the
+next one, and on a 390x664 phone the budget reached **minus 26** before a row
+was measured.
+
+**Then it latched.** Below the legibility floor the draw returns early — before
+the line that removes the stale overlay — so the overlay stayed, the budget
+stayed negative, and the ribbon could never come back on its own.
+
+Height is not the test; **participation in flow is**. An absolutely positioned
+child is skipped now, and the early return clears the overlay it is dropping.
+
+**Two more arithmetic errors surfaced behind it**, both only visible once the
+first was fixed.
+
+**Margins are part of what a thing takes up and a bounding rect does not
+include them.** The note under the ribbon is a `<p>` carrying the browser's
+default vertical margins — twenty-two pixels the budget could not see, so every
+draw believed it had twenty-two more than it did and the band came out over its
+share. Counting `marginTop + marginBottom` is what put every geometry at exactly
+32% instead of 35%.
+
+**And the corrective pass was compensating for a number that was about to be
+re-measured.** `extra` is read at the top of the function, so it is the PREVIOUS
+draw's note — and the note's line count changes with how many gauges plotted.
+The retry subtracted the whole measured overshoot from a budget that would be
+recomputed against correct furniture anyway, taking the error off twice; with
+five rows that landed under the floor and dropped the band. It passes 0 now: a
+re-run, not a compensation.
+
+**And a policy, kept as a backstop:** a corrective pass may shrink this view and
+may not delete it. Overshooting a guideline by a few pixels is a smaller failure
+than dropping the comparison the landing page exists to show.
+
+**What is still true:** an iPhone SE cannot hold five legible rows in the share
+the ribbon is allowed. That is a real limit, the app says so, and the note no
+longer names a count it does not have.
+
+### And the fix exposed the next one: the explanation ran before the decision
+
+Fixing the budget moved WHEN the ribbon gets hidden. It used to be hidden on
+its very first pass, so by the time the water panel rendered, `hidden` was
+already true and the sentence explaining the absence was written. With the
+arithmetic corrected the band is hidden only by the corrective pass — which can
+run after that panel has rendered — so the test for `hidden` read false and the
+explanation was never written. The ribbon vanished with nothing said about it,
+which is the one thing this app is not allowed to do.
+
+**Caught by a gate that already existed** — "a dropped ribbon is announced
+rather than just missing" — and it is the second time this session that fixing
+an arithmetic error surfaced a defect underneath it that only the arithmetic
+error had been hiding.
+
+The sentence belongs to neither renderer now. The panel leaves an empty slot
+and `syncRibbonDropNote()` fills or empties it from whichever of the two ran
+last, so their order stops mattering.
+
+## The tabs went to the bottom of the screen when the map opened
+
+`main` is a column under the breakpoint and `#panel-map` is its FIRST child,
+because on a wide screen it is the left-hand column and source order puts it
+there. Stacked, that order put the map above the rail — so choosing Map sent the
+tab strip from 203px to 630px on an iPhone 13, a full viewport from where the
+finger had just been, behind a map you then had to scroll past to get back.
+
+Nothing decided that; source order did — the same thing that once moved the
+whole rail across the desktop window. Two `order` rules, scoped to the narrow
+breakpoint so the wide layout is untouched. Asserted by measuring where the
+boxes land, because that is the only thing that proves an ordering.
+
+## Three sentences counted the rivers and one array knew better
+
+"Four rivers, one temperature scale". "Four rows of it will not fit". "Home —
+back to all four rivers". Each was correct when written, and there have been
+five entries since the Delta arrived. None was wrong in a way anybody could see
+by reading the file: the number lived in the prose and the truth lived in an
+array two thousand lines away.
+
+The prose asks the list now — `riverCount()`, `networkCount()`, `riversPhrase()`
+— and the Delta is counted apart on purpose, because it is where the four
+arrive rather than a fifth of them.
+
+## Depth sat on a spinner that could never resolve
+
+With no river the panel returned at its first check and showed "Reading the DWR
+service directory…" forever, because the catalogue is fetched FOR a river and
+there was no river. The sentence saying what the panel is for was written and
+sat below the return, unreachable.
+
+**A spinner is a promise that something is happening.** This one was a permanent
+claim that the app was busy on the reader's behalf while waiting for an event
+that could not occur — worse than an empty panel, because it tells a reader to
+wait rather than to act. The checks are in the right order now, and both Depth
+and Marks carry a button to the choosing rather than an instruction to go and
+find it.
 
 ## Springs and neaps, and why a week could not answer it
 

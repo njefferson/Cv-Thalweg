@@ -19,7 +19,7 @@
 <meta property="og:image" content="https://cv-thalweg.pages.dev/social-preview.png">
 <meta property="og:image:width" content="2560">
 <meta property="og:image:height" content="1280">
-<meta property="og:image:alt" content="Thalweg — depth, tide and flow for four Central Valley rivers. Marked: not for navigation.">
+<meta property="og:image:alt" content="Thalweg — depth, tide and flow for the Sacramento, Feather, American and Mokelumne rivers and the Delta. Marked: not for navigation.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0A1214">
 <meta name="color-scheme" content="dark">
@@ -482,6 +482,25 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   body.show-map #panel-map{display:flex}
   body.show-map #rail{flex:0 0 auto}
   body.show-map [role=tabpanel]:not(#panel-map){display:none}
+  /* AND THE TABS STAY WHERE THE TABS ARE.
+
+     `main` is a column here and `#panel-map` is its FIRST child, because on a
+     wide screen it is the left-hand column and source order is what puts it
+     there. Under the breakpoint that same order stacks the map on top of the
+     rail — so choosing Map sent the tab strip to the bottom of the screen, a
+     full viewport away from where it had just been pressed, measured at 203px
+     before and 630px after on an iPhone 13. Every other tab keeps its strip at
+     the top; the one that moves the furniture is the one showing a map you
+     then have to scroll past to get back.
+
+     Nothing decided that — source order did, again, which is the same thing
+     that once moved the whole rail across the desktop window.
+
+     `order` rather than moving the element: the map has to stay a sibling
+     BEFORE the rail for the wide layout, and this is exactly the case flex
+     ordering is for. */
+  body.show-map #rail{order:0}
+  body.show-map #panel-map{order:1}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important; transition-duration:.001ms!important}
@@ -519,8 +538,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
        does nothing is worse than one that is not offered. The accessible name
        carries the word on the face of it, because a label that merely overlaps
        passes a substring check by accident (hub LESSONS 29). -->
-  <button id="homebtn" hidden title="Home — back to all four rivers"
-          aria-label="Home — back to all four rivers">Home</button>
+  <!-- The label is set from the river list at boot; this is the fallback for
+       a page whose script has not run, and it names no count for the same
+       reason the rest of the copy no longer does. -->
+  <button id="homebtn" hidden title="Home — back to every river"
+          aria-label="Home — back to every river">Home</button>
   <button class="iconbtn" id="aboutbtn" aria-haspopup="dialog" title="About Thalweg"
           aria-label="About Thalweg, data sources, install and accessibility">i</button>
 </header>
@@ -663,7 +685,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.5.0';
+var VERSION = '2.5.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2540,6 +2562,16 @@ function drawRibbon(again){
      the right-hand end is upstream, and a view you have to drag sideways to
      finish reading is one nobody finishes reading. */
   var narrow = window.matchMedia && window.matchMedia('(max-width:900px)').matches;
+  /* MEASURE THE REAL BOX, NOT A HIDDEN ONE. Everything below is arithmetic on
+     what this band actually occupies, and a hidden wrapper reports zero for
+     all of it: clientWidth falls to the 360 fallback, the note measures 0, and
+     the draw that follows is computed from numbers describing nothing. That is
+     the state this function is MOST often entered in, because the previous
+     draw is what hid it. Unhiding first costs nothing — no paint happens
+     between here and the end of this function — and it is the difference
+     between measuring the page and measuring its absence. */
+  var wasHidden = document.getElementById('ribbonwrap').hidden;
+  if (wasHidden) document.getElementById('ribbonwrap').hidden = false;
   var W = narrow ? Math.max(host.clientWidth || 360, 300)
                  : Math.max(host.clientWidth || 1000, 520);
   var list = state.riverId ? [byId(state.riverId)] : RIVERS;
@@ -2555,10 +2587,45 @@ function drawRibbon(again){
     var cs = window.getComputedStyle(wrapEl);
     var extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     Array.prototype.forEach.call(wrapEl.children, function(c){
-      if (c !== host) extra += c.getBoundingClientRect().height;
+      if (c === host) return;
+      /* AN ABSOLUTELY POSITIONED CHILD TAKES NO SPACE IN FLOW, and counting
+         one as furniture is how this budget ate itself.
+
+         The tappable river rows are HTML buttons laid over the drawing inside
+         this same wrapper — `#riverhits`, position:absolute, exactly as tall
+         as the ribbon it covers. It was being added to `extra` as though it
+         pushed the ribbon down the page. It does not: it IS the ribbon,
+         drawn over itself. So every redraw subtracted the previous draw's own
+         height from the space available for the next one, and on a 390x664
+         phone the budget reached MINUS 26 before a single row was measured.
+
+         Then it latched. Below the floor the draw returns early — before the
+         line that removes the stale overlay — so the overlay stayed, the
+         budget stayed negative, and the ribbon could never come back. Home
+         had no ribbon at all, on every geometry, and the note underneath
+         explained it as five rows not fitting on a short screen.
+
+         Height is not the test; participation in flow is. */
+      var st = window.getComputedStyle(c);
+      if (st.position === 'absolute' || st.position === 'fixed') return;
+      /* MARGINS ARE PART OF WHAT A THING TAKES UP, and a bounding rect does
+         not include them. The note under the ribbon is a <p> carrying the
+         browser's default vertical margins — twenty-two pixels the budget
+         could not see, so every draw believed it had twenty-two more than it
+         did and the band came out over its share of the screen. Margins can
+         collapse between siblings, so summing both sides can over-count by a
+         few pixels; that errs toward a smaller ribbon, which is the safe
+         direction, and the corrective pass re-measures either way. */
+      extra += c.getBoundingClientRect().height +
+               (parseFloat(st.marginTop) || 0) + (parseFloat(st.marginBottom) || 0);
     });
+    /* `again` is the retry marker as well as the overshoot. Any value at all
+       means "this is a corrective pass, do not start another one"; only a
+       positive one subtracts. The redraw that restores a good first pass
+       passes 0, which is a retry that takes nothing away — and without that
+       distinction it re-entered the branch below and recursed. */
     budget = Math.round((window.innerHeight || 800) * 0.32) - extra
-             - (again && isNum(again) ? again : 0);
+             - (isNum(again) && again > 0 ? again : 0);
   }
   /* ONE SCALE FOR ALL FOUR, measured before anything is drawn. Every bar used
      to be stretched to the same width whatever distance it covered, which is
@@ -2577,8 +2644,21 @@ function drawRibbon(again){
   ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
   wrap.hidden = !!RIB.tooTight;
-  if (RIB.tooTight) return;
+  if (RIB.tooTight){
+    /* AND THE OVERLAY GOES WITH IT. Returning here without clearing it leaves
+       buttons for rows that are no longer drawn — invisible inside a hidden
+       wrapper, and, before the fix above, the very thing that kept the budget
+       negative on every subsequent draw. A view that drops itself has to drop
+       its controls too. */
+    var stale = document.getElementById('riverhits');
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+    /* AND IT SAYS SO. A view that vanishes without a word is
+       indistinguishable from one that failed to load. */
+    syncRibbonDropNote();
+    return;
+  }
   wrap.hidden = false;
+  syncRibbonDropNote();
   var rowH = RIB.rowH, top = RIB.top;
   var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -2636,10 +2716,38 @@ function drawRibbon(again){
      corrective pass with the measured overshoot subtracted converges,
      and a guard stops it becoming a loop. Raising a number until it looks
      better is not debugging — reading what the browser actually did is. */
-  if (narrow && !again){
+  if (narrow && again === undefined){
     var over = Math.round(wrapEl.getBoundingClientRect().height) -
                Math.round((window.innerHeight || 800) * 0.32);
-    if (over > 2) drawRibbon(over);
+    if (over > 2){
+      /* THE RETRY RE-MEASURES; IT DOES NOT COMPENSATE.
+
+         `extra` is the furniture around the drawing, and it is measured at the
+         TOP of this function — which means it is the PREVIOUS draw's note,
+         not the one about to be written. The note is a sentence whose length
+         depends on how many gauges plotted, so its line count changes between
+         a cold open and a loaded one: measured at three lines, redrawn at two,
+         and the budget was 22px wrong in a direction nobody had accounted for.
+
+         The old retry subtracted the whole measured overshoot from the budget.
+         That is a correction for a number that is already about to be
+         re-measured, so it took the error off twice: with five rows it landed
+         under the legibility floor and the band was dropped entirely. Passing
+         0 re-runs the arithmetic against furniture that is now correct, which
+         is all that was ever needed — and lands inside the budget rather than
+         18px over it.
+
+         The guard stays as a backstop. A corrective pass may shrink this view
+         and may not delete it: overshooting a guideline is a smaller failure
+         than dropping the comparison the landing page exists to show. */
+      var keep = RIB, keptBox = host.getAttribute('viewBox');
+      drawRibbon(0);
+      if (RIB.tooTight && !keep.tooTight){
+        RIB = keep;
+        if (keptBox) host.setAttribute('viewBox', keptBox);
+        drawRibbon(-1);
+      }
+    }
   }
   /* THE RIBBON IS A role="img" AND ITS SUBTREE IS PRUNED, so the rising or
      falling drawn on the bar reaches nobody who cannot see it. It goes in the
@@ -3702,6 +3810,73 @@ function riverCard(river){
   return card;
 }
 
+/* HOW MANY RIVERS THERE ARE, ASKED OF THE RIVER LIST.
+
+   Every sentence in this app that named a number named FOUR, and there have
+   been five entries since the Delta arrived. The landing page said "Four
+   rivers, one temperature scale"; the note explaining a dropped ribbon said
+   "four rows of it will not fit"; the Home button offered to take you "back to
+   all four rivers". Each was correct when written and none of them was wrong
+   in a way anybody could see by reading the file — the number lived in the
+   prose and the truth lived in an array two thousand lines away.
+
+   So the prose asks. `tools/copy-count.mjs` refuses a hardcoded count in
+   reader-facing copy, because a rule in a comment is what this repo has just
+   demonstrated does not hold.
+
+   The Delta is counted apart on purpose: it is where the four arrive, not a
+   fifth of them, and a sentence calling it a river would be a different
+   defect from the one being fixed. */
+/* THE WAY TO PICK A RIVER, offered where the reader is rather than as an
+   instruction to go and find a control. Two panels refuse to do their job
+   without a river — Depth and Marks — and both said so and then left the
+   reader to work out where the choosing happens. */
+/* The one sentence that explains a missing ribbon, owned by neither renderer
+   and written by whichever ran last. */
+function syncRibbonDropNote(){
+  var slot = document.getElementById('ribbondropped');
+  if (!slot) return;
+  var wrap = document.getElementById('ribbonwrap');
+  var dropped = !!(wrap && wrap.hidden);
+  slot.hidden = !dropped;
+  slot.textContent = dropped
+    ? 'The river ribbon is not shown: ' + countWord(ribbonRowCount()) +
+      ' rows of it will not fit above these cards at a legible size on a screen this short. Pick a single river and it comes back for that one.'
+    : '';
+}
+
+function pickRiverRow(){
+  var row = el('div',{class:'rowline'});
+  var b = el('button',{type:'button',text:'Choose a river'});
+  b.addEventListener('click', function(){
+    selectTab('water');
+    var w = $('#panel-water');
+    if (w) w.scrollTop = 0;
+    announce('Pick a river from the cards.');
+    var first = w && w.querySelector('.rivercard');
+    if (first) first.focus();
+  });
+  row.appendChild(b);
+  return row;
+}
+function initialCap(t){ return t.charAt(0).toUpperCase() + t.slice(1); }
+var COUNTWORDS = ['no','one','two','three','four','five','six','seven','eight','nine','ten'];
+function countWord(n){ return COUNTWORDS[n] || String(n); }
+function riverCount(){ return RIVERS.filter(function(r){ return !r.network; }).length; }
+function networkCount(){ return RIVERS.filter(function(r){ return r.network; }).length; }
+/* "four rivers" or "four rivers and the Delta", from the list itself. */
+function riversPhrase(){
+  var n = riverCount(), k = networkCount();
+  var base = countWord(n) + ' river' + (n === 1 ? '' : 's');
+  if (!k) return base;
+  var names = RIVERS.filter(function(r){ return r.network; })
+    .map(function(r){ return r.short; });
+  return base + ' and ' + (names.length === 1 ? 'the ' + names[0].replace(/^The /, '')
+                                              : names.join(' and '));
+}
+/* Every row the ribbon draws, which is not the same number. */
+function ribbonRowCount(){ return RIVERS.length; }
+
 function renderWater(){
   var p = $('#panel-water'); p.innerHTML = '';
 
@@ -3735,7 +3910,7 @@ function renderWater(){
                 ' — those did not answer. The rest are current.') +
             ' Ages are in the header.'}));
     p.appendChild(el('p',{class:'note',
-      text:'Four rivers, one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
+      text: initialCap(riversPhrase()) + ', one temperature scale, in a fixed order. Thalweg does not rank them: reading a thermometer against a threshold is one thing, and telling you where the fishing will be better is a forecast it has no basis for.'}));
     p.appendChild(el('p',{class:'note',
       text:'Tap a river for its tide, its gauges one by one, its published depth surveys and your own marks.'}));
     /* Dropping a view silently is the thing this app is not allowed to do.
@@ -3743,9 +3918,17 @@ function renderWater(){
        short screen, and the cards carry more of the answer, so the ribbon
        goes — and says it went, at the bottom, where saying it costs nothing
        above the fold. */
-    if (document.getElementById('ribbonwrap').hidden)
-      p.appendChild(el('p',{class:'note',
-        text:'The river ribbon is not shown: four rows of it will not fit above these cards on a screen this short. Pick a single river and it comes back for that one.'}));
+    /* A SLOT, NOT A DECISION. Whether the ribbon fits is settled by
+       `drawRibbon`, and the two do not run in a fixed order: this panel can be
+       rendered BEFORE the draw that hides the band, in which case a test for
+       `hidden` here reads false and the explanation is never written. The
+       ribbon then vanishes with nothing said about it, which is the one thing
+       this app is not allowed to do — and it is exactly what happened the
+       moment the band stopped being hidden on its very first pass.
+       So the slot is always here and `syncRibbonDropNote` fills or empties it
+       from whichever of the two ran last. */
+    p.appendChild(el('p',{class:'note',id:'ribbondropped',hidden:'hidden'}));
+    syncRibbonDropNote();
     return;
   }
 
@@ -4224,15 +4407,31 @@ function renderLayers(){
   }
 
 
-  if (!state.catalog){
-    p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
-    appendBasemap(p);
-    return;
-  }
+  /* NO RIVER IS ANSWERED BEFORE NO CATALOGUE, and the order is the whole fix.
+
+     These two checks were the other way round, so on All rivers the panel
+     returned at the first one and showed "Reading the DWR service directory…"
+     — a progress message for a request that is never made, because the
+     catalogue is fetched for a river and there is no river. It sat there
+     forever. The sentence below, which says what this panel is for and how to
+     reach it, was written and could not be got to.
+
+     A spinner is a promise that something is happening. This one was a
+     permanent claim that the app was busy on your behalf while it waited for
+     an event that could not occur, which is worse than an empty panel: it
+     tells a reader to wait rather than to act. */
   var river = state.riverId ? byId(state.riverId) : null;
   if (!river){
     p.appendChild(el('p',{class:'note',
       text:'Depth belongs to a reach, so it comes with a river. Pick one above and the map opens with it — All rivers is for choosing between them, not for reading bottom.'}));
+    /* AND THE WAY TO DO IT, here, rather than as an instruction to go and
+       find a control somewhere else. */
+    p.appendChild(pickRiverRow());
+    appendBasemap(p);
+    return;
+  }
+  if (!state.catalog){
+    p.appendChild(el('p',{class:'note',text:'Reading the DWR service directory…'}));
     appendBasemap(p);
     return;
   }
@@ -4906,6 +5105,7 @@ function renderMarks(){
        from a refusal on its own. */
     p.appendChild(el('p',{class:'note',
       text:'A mark belongs to one river, so pick a river to drop one. Everything already dropped is below.'}));
+    p.appendChild(pickRiverRow());
     var total = 0;
     RIVERS.forEach(function(river){
       var marks = sget(river.id,'marks') || [];
@@ -8207,6 +8407,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.5.1', date:'2026-09-01', changes:[
+      'Home has its river bars back. They had gone from every screen size, and the note underneath blamed your screen for it \u2014 which was wrong. The bars are tappable now, and the invisible buttons that make them tappable sit exactly on top of the bars; the code working out how much room the bars could have was counting those buttons as if they pushed the bars further down the page. Every redraw took the last drawing\u2019s own height away from the next one until there was no room left at all, and once it gave up it could not come back.',
+      'The tabs stay where they are when you open the map. Choosing Map used to send the row of tabs to the bottom of the screen \u2014 a whole screen away from the finger that had just pressed it, and behind a map you then had to scroll past to get back. Every other tab leaves them at the top; now so does that one.',
+      'Depth no longer says it is loading something when no river is picked. It sat on \u201cReading the DWR service directory\u2026\u201d forever, because that reading only happens once you have chosen a river \u2014 so it was a promise that something was happening when nothing was going to. It says what the panel is for instead, and both it and Marks now offer a button that takes you to the choosing rather than telling you to go and find it.',
+      'Nothing on the landing page counts the rivers wrongly any more. It said \u201cfour rivers\u201d in three places while five things were listed under it, and the Home button offered to take you back to all four. The sentences ask the list now, so they cannot fall behind it again.',
+  ], broken:[
+      'On the shortest phones the bars still cannot be shown on the landing page: five of them at a size you can actually read do not fit above the cards. That is a real limit rather than the fault above, and the app says so and tells you to pick one river to get them back.',
+  ] },
   { v:'2.5.0', date:'2026-09-01', changes:[
       'The tide now says how BIG today is, not just which way it is going and when it turns. The swing between high and low is not the same every day \u2014 it grows and shrinks over about a fortnight with the moon, and on this water the difference between the two ends is a couple of feet at the same station. Two days both described as \u201crising, high at four\u201d can be completely different afternoons, and nothing here said which one you had.',
       'It is drawn as well as said: one bar a day for the sixteen days of predictions the app holds, today marked, with the biggest and the smallest day named by date. On the river cards the size only appears at the ends of the cycle, because \u201cthe biggest swing of the fortnight\u201d changes what you do today and \u201csomewhere in the middle\u201d does not.',
@@ -8953,6 +9161,12 @@ function boot(){
   /* Home. Back to the four-river landing this app opens on, on the Water tab,
      scrolled to the top — all three, because arriving at the landing halfway
      down a panel is not arriving at the landing. */
+  /* THE LABEL SAYS WHAT IS THERE. It offered to take a reader "back to all
+     four rivers" while five things were listed under it. */
+  (function(){
+    var hb = $('#homebtn'), label = 'Home \u2014 back to all ' + riversPhrase();
+    hb.title = label; hb.setAttribute('aria-label', label);
+  })();
   $('#homebtn').addEventListener('click', function(){
     selectRiver('');
     selectTab('water');

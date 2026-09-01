@@ -412,6 +412,77 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await noOverflow(page, `${name}: nothing reaches past the edge on ${tab}`);
   }
 
+  /* THE TABS MUST NOT MOVE WHEN A TAB IS PRESSED.
+
+     `main` is a column under the breakpoint and `#panel-map` is its FIRST
+     child, because on a wide screen it is the left-hand column and source
+     order puts it there. Stacked, that same order put the map ABOVE the rail —
+     so choosing Map sent the tab strip from 203px to 630px on an iPhone 13, a
+     full viewport away from where the finger had just been. Every other tab
+     keeps its strip at the top; the one that moved the furniture was the one
+     showing a map you then had to scroll past to get back from.
+
+     Measured rather than asserted about the CSS, because the rule that fixes
+     it is `order` on a flex child and the only thing that proves an ordering
+     is where the boxes actually land. */
+  if (width < 901) {
+    await page.selectOption('#riverpick', 'sacramento');
+    await page.waitForTimeout(1500);
+    await page.click('#tab-water');
+    await page.waitForTimeout(400);
+    const tabsBefore = await page.evaluate(() =>
+      Math.round(document.querySelector('[role=tablist]').getBoundingClientRect().top));
+    await page.click('#tab-map');
+    await page.waitForTimeout(1200);
+    const onMap = await page.evaluate(() => {
+      const t = document.querySelector('[role=tablist]').getBoundingClientRect();
+      const m = document.getElementById('map').getBoundingClientRect();
+      return { top: Math.round(t.top), bottom: Math.round(t.bottom),
+               mapTop: Math.round(m.top), vh: window.innerHeight };
+    });
+    check(`${name}: the tab strip stays put when the map is opened`,
+      Math.abs(onMap.top - tabsBefore) <= 2,
+      JSON.stringify({ before: tabsBefore, after: onMap.top }));
+    /* And it is above the map rather than under it, which is the thing a
+       finger reaching back for another tab actually needs. */
+    check(`${name}: and sits above the map, not below it`,
+      onMap.bottom <= onMap.mapTop + 2, JSON.stringify(onMap));
+    check(`${name}: the tab strip is still on screen with the map open`,
+      onMap.top >= 0 && onMap.bottom <= onMap.vh, JSON.stringify(onMap));
+    await audit(page, `${name}: the map tab open`);
+    await page.selectOption('#riverpick', '');
+    await page.waitForTimeout(1200);
+    await page.click('#tab-water');
+    await page.waitForTimeout(400);
+  }
+
+  /* HOME KEEPS ITS RIBBON. The row overlay was being counted as furniture in
+     the ribbon's own height budget — it is absolutely positioned and exactly
+     as tall as the ribbon, so every redraw took the last draw's height out of
+     the space left for the next one until the budget went negative and the
+     band was dropped on every geometry. It latched, because the early return
+     below the floor happens before the stale overlay is cleared. */
+  const band = await page.evaluate(() => {
+    drawRibbon(); drawRibbon(); drawRibbon();
+    const wrap = document.getElementById('ribbonwrap');
+    const hits = document.getElementById('riverhits');
+    return { hidden: wrap.hidden, rowH: RIB.rowH,
+             h: Math.round(wrap.getBoundingClientRect().height),
+             pct: Math.round(wrap.getBoundingClientRect().height / window.innerHeight * 100),
+             buttons: hits ? hits.querySelectorAll('button').length : 0,
+             rivers: RIVERS.length };
+  });
+  /* A very short screen genuinely cannot hold five legible rows in the share
+     the ribbon is allowed, and dropping it there is the designed answer. What
+     must not happen is dropping it because the arithmetic ate itself — so the
+     assertion is on the row height, which is what tells the two apart. */
+  check(`${name}: the ribbon's own overlay does not eat its height budget`,
+    band.hidden ? band.rowH > 0 : band.rowH >= 22,
+    JSON.stringify(band));
+  if (!band.hidden)
+    check(`${name}: every river the ribbon draws has a row button`,
+      band.buttons === band.rivers, JSON.stringify(band));
+
   /* A NEW SURFACE JOINS THIS LIST IN THE SAME COMMIT, OR IT SHIPS UNMEASURED
      (hub LESSONS 28). Two arrived together and neither is reachable from the
      states above: the species regulations sit inside folds that arrive shut,
