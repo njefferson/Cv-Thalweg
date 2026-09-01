@@ -1543,6 +1543,165 @@ check('a clipped day is dropped rather than reported as a small tide',
 /* Every day the same size is not a cycle. */
 check('a tide with no cycle in it gets no spring-or-neap claim',
   spring.flatIsNull, JSON.stringify({ flat: spring.flatIsNull }));
+
+/* --- HOW WIDE THE RIVER IS ------------------------------------------------
+   The width is geometry over USGS's mapped water surface, baked. These check
+   the three things that would make it a lie on the screen: that the numbers
+   are widths of THIS river rather than a cast that found the wrong bank, that
+   a refusal draws nothing rather than a guess, and that the width and the
+   depth never share a scale. */
+const wide = await page.evaluate(async () => {
+  const river = byId('sacramento');
+  const all = Object.values(RIVER_WIDTHS).flat();
+  const measured = all.filter(s => s.m !== null).map(s => s.m);
+  return {
+    rivers: Object.keys(RIVER_WIDTHS),
+    /* Computed IN the page: RIVERS is the app's table and does not exist out
+       here in the runner. */
+    withCourse: RIVERS.filter(r => !r.network).length,
+    /* The Delta is absent BY DESIGN: it has no course to be perpendicular to,
+       and the app refuses to profile down it for the same reason. A width for
+       it would mean the generator had picked a channel and not said so. */
+    hasDelta: Object.prototype.hasOwnProperty.call(RIVER_WIDTHS, 'delta'),
+    n: measured.length,
+    min: Math.min(...measured), max: Math.max(...measured),
+    refusals: all.length - measured.length,
+    /* Every sample points at a place on the committed centreline. */
+    indexed: all.every(s => {
+      const line = riverLineFor(Object.keys(RIVER_WIDTHS)
+        .find(k => RIVER_WIDTHS[k].includes(s)));
+      return !line || (s.i >= 0 && s.i < line.length);
+    }),
+    meta: !!(WIDTHS_META && WIDTHS_META.source && WIDTHS_META.fetchedAt),
+    views: PROF_VIEWS.length,
+    /* Downtown Sacramento is about 180 m across. This is the one place on
+       these rivers whose width a person can check against the world without
+       any of this code, which is what makes it worth asserting. */
+    downtown: (() => {
+      const line = riverLineFor('sacramento');
+      let best = null;
+      for (const s of RIVER_WIDTHS.sacramento) {
+        if (s.m === null) continue;
+        const p = line[s.i];
+        const d = Math.hypot((p[0] - 38.58) * 110540, (p[1] + 121.51) * 87000);
+        if (!best || d < best.d) best = { d, m: s.m };
+      }
+      return best;
+    })()
+  };
+});
+check('the width is baked in for every river with a course',
+  wide.rivers.length === wide.withCourse && wide.meta,
+  JSON.stringify({ rivers: wide.rivers, meta: wide.meta }));
+check('and the Delta has none, because it has no course to be across',
+  !wide.hasDelta, JSON.stringify({ hasDelta: wide.hasDelta }));
+check('every sample points at a real place on the committed centreline',
+  wide.indexed, JSON.stringify({ n: wide.n }));
+/* A CAST THAT FINDS THE WRONG BANK PRODUCES A NUMBER, and it is the failure
+   this data can have that looks most like a result. Nothing on these rivers is
+   five metres across or three kilometres. */
+check('every width is a width one of these rivers could actually have',
+  wide.min > 5 && wide.max < 2400,
+  JSON.stringify({ min: wide.min, max: wide.max, n: wide.n }));
+/* Refusals are the feature. A generator that never refused would be one that
+   had guessed at every confluence. */
+check('and the places with no single width refuse rather than guess',
+  wide.refusals > 0, JSON.stringify({ refusals: wide.refusals }));
+check('the Sacramento at Sacramento comes out about as wide as it is',
+  wide.downtown && wide.downtown.m > 120 && wide.downtown.m < 260,
+  JSON.stringify(wide.downtown));
+check('the profile offers depth, width, and the two together',
+  wide.views === 3, JSON.stringify({ views: wide.views }));
+
+/* --- THE MOON, CHECKED AGAINST THE SKY -----------------------------------
+   Nothing here compares the moon code against itself. Every assertion below is
+   a property of the world that the series was not tuned to: an interval
+   astronomers measured, two epochs published long before this file existed,
+   and — the one worth the most — agreement with a quantity this app works out
+   from a completely different input. (Hub LESSONS §203.)
+
+   THE MEAN SYNODIC MONTH IS 29.530588 DAYS. It is not in the source anywhere
+   as a target; it falls out of the mean motions. Measured over sixty years so
+   the endpoint scatter, which is a third of a day either side on a truncated
+   series, averages down to nothing — over ten years the same code reads
+   29.5247 and that is the SAMPLING, not the model, which is the trap this
+   check is shaped to avoid. */
+const moon = await page.evaluate(() => {
+  const DAY = 86400000;
+  /* Continuous scan rather than repeated searches: watching the elongation
+     wrap through zero finds every new moon and cannot skip one. */
+  const elong = t => moonPhase(new Date(t)).elong;
+  let prev = elong(Date.UTC(2000, 0, 1)), times = [];
+  const step = 1800000;
+  for (let t = Date.UTC(2000, 0, 1) + step; t < Date.UTC(2060, 0, 1); t += step) {
+    const e = elong(t);
+    if (e < prev) times.push(t - step + ((360 - prev) / ((e + 360) - prev)) * step);
+    prev = e;
+  }
+  const n = times.length;
+  const gaps = times.slice(1).map((t, i) => (t - times[i]) / DAY);
+  /* Two published epochs. Neither is in the source. */
+  const knownNew = moonPhase(new Date('2000-01-06T18:14:00Z'));
+  const knownFull = moonPhase(new Date('2000-01-21T04:40:00Z'));
+  const off = e => Math.min(e.elong, 360 - e.elong);
+  return {
+    count: n,
+    mean: (times[n - 1] - times[0]) / DAY / (n - 1),
+    gapMin: Math.min(...gaps), gapMax: Math.max(...gaps),
+    newOff: off(knownNew), newIllum: knownNew.illum,
+    fullOff: Math.abs(knownFull.elong - 180), fullIllum: knownFull.illum,
+    /* The lit fraction has to follow the elongation, not be a second guess at
+       it: zero at new, one at full, and monotonic between. */
+    ladder: [0, 45, 90, 135, 180].map(deg => {
+      const t = Date.UTC(2026, 0, 1);
+      let best = null;
+      for (let k = 0; k < 24 * 40; k++) {
+        const when = t + k * 3600000, e = moonPhase(new Date(when));
+        const d = Math.abs(e.elong - deg);
+        if (!best || d < best.d) best = { d, illum: e.illum };
+      }
+      return +best.illum.toFixed(3);
+    }),
+    /* Names come from the table, so the table is what decides how many there
+       are — a phase list that grew would otherwise leave the prose behind. */
+    names: [...new Set(MOON_PHASES.map(p => p.name))].length
+  };
+});
+check('the mean interval between new moons is the synodic month',
+  Math.abs(moon.mean - 29.530588) < 0.001,
+  JSON.stringify({ mean: +moon.mean.toFixed(6), over: moon.count + ' new moons' }));
+/* The real synodic month swings between about 29.27 and 29.83 days with the
+   eccentricity. A model that produced a CONSTANT interval would pass the mean
+   check above and be wrong about every individual month. */
+check('and the individual months vary the way the real ones do',
+  moon.gapMin > 29.1 && moon.gapMin < 29.4 && moon.gapMax > 29.7 && moon.gapMax < 30.0,
+  JSON.stringify({ min: +moon.gapMin.toFixed(3), max: +moon.gapMax.toFixed(3) }));
+check('a published new moon comes out new',
+  moon.newOff < 2 && moon.newIllum < 0.001,
+  JSON.stringify({ degreesOff: +moon.newOff.toFixed(2), illum: moon.newIllum }));
+check('and a published full moon comes out full',
+  moon.fullOff < 2 && moon.fullIllum > 0.999,
+  JSON.stringify({ degreesOff: +moon.fullOff.toFixed(2), illum: moon.fullIllum }));
+/* The lit fraction is (1 - cos elongation) / 2 and the quarters are the proof:
+   half lit at ninety degrees is the one value a wrong formula rarely gets. */
+check('the lit face follows the elongation, quarters included',
+  moon.ladder[0] < 0.01 && Math.abs(moon.ladder[2] - 0.5) < 0.02 &&
+  moon.ladder[4] > 0.99 &&
+  moon.ladder.every((v, i) => i === 0 || v >= moon.ladder[i - 1]),
+  JSON.stringify(moon.ladder));
+check('the phase names come from a table rather than a chain of ifs',
+  moon.names === 8, JSON.stringify({ names: moon.names }));
+
+/* THE CROSS-CHECK AGAINST THE MEASURED TIDE LIVES IN tools/live-test.mjs, NOT
+   HERE, AND THE REASON IS THE WHOLE POINT OF IT. The spring–neap section is
+   worked out from NOAA's predictions; the moon is worked out from the sky; the
+   check is that two independent paths agree. This suite runs against a STUBBED
+   tide whose fortnightly envelope was authored by hand, so its phase has no
+   relationship to the real moon — it failed here by 4.2 days, which was the
+   fixture being a fixture and not a defect. Made to pass, it would have meant
+   phase-locking the fixture to the code it is supposed to be independent of,
+   which is the opposite of an independent check. It runs against the real
+   service instead, where the agreement means something. */
 check('the fortnight is drawn as well as said', spring.figure);
 /* IT SAYS "FORTNIGHT" AND MEANS IT — sixteen days of predictions cannot say
    this is the biggest tide of the month or the year, and must not imply it. */

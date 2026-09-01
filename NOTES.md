@@ -10,9 +10,9 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- Staged candidate: **2.10.0** at https://staging.cv-thalweg.pages.dev — where
-  you can launch, from CDFW's own record, and the correction of a claim this app
-  made for its whole life.
+- Staged candidate: **2.11.0** at https://staging.cv-thalweg.pages.dev — how
+  wide the river is along the profile, and the moon. 2.10.0 is on staging behind
+  it and has not been promoted.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -924,6 +924,128 @@ through it by keyboard — and the rendering suite proved it by clicking the wro
 one the moment the section landed. Each names what it shows, and the suites
 assert on the accessible name rather than the visible text, because every row in
 these lists carries a "Map" button correctly distinguished by an `aria-label`.
+
+
+## Width, and the two ways it could have been a lie
+
+The down-river profile drew the depth and nothing else. `tools/fetch-widths.mjs`
+adds the other dimension of the same channel: a line cast straight across
+USGS's NHD large-scale Area polygon — the mapped water surface at 1:24,000 —
+perpendicular to the committed centreline, taking the distance between the two
+nearest bank crossings. Every second point of `river-lines.js`, so about 600 m
+apart down the Sacramento.
+
+**It is the MAPPED channel and not today's water**, and that has to reach the
+reader rather than sit in this file: the river is wider in a flood and narrower
+in a drought and NHD does not move with the stage. Bank to bank, so bars and
+shallow margins are inside it — which is the same relationship the depth
+surveys have to navigable water, and the same reason neither is for navigation.
+
+**THE TWO WAYS A NUMBER HERE COULD BE A LIE, AND BOTH REFUSE.** A cast that
+leaves the mapped water and finds no far bank inside 1200 m has left the channel
+— a confluence, a flooded bypass, a Delta junction — and "the width here" has no
+single answer, so nothing is drawn. And a centreline point that is not inside
+any polygon at all is USGS's flowline disagreeing with USGS's own area polygon,
+which happens on the narrow upper reaches where the channel is too small to be
+mapped as an area; measuring from there would take the nearest bank of something
+else. Counted: 424 measured and 155 refused on the Sacramento, 86 and 46 on the
+Mokelumne. **The refusals are the feature — a generator that never refused would
+be one that had guessed at every confluence.**
+
+**One in four points was tried first and was too coarse to be useful.** The
+surveyed run on the Sacramento is 31 km; at a sample every 1.2 km that left
+TWELVE points to draw a line through, which is not a picture of a channel. One
+in two, measured on the running app rather than reasoned about, gives 25 across
+the same run and a 21 KB file.
+
+**The spot check that makes the numbers mean something.** The Sacramento at
+downtown Sacramento comes out at 179 m, which anybody can check against the
+world without any of this code. Medians: Sacramento 128 m, Feather 99 m,
+American 90 m, Mokelumne 37 m. That last one is the check working — the
+Mokelumne really is a small river, and a generator measuring the wrong bank
+would not have produced a number a third of the others.
+
+**WIDTH SURVIVES A MISSING SURVEY, and that is the reason it is its own view
+rather than a tick beside the depth.** DWR sounded a small fraction of these
+rivers; USGS mapped the banks of all of them. So the no-depth early return in
+`renderProfile` is skipped when the reader has asked for the width and there is
+a width to show, and the width is attached to every profile model including the
+ones that found no survey at all.
+
+**The width and the depth never share a scale.** A width in metres and a depth
+in feet on one axis is an invitation to read one as the other, so the width has
+its own — on the right when shown with the depth, on the left and owning the
+picture when shown alone, and the depth grid is suppressed entirely in that
+view.
+
+**What was lost, and it is in the release notes rather than left to be found:**
+dragging a finger along the profile does not work in the Width view. The tracing
+reads a depth at the point under the finger and moves a mark along the line on
+the map, and there is no depth there to read.
+
+## The moon, and the check that is worth more than the moon
+
+Computed, not fetched — Meeus's truncated series, the same shape as the sun
+already in this file, so it works with no signal and there is no service to be
+down. It sits under the spring–neap section because it is the cause of it.
+
+**THE FIRST VERSION CARRIED ONE PERIODIC TERM AND WAS MEASURABLY WRONG.** The
+mean interval between the new moons it found came out at 29.517 days against the
+true 29.53059, and the mean was not the real problem — the SCATTER was: with
+only the equation of centre each individual new moon lands up to a third of a
+day out, which is enough to print the wrong calendar date. The evection (1.27°)
+and the variation (0.66°) are the two largest omitted terms, and at 12.19° a day
+of elongation those are two and a half hours and an hour and a quarter of
+timing.
+
+**And the correction was nearly missed, because the measurement was too short.**
+Over ten years the corrected series reads 29.5247 and looks worse than the
+original; over sixty it reads 29.5308 against a true 29.530588. The difference
+is entirely SAMPLING — the endpoint scatter is a third of a day either side and
+does not average down until there are hundreds of intervals. A shorter window
+would have sent this session chasing a defect that was not there.
+
+**THE CHECK THAT IS WORTH THE MOST IS NOT ABOUT THE MOON AT ALL.** The
+spring–neap section measures the swing in NOAA's published predictions and knows
+nothing about where the moon is; the moon is arithmetic about the sky and knows
+nothing about NOAA. The big tides follow the new and the full by a day or two,
+so the biggest day in the window has to land near one of them. Two independent
+paths made to close, which is hub LESSONS §203.
+
+**IT LIVES IN `tools/live-test.mjs` AND NOT IN THE RENDERING SUITE, and the
+reason is the whole point of it.** Written there first, it failed by 4.2 days —
+because that suite runs against a STUBBED tide whose fortnightly envelope was
+authored by hand and whose phase has no relationship to the real moon. Made to
+pass, it would have meant phase-locking the fixture to the code it is supposed
+to be independent of. Against the real service it passes.
+
+**The moon is outside `tideSection` on purpose.** That function returns early
+while the predictions are loading and again when the station fails, and the moon
+depends on neither — it needs no signal and no station and is the one thing on
+that panel that is never missing. Put inside, it disappeared exactly when
+everything else did. **This is the third time in this file a section has been
+written inside a branch that had nothing to do with it**: the light box inside
+the hourly-curve branch, and the overlap caveat inside the branch that found an
+overlap.
+
+## No wake zones: asked, on this date, of these four
+
+Not built, and this is the negative written the way §208 says a negative has to
+be written — with the search attached, so the next session can tell a fact from
+a snapshot.
+
+Asked on **1 September 2026**, of `data.ca.gov` (the state open-data portal),
+`gis.data.ca.gov` (the State Geoportal), `www.arcgis.com` (the ArcGIS Online
+item search) and `dbw.parks.ca.gov` (the Division of Boating and Waterways).
+**All four answered.** None publishes a no-wake or speed-zone dataset for these
+waters: "no wake" returns nothing at the portal, "speed zone" returns air
+quality and wind generation, and the one boating layer ArcGIS Online has for
+California is a third party's, for Lake Tahoe.
+
+There is a reason, and it is the reason not to keep looking for one file: on
+this water these zones are set by county ordinance and by the signs on the bank,
+under the Harbors and Navigation Code. They are not one state layer, and an app
+that drew them from one would be asserting a boundary nobody published.
 
 
 ## Scratch

@@ -510,6 +510,46 @@ await page.selectOption('#riverpick', 'sacramento');
 await page.waitForTimeout(6000);
 await page.screenshot({ path: '/tmp/live-final.png' });
 
+/* --- TWO INDEPENDENT PATHS MADE TO CLOSE ----------------------------------
+   The spring–neap section measures the swing in NOAA's published predictions
+   for a real station and knows nothing about where the moon is. The moon is
+   arithmetic about the sky and knows nothing about NOAA. The big tides follow
+   the new and the full by a day or two, so the biggest day in the window has
+   to land near one of them.
+
+   IT IS HERE AND NOT IN THE RENDERING SUITE because that one runs against a
+   stubbed tide whose envelope was written by hand: its phase has no
+   relationship to the real moon, and making it agree would mean tuning the
+   fixture to the code, which is exactly what an independent check must not do.
+   (Hub LESSONS §203.) */
+const syzygy = await page.evaluate(async () => {
+  const river = RIVERS.filter(r => r.tidal)[0];
+  if (!river) return null;
+  selectRiver(river.id);
+  await new Promise(r => setTimeout(r, 6000));
+  const sn = springNeap(river);
+  if (!sn || !sn.biggest) return { noWindow: true };
+  const big = new Date(sn.biggest.day + 'T12:00:00');
+  const nearest = [0, 180].map(target => {
+    let t = new Date(big.getTime() - 20 * 86400000), best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const e = nextMoonEvent(t, target);
+      if (!e) break;
+      best = Math.min(best, Math.abs(e - big) / 86400000);
+      t = new Date(e.getTime() + 86400000 * 2);
+    }
+    return best;
+  });
+  return { river: river.name, biggest: sn.biggest.day, days: Math.min(...nearest) };
+});
+/* Three and a half days is generous on purpose: the lag between syzygy and the
+   spring tide is a real physical delay that varies by station, and this water
+   is a long way up a river. What it refuses is a moon that has come unstuck
+   from the tide altogether. */
+check('the biggest tide NOAA predicts falls near a new or a full moon',
+  syzygy && !syzygy.noWindow && syzygy.days <= 3.5,
+  JSON.stringify(syzygy));
+
 check('no page errors anywhere', errs.length === 0, errs.join(' | '));
 console.log(`\nlanding cost ${(relayed.boot / 1024).toFixed(0)}KB; whole run ` +
   `${(relayed.bytes / 1024 / 1024).toFixed(1)}MB`);
