@@ -1117,6 +1117,117 @@ check('and says it is the level at one station, not the current where you are',
 check('the measured section says the two need not agree',
   /need not agree|not the same thing/i.test(along.text), along.text.slice(0, 400));
 
+/* --- FIRST AND LAST LIGHT -----------------------------------------------
+   The convention every angler's tide table carries and this one did not: the
+   change of tide lands differently in the dark, in the low light at either end
+   of the day, or at noon. It is arithmetic — no request, nothing to go stale,
+   works offline for any date — which makes it the one thing here that can be
+   checked against physics rather than against a service. */
+const sun = await page.evaluate(() => {
+  const LAT = 38.1583, LON = -121.6853;          /* Rio Vista */
+  const at = iso => sunTimes(new Date(iso + 'T12:00:00Z'), LAT, LON);
+  const hours = (a, b) => (b - a) / 3600000;
+  const eq = at('2026-03-20'), jun = at('2026-06-21'), dec = at('2026-12-21');
+  const nov = at('2026-11-03'), feb = at('2026-02-11');
+  const meanNoonH = 12 - LON / 15;               /* mean solar noon, UTC hours */
+  const noonOff = t => (t.noon.getUTCHours() + t.noon.getUTCMinutes() / 60 +
+                        t.noon.getUTCSeconds() / 3600 - meanNoonH) * 60;
+  return {
+    eqLen: hours(eq.sunrise, eq.sunset),
+    junLen: hours(jun.sunrise, jun.sunset),
+    decLen: hours(dec.sunrise, dec.sunset),
+    /* Sunrise and sunset must straddle solar noon exactly. */
+    symmetry: Math.abs((+eq.sunrise + +eq.sunset) / 2 - eq.noon) / 1000,
+    /* The equation of time: the sun runs about 16 minutes ahead of the clock
+       in early November and about 14 behind in mid-February. Nothing here was
+       fitted to those — they fall out of the ephemeris or the ephemeris is
+       wrong. */
+    novOff: noonOff(nov), febOff: noonOff(feb),
+    /* Civil twilight is before sunrise and after sunset, never the other way. */
+    dawnBeforeRise: hours(eq.dawn, eq.sunrise),
+    duskAfterSet: hours(eq.sunset, eq.dusk),
+    /* THE LOOP CLOSES. The shading reads the sun's altitude at an instant; the
+       sentences read the named crossings. Two formulations of the same thing
+       is how they come to disagree by four minutes with nobody able to say
+       which is right — so the altitude AT the computed sunrise has to be the
+       sunrise altitude. */
+    altAtSunrise: sunAltitude(jun.sunrise, LAT, LON),
+    altAtDawn: sunAltitude(jun.dawn, LAT, LON),
+    altAtNoonJun: sunAltitude(jun.noon, LAT, LON),
+    /* And the classifier agrees with both. */
+    stateAtNoon: lightAt(jun.noon, LAT, LON),
+    stateAtMidnight: lightAt(new Date(+jun.noon + 12 * 3600000), LAT, LON),
+    stateBetween: lightAt(new Date(+jun.sunset + 12 * 60000), LAT, LON)
+  };
+});
+/* Twelve hours and a bit at the equinox — the "and a bit" is the sun's disc
+   and refraction, and a check that came out at exactly 12 would mean those
+   had been left out. */
+check('day length at the equinox is twelve hours and a little more',
+  sun.eqLen > 12.05 && sun.eqLen < 12.25, String(sun.eqLen));
+/* 38.16 degrees north: the solstices are 14h49m and 9h31m. */
+check('and the solstices are the right length for this latitude',
+  Math.abs(sun.junLen - 14.82) < 0.05 && Math.abs(sun.decLen - 9.51) < 0.05,
+  JSON.stringify({ jun: sun.junLen, dec: sun.decLen }));
+/* NEARLY, AND NOT EXACTLY — the asymmetry is real rather than error. The
+   declination drifts across the day, so sunrise and sunset are not perfectly
+   equidistant from transit; it is tens of seconds at this latitude. Asserting
+   "exactly" was asserting a property of the approximate model, and it started
+   failing the moment the model got better. */
+check('sunrise and sunset straddle solar noon to within a minute',
+  sun.symmetry < 60, String(sun.symmetry));
+check('the equation of time peaks where it really does',
+  sun.novOff < -14 && sun.novOff > -18 && sun.febOff > 13 && sun.febOff < 17,
+  JSON.stringify({ nov: sun.novOff, feb: sun.febOff }));
+check('first light comes before sunrise and last light after sunset',
+  sun.dawnBeforeRise > 0.3 && sun.dawnBeforeRise < 0.8 &&
+  sun.duskAfterSet > 0.3 && sun.duskAfterSet < 0.8,
+  JSON.stringify({ dawn: sun.dawnBeforeRise, dusk: sun.duskAfterSet }));
+/* THE TWO ANSWERS COME FROM ONE EPHEMERIS, asserted by substituting one back
+   into the other rather than by computing it the same way twice. */
+check('the altitude at the sunrise this app computes IS the sunrise altitude',
+  Math.abs(sun.altAtSunrise - (-0.833)) < 0.1, String(sun.altAtSunrise));
+check('and the altitude at first light is the civil-twilight altitude',
+  Math.abs(sun.altAtDawn - (-6)) < 0.1, String(sun.altAtDawn));
+/* Sanity on the other end: at midsummer noon at 38N the sun is about 75 up. */
+check('the sun is where it should be at midsummer noon',
+  sun.altAtNoonJun > 73 && sun.altAtNoonJun < 77, String(sun.altAtNoonJun));
+check('and the light is classified from the same altitude',
+  sun.stateAtNoon === 'day' && sun.stateAtMidnight === 'night' &&
+  sun.stateBetween === 'twilight',
+  JSON.stringify({ noon: sun.stateAtNoon, midnight: sun.stateAtMidnight,
+                   justAfterSunset: sun.stateBetween }));
+
+/* IT IS DRAWN AND IT IS SAID. The shading lives inside a role="img", so a
+   band with nothing naming it reaches nobody who cannot see it — the same
+   defect the tide key and the reversal mark have each already been. */
+const lightUi = await page.evaluate(() => {
+  const chart = document.getElementById('tidechart');
+  const panel = document.getElementById('panel-water').textContent;
+  return {
+    shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
+    said: /First light/.test(panel) && /last light/.test(panel),
+    /* THE CLAIM MUST BE ABOUT THE OVERLAP, NEVER ABOUT THE FISH — and the
+       test for that cannot be a word search, because the sentence doing the
+       refusing contains the words being refused. Third time this session: a
+       gate keyed on copy pins the copy, and pins the disclaimer with it
+       (hub LESSONS 180). So this asserts the DENIAL is present, which is the
+       actual requirement, and separately that no recommendation is made. */
+    convention: /convention among anglers/.test(panel),
+    denial: /nothing whatever about what the fish will do/.test(panel),
+    noForecast: !/(better|best) (fishing|time to fish)|you should fish|worth fishing/i.test(panel),
+    computed: /arithmetic from the date and the position/.test(panel),
+    twilightSaid: /six degrees below the horizon/.test(panel)
+  };
+});
+check('the light is shaded on the tide chart', lightUi.shaded > 0,
+  String(lightUi.shaded));
+check('and named in words, because the chart is a role="img"', lightUi.said);
+check('the low-light turns are given as a coincidence, not a prediction',
+  lightUi.convention && lightUi.denial && lightUi.noForecast, JSON.stringify(lightUi));
+check('it says the times are computed rather than published', lightUi.computed);
+check('and says what "first light" actually means', lightUi.twilightSaid);
+
 /* --- THE LANDING PAGE, AS IT IS ACTUALLY READ ----------------------------
    Four reports from a real device in one message, and three of them were the
    same kind of defect: something correct when it was written, left behind by

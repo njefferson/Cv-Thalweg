@@ -7,10 +7,8 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.5.1** at https://staging.cv-thalweg.pages.dev — four
-  defects reported from a real device in one message, three of them the same
-  shape: something correct when written, left behind by the app growing a fifth
-  entry or a new overlay.
+- Staged candidate: **2.6.0** at https://staging.cv-thalweg.pages.dev — first
+  and last light on the tide chart, and 2.5.1's four device-reported defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -942,6 +940,81 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## First and last light, and the only thing here that can be checked against physics
+
+The convention every angler's tide table carries and this one did not: a change
+of tide lands differently in the dark, in the low light at either end of the
+day, or at noon. The app had the tide and no idea when the light was.
+
+**It is arithmetic and costs nothing** — no request, nothing to go stale, works
+offline for any date, which is the opposite of almost everything else here. NOAA
+solar position, computed for the tide station being read.
+
+**And it is the one thing in this repo that can be verified against the world
+rather than against a service.** The checks are physical invariants, none of
+them fitted:
+
+- Day length at the equinox is twelve hours **and a little more** — the "and a
+  little more" is the sun's disc and refraction, and a check that came out at
+  exactly 12 would mean those had been left out.
+- The solstices are 14h49m and 9h31m at 38.16 degrees north.
+- The equation of time peaks at about **16 minutes ahead in early November**
+  and **15 behind in mid-February**. Those fall out of the ephemeris; nothing
+  was tuned to produce them.
+- Solar noon lands at 1:08 PM PDT in June, which is right for a place this far
+  west inside the Pacific zone.
+
+**The first attempt was eight hours out and looked correct.** The longitude
+correction was applied twice — once in the day number and again in the noon
+estimate — and the declination and both day lengths were right throughout,
+which is exactly what made it hard to see. The invariant that caught it was
+solar noon against longitude, which is the one quantity the double correction
+could not survive.
+
+**Then a closure check found a 45-second disagreement, and that was the useful
+one.** The shading needs the sun's altitude at an arbitrary instant; the
+sentences need the named crossings. Computing those two ways is how they come to
+disagree with nobody able to adjudicate. So the suite substitutes one back into
+the other: **the altitude at the sunrise the app computes must be the sunrise
+altitude.** It was -0.65 where sunrise is -0.833.
+
+The first hypothesis — declination taken at solar noon rather than at the
+crossing — was wrong, and testing it was worth it: fixing that moved the answer
+by a fraction of a second and left the 0.18 degrees standing, which established
+that the real difference is the **transit estimate**. The closed form reaches
+solar noon through a two-term equation-of-time approximation; the altitude path
+goes through sidereal time and right ascension. Same quantity, two methods.
+
+There is one definition now and the other refines to it: Newton on the altitude
+from the closed form's guess, four steps, under a second. Solar noon is solved
+too — by bisecting the hour angle, since altitude is stationary there — because
+left as the estimate it was the last time on the panel still coming from the
+other method, and it showed as rise and set straddling it by 35 seconds.
+
+**And one test was asserting a property of the approximation.** "Sunrise and
+sunset straddle solar noon exactly" passed only while the model was crude:
+declination drifts across a day, so the asymmetry is real and is tens of
+seconds. It now allows a minute and says why.
+
+**A gate keyed on copy pinned the disclaimer, for the third time this session.**
+The check for "this is not a fishing forecast" searched for words like "fish
+will" — and matched the sentence doing the refusing. It asserts the denial is
+PRESENT now, which is the actual requirement, plus the absence of a
+recommendation. Hub LESSONS 180, again.
+
+**And the light was locked inside the branch that draws a curve.** `lightBox`
+went in beside `tideChart`, in the `else` of the hourly-curve check — so the
+stations that publish highs and lows only got no light at all. Those are the
+subordinate stations, New Hope Bridge and Terminous, which are exactly the ones
+somebody on the upper Mokelumne would pick. Nothing about the sun needs an
+hourly prediction: the times come from the date and the position and the turns
+come from the highs and lows. The shading needs the chart; the words never did.
+
+That is the same shape as the caveat that had been written inside the branch
+that found an overlap and vanished when the answer was "none" — **a thing put
+next to the code that happens to be nearby rather than next to what it actually
+depends on**, twice in one afternoon, in one function.
 
 ## Home lost its ribbon on every screen, and the note blamed the screen
 

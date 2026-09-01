@@ -685,7 +685,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.5.1';
+var VERSION = '2.6.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -4260,8 +4260,19 @@ function tideSection(river){
     box.appendChild(el('p',{class:'note',
       text:'This station publishes highs and lows only, not an hourly curve. The times below are the turns; the water between them is not published and is not drawn.'}));
   } else {
-    box.appendChild(tideChart(t));
+    box.appendChild(tideChart(t, lightPlace(river, t)));
   }
+  /* THE LIGHT DOES NOT DEPEND ON THE CURVE, and putting it inside the branch
+     that draws one meant the stations without a curve got no light at all.
+     Those are the subordinate stations — New Hope Bridge, Terminous — which
+     are the ones somebody on the upper Mokelumne would actually pick, and
+     nothing about the sun needs an hourly prediction: the times come from the
+     date and the position and the turns come from the highs and lows. The
+     shading needs the chart; the words never did.
+     It is also the same shape as the caveat that lived inside the branch that
+     found an overlap, two functions down and half an hour earlier. */
+  var lb = lightBox(river, t);
+  if (lb) box.appendChild(lb);
   if (t.offline) box.appendChild(el('p',{class:'note',
     text:'Predictions from store. A prediction is arithmetic about the future, so it is still good; the flow and temperature above are not.'}));
 
@@ -4288,7 +4299,249 @@ function tideSection(river){
   return box;
 }
 
-function tideChart(t){
+/* =====================================================================
+   FIRST AND LAST LIGHT.
+
+   The convention every tide table for anglers carries and this one did not:
+   the change of tide matters differently depending on whether it lands in the
+   dark, in the low light at either end of the day, or at noon. A fisher plans
+   around the overlap. The app had the tide and had no idea when the light was.
+
+   IT IS ARITHMETIC AND COSTS NOTHING. No request, no service, nothing to go
+   stale, and it works offline for any date — which is the opposite of almost
+   everything else in this app. The position it is computed for is the tide
+   station being read, because that is what the curve beside it is for.
+
+   WHAT IT IS NOT. It is a light calculation, not a fishing forecast. Thalweg
+   does not tell anybody where or when the fishing will be better, and naming
+   the hours of low light is not that: it is the same kind of fact as the tide
+   turning at 4:12. What a fish does about it is not something this app knows.
+
+   ONE EPHEMERIS, TWO ANSWERS. The shading needs the sun's altitude at an
+   arbitrary instant; the sentences need the named crossings. Computing those
+   from two different formulations is how they come to disagree by four minutes
+   and nobody can say which is right, so `sunAltitude` and `sunTimes` share the
+   position below and the suite asserts the loop closes: at the sunrise this
+   returns, that altitude is the sunrise altitude.
+   ===================================================================== */
+var DEG = Math.PI / 180;
+var OBLIQ = 23.4397;                 /* obliquity of the ecliptic */
+var ALT_SUN   = -0.833;              /* upper limb, refracted: sun up / down */
+var ALT_CIVIL = -6;                  /* civil twilight: first / last light */
+
+function daysSinceJ2000(d){ return d.valueOf() / 86400000 - 10957.5; }
+
+/* Where the sun is on the ecliptic for a given instant. */
+function solarEcliptic(days){
+  var M = (357.5291 + 0.98560028 * days) % 360;
+  var C = 1.9148 * Math.sin(M * DEG) + 0.0200 * Math.sin(2 * M * DEG)
+        + 0.0003 * Math.sin(3 * M * DEG);
+  var L = (M + C + 180 + 102.9372) % 360;
+  return { M:M, L:L, decl: Math.asin(Math.sin(L * DEG) * Math.sin(OBLIQ * DEG)) / DEG };
+}
+
+/* How high the sun is, in degrees, at one instant and one place. */
+function sunAltitude(date, lat, lon){
+  var d = daysSinceJ2000(date), e = solarEcliptic(d);
+  var ra = Math.atan2(Math.sin(e.L * DEG) * Math.cos(OBLIQ * DEG),
+                      Math.cos(e.L * DEG)) / DEG;
+  /* Greenwich mean sidereal time, plus the longitude, minus the sun's right
+     ascension, is the hour angle. */
+  var H = (280.16 + 360.9856235 * d + lon - ra) * DEG;
+  return Math.asin(Math.sin(lat * DEG) * Math.sin(e.decl * DEG) +
+                   Math.cos(lat * DEG) * Math.cos(e.decl * DEG) * Math.cos(H)) / DEG;
+}
+
+/* The named crossings for the local day containing `date`.
+
+   LONGITUDE IS EAST-POSITIVE, which is the sign this app already carries, and
+   the correction is applied ONCE. Applying it in both the day number and the
+   noon estimate put every time eight hours out on the first attempt — and the
+   declination and the day length were both correct throughout, which is what
+   made it look right. */
+function sunTimes(date, lat, lon){
+  var n = Math.round(daysSinceJ2000(date) - 0.0009 + lon / 360);
+  var Jnoon = n + 0.0009 - lon / 360;
+  var e = solarEcliptic(Jnoon);
+  var Jt = 2451545 + Jnoon + 0.0053 * Math.sin(e.M * DEG)
+         - 0.0069 * Math.sin(2 * e.L * DEG);
+  var fromJ = function(J){ return new Date((J - 2440587.5) * 86400000); };
+  var at = function(alt){
+    var cosH = (Math.sin(alt * DEG) - Math.sin(lat * DEG) * Math.sin(e.decl * DEG)) /
+               (Math.cos(lat * DEG) * Math.cos(e.decl * DEG));
+    /* Above the arctic circle the sun can fail to reach an altitude at all.
+       Not this water, and the app must still not divide by a NaN. */
+    if (!(cosH >= -1 && cosH <= 1)) return { rise:null, set:null };
+    var H = Math.acos(cosH) / DEG;
+    return { rise: fromJ(Jt - H / 360), set: fromJ(Jt + H / 360) };
+  };
+  /* AND THEN SOLVE AGAINST THE ALTITUDE ITSELF, so the two answers really are
+     one answer.
+
+     `at` above is the closed form, and it disagreed with `sunAltitude` by 0.18
+     degrees — the altitude at the sunrise it returned was -0.65 where sunrise
+     is defined as -0.833, about forty-five seconds out, and the same amount in
+     the same direction at first light. The first guess at the cause was the
+     declination being taken at solar noon rather than at the crossing; fixing
+     that changed the answer by a fraction of a second and left the 0.18
+     standing, which is how it was established that the real difference is the
+     transit estimate. `at` reaches solar noon through a two-term
+     equation-of-time approximation; `sunAltitude` goes through sidereal time
+     and right ascension, and those are the same quantity computed two ways.
+
+     Nobody can act on forty-five seconds. The point is that two paths through
+     one ephemeris disagreed at all, and a disagreement nobody can adjudicate
+     is how a defect comes to live in whichever path is read less often.
+
+     So there is one definition now and the other refines to it: Newton on the
+     altitude, from the closed form's guess, which is already within a minute.
+     Four steps takes it under a second and the closure check has nothing left
+     to find. It costs a few dozen evaluations, once per render, of arithmetic
+     with no network behind it. */
+  var solve = function(guess, alt){
+    if (!guess) return null;
+    var t = guess.getTime();
+    for (var k = 0; k < 4; k++){
+      var f  = sunAltitude(new Date(t), lat, lon) - alt;
+      /* Numeric slope over a minute, centred, in degrees per millisecond. */
+      var f1 = sunAltitude(new Date(t + 30000), lat, lon) -
+               sunAltitude(new Date(t - 30000), lat, lon);
+      if (!isFinite(f1) || Math.abs(f1) < 1e-12) break;
+      var step = f / (f1 / 60000);
+      if (!isFinite(step)) break;
+      /* A guess that is already within a minute cannot need an hour's
+         correction; anything that large means the slope was read near a
+         turning point and the closed form is the better answer. */
+      if (Math.abs(step) > 3600000) break;
+      t -= step;
+    }
+    return new Date(Math.round(t));
+  };
+  /* AND SOLAR NOON THE SAME WAY. Left as the closed form's estimate it was the
+     one time on this panel still coming from the other method, and it showed:
+     rise and set, now solved exactly, straddled it by 35 seconds. Transit is
+     where the hour angle is zero, so it is a solve like the others — Newton on
+     the altitude, which is stationary there, needs the second derivative, so
+     this bisects the hour angle instead. */
+  var transit = (function(){
+    var hourAngleAt = function(ms){
+      var d2 = daysSinceJ2000(new Date(ms)), e2 = solarEcliptic(d2);
+      var ra = Math.atan2(Math.sin(e2.L * DEG) * Math.cos(OBLIQ * DEG),
+                          Math.cos(e2.L * DEG)) / DEG;
+      var h = (280.16 + 360.9856235 * d2 + lon - ra) % 360;
+      if (h > 180) h -= 360;
+      if (h < -180) h += 360;
+      return h;
+    };
+    var t0 = fromJ(Jt).getTime(), lo = t0 - 3600000, hi = t0 + 3600000;
+    if (hourAngleAt(lo) > 0 || hourAngleAt(hi) < 0) return fromJ(Jt);
+    for (var k = 0; k < 40; k++){
+      var mid = (lo + hi) / 2;
+      if (hourAngleAt(mid) < 0) lo = mid; else hi = mid;
+    }
+    return new Date(Math.round((lo + hi) / 2));
+  })();
+  var day = at(ALT_SUN), civil = at(ALT_CIVIL);
+  return { noon: transit, decl: e.decl,
+           sunrise: solve(day.rise, ALT_SUN),     sunset: solve(day.set, ALT_SUN),
+           dawn:    solve(civil.rise, ALT_CIVIL), dusk:  solve(civil.set, ALT_CIVIL) };
+}
+
+/* Which of the three states the light is in at an instant. */
+function lightAt(date, lat, lon){
+  var a = sunAltitude(date, lat, lon);
+  return a > ALT_SUN ? 'day' : a > ALT_CIVIL ? 'twilight' : 'night';
+}
+
+/* Where the tide is read, which is where the light is computed. The station
+   carries NOAA's own position; a river's centre is the fallback and is said
+   to be one rather than passed off as the station. */
+function lightPlace(river, t){
+  var st = ((t && t.stations) || []).filter(function(s){ return s.id === t.station; })[0];
+  if (st && isNum(st.lat) && isNum(st.lon))
+    return { lat:st.lat, lon:st.lon, name: st.name || st.id, exact:true };
+  if (river && river.center)
+    return { lat:river.center[0], lon:river.center[1], name:river.name, exact:false };
+  return null;
+}
+
+/* THE LIGHT IN WORDS, and the turns that land in it.
+
+   The shading is inside a role="img" and reaches nobody who cannot see it, and
+   a shaded band with nothing naming it is the defect the tide key and the
+   reversal mark have each already been. So: first light and last light by the
+   clock, and then the part a fisher is actually reading the chart for — which
+   of the next turns falls in the low hours at either end of the day.
+
+   IT NAMES AN OVERLAP AND CLAIMS NOTHING ABOUT IT. That anglers plan around
+   the change of tide near first or last light is a convention, and saying so
+   is a fact about the practice; saying it produces fish would be a forecast,
+   which this app does not make. */
+function lightBox(river, t){
+  var place = lightPlace(river, t);
+  if (!place) return null;
+  var box = el('div', {});
+  var now = new Date();
+  var todays = sunTimes(now, place.lat, place.lon);
+  if (!todays.dawn || !todays.dusk || !todays.sunrise || !todays.sunset){
+    /* Never reached on this water; said rather than divided by. */
+    box.appendChild(el('p',{class:'note',
+      text:'The sun does not rise or set as usual at this latitude on this date, so first and last light are not shown.'}));
+    return box;
+  }
+
+  var line = 'First light ' + clockLocal(todays.dawn.toISOString()) +
+    ', sunrise ' + clockLocal(todays.sunrise.toISOString()) +
+    ', sunset ' + clockLocal(todays.sunset.toISOString()) +
+    ', last light ' + clockLocal(todays.dusk.toISOString()) + '.';
+  box.appendChild(el('p',{class:'note',text:line}));
+
+  /* WHICH TURNS LAND IN THE LOW LIGHT. Twilight at either end, plus the hour
+     on the daylight side of each, which is the window the convention is
+     actually about — "the change at first light" is not a single minute. */
+  var LOW = 3600000;
+  var hits = [];
+  (t.hilo || []).forEach(function(h){
+    var when = new Date(String(h.t).replace(' ', 'T'));
+    var ms = when.getTime();
+    if (!isFinite(ms) || ms < Date.now() || ms > Date.now() + 36 * 3600000) return;
+    var st = lightAt(when, place.lat, place.lon);
+    var near = st === 'twilight';
+    if (!near && st === 'day'){
+      /* Within an hour of the twilight edge on the daylight side. */
+      var d2 = sunTimes(when, place.lat, place.lon);
+      if (d2.sunrise && d2.sunset)
+        near = (ms - d2.sunrise.getTime() >= 0 && ms - d2.sunrise.getTime() <= LOW) ||
+               (d2.sunset.getTime() - ms >= 0 && d2.sunset.getTime() - ms <= LOW);
+    }
+    if (near) hits.push({ at:when, type:h.type, v:h.v, state:st });
+  });
+
+  if (hits.length){
+    var say = hits.slice(0, 3).map(function(h){
+      return (h.type === 'H' ? 'high' : 'low') + ' water ' +
+        clockLocal(h.at.toISOString()) + ' on ' + dayLocal(h.at.toISOString());
+    }).join(', ');
+    box.appendChild(el('p',{class:'note',
+      text:'In the next day and a half the tide turns in the low light at ' + say + '.'}));
+  } else {
+    box.appendChild(el('p',{class:'note',
+      text:'None of the turns in the next day and a half falls in the low light at either end of the day.'}));
+  }
+  /* THE CAVEAT IS NOT CONDITIONAL ON THERE BEING SOMETHING TO CAVEAT. Written
+     inside the branch that found an overlap, it disappeared exactly when the
+     answer was "none" — so the reader who most needs to know what this section
+     is and is not claiming got the bare sentence and no framing at all. */
+  box.appendChild(el('p',{class:'note',
+    text:'Fishing the change at first or last light is a convention among anglers. This section says when the two coincide and nothing whatever about what the fish will do — Thalweg does not know that and will not guess it.'}));
+
+  box.appendChild(el('p',{class:'note',
+    text:'Computed for ' + place.name + (place.exact ? '' : ', the middle of this reach rather than the station') +
+      ' — arithmetic from the date and the position, so it needs no signal and works for any day. First and last light are civil twilight, the sun six degrees below the horizon, which is about when you can read water without a torch.'}));
+  return box;
+}
+
+function tideChart(t, place){
   var W = 320, H = 110, pad = 16;
   var now = Date.now();
   var pts = (t.hourly||[]).map(function(p){
@@ -4311,6 +4564,33 @@ function tideChart(t){
   if (y1 - y0 < 0.5){ y0 -= 0.25; y1 += 0.25; }
   var sx = function(v){ return pad + (v-x0)/(x1-x0)*(W-2*pad); };
   var sy = function(v){ return H-pad - (v-y0)/(y1-y0)*(H-2*pad); };
+
+  /* THE LIGHT, BEHIND THE WATER. Night darkest, the twilight at either end of
+     it a shade lighter, daylight left as the page. It goes in first so the
+     tide is drawn ON it rather than under it.
+
+     SAMPLED FROM THE SUN'S ALTITUDE rather than assembled from rise and set
+     times. The window is thirty hours and crosses at least one midnight, so
+     interval arithmetic here means stitching two or three days of crossings
+     together and getting the joins right; asking how high the sun is at each
+     step has no joins in it and cannot put a night in the wrong place. Five
+     minutes a step, about 360 of them, and the runs are merged so the drawing
+     is a handful of rectangles rather than one per sample. */
+  if (place){
+    var STEP = 5 * 60000, runs = [], cur = null;
+    for (var tt = x0; tt <= x1; tt += STEP){
+      var state = lightAt(new Date(tt), place.lat, place.lon);
+      if (!cur || cur.state !== state){ cur = { state:state, from:tt, to:tt }; runs.push(cur); }
+      else cur.to = tt;
+    }
+    runs.forEach(function(r){
+      if (r.state === 'day') return;
+      var x = sx(r.from), w = Math.max(0.5, sx(Math.min(r.to + STEP, x1)) - x);
+      s.appendChild(svg('rect',{ x:x, y:0, width:w, height:H,
+        fill:'#04090A', 'fill-opacity': r.state === 'night' ? '.55' : '.28' }));
+    });
+  }
+
   var d = pts.map(function(p,i){ return (i?'L':'M')+sx(p.x).toFixed(1)+' '+sy(p.y).toFixed(1); }).join(' ');
   s.appendChild(svg('path',{ d:d, fill:'none', stroke:'#7BD5D9', 'stroke-width':'2' }));
   s.appendChild(svg('path',{ d:d+' L'+sx(x1)+' '+(H-pad)+' L'+sx(x0)+' '+(H-pad)+' Z',
@@ -8407,6 +8687,15 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.6.0', date:'2026-09-01', changes:[
+      'The tide chart knows when it is dark. Night is shaded behind the curve and the low light at either end of the day a shade lighter, so you can see at a glance whether a turn lands at first light, in the middle of the afternoon, or at two in the morning. First light, sunrise, sunset and last light are written out underneath as well.',
+      'And it names the turns that fall in the low light \u2014 which of the next day and a half\u2019s highs and lows land in the hour around dawn or dusk. Fishing the change at first or last light is a convention among anglers; the app is telling you when the two coincide and nothing whatever about what the fish will do.',
+      '\u201cFirst light\u201d means civil twilight, the sun six degrees under the horizon, which is about when you can read water without a torch \u2014 not sunrise, which is half an hour later. Both are given because they are half an hour apart and people mean different things by the word.',
+      'None of this costs a request. It is arithmetic from the date and where the tide station is, so it works with no signal, for any date, and there is nothing about it that can go stale or fail to answer.',
+  ], broken:[
+      'The light is computed for the tide station you are reading, not for where you are standing. On this water that is a difference of seconds, not minutes, but it is the station\u2019s dawn rather than yours.',
+      'It is a light calculation and not a fishing forecast. Thalweg does not know where or when the fishing will be better and does not guess.',
+  ] },
   { v:'2.5.1', date:'2026-09-01', changes:[
       'Home has its river bars back. They had gone from every screen size, and the note underneath blamed your screen for it \u2014 which was wrong. The bars are tappable now, and the invisible buttons that make them tappable sit exactly on top of the bars; the code working out how much room the bars could have was counting those buttons as if they pushed the bars further down the page. Every redraw took the last drawing\u2019s own height away from the next one until there was no room left at all, and once it gave up it could not come back.',
       'The tabs stay where they are when you open the map. Choosing Map used to send the row of tabs to the bottom of the screen \u2014 a whole screen away from the finger that had just pressed it, and behind a map you then had to scroll past to get back. Every other tab leaves them at the top; now so does that one.',

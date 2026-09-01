@@ -557,6 +557,19 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     planted.drawn && /rising/i.test(planted.says), JSON.stringify(planted).slice(0, 200));
   /* THE SECOND NEW SURFACE ON THIS PANEL, and it joins the list in the same
      commit that builds it rather than the release after. */
+  /* THE THIRD NEW SURFACE ON THIS PANEL. The light shading lives inside the
+     tide chart's role="img" and reaches nobody who cannot see it, so what has
+     to exist is the sentence — and this walk is the only place the panel is
+     driven with a tide present. */
+  const light = await page.evaluate(() => {
+    const chart = document.getElementById('tidechart');
+    const panel = document.getElementById('panel-water').textContent;
+    return { shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
+             said: /First light/.test(panel) && /last light/.test(panel),
+             denial: /nothing whatever about what the fish will do/.test(panel) };
+  });
+  check(`${name}: first and last light are named in words`,
+    light.said && light.denial, JSON.stringify(light));
   check(`${name}: the fortnight of swings draws too`,
     planted.springNeap && /fortnight/.test(planted.snSays),
     JSON.stringify({ drew: planted.springNeap, says: planted.snSays }).slice(0, 240));
