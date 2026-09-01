@@ -5,11 +5,13 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.5.0 on `staging`. **Production is 2.4.0** and stays there until a
-  promote — these are two numbers on purpose, and writing one of them here
-  covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.5.0** at https://staging.cv-thalweg.pages.dev — springs
-  and neaps: how big today's tide is against the fortnight, said and drawn.
+- **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
+  verified by reading that address rather than the push output.
+- **2.5.0 at https://staging.cv-thalweg.pages.dev** is the same build: nothing
+  is staged ahead of production at the moment. These are two numbers on purpose
+  and they happen to be equal right now; the next commit to `staging` makes them
+  differ again, and writing one of them here covering both is how a handoff
+  comes to name a build nobody can open.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
