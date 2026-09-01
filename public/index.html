@@ -329,6 +329,42 @@ input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
 textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink);
   border:1px solid var(--teal-line); font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 
+/* THE SIDEWAYS VIEW.
+
+   A web page cannot turn a phone over. Safari's engine has no
+   `screen.orientation.lock` at all — measured, not remembered — and Chromium's
+   refuses with NotSupportedError outside fullscreen on a handset. So the DEVICE
+   stays where it is and the PICTURE turns instead, which is the half of the
+   idea that is actually available and is also the better half: a portrait phone
+   rotated this way gives the bars 844 by 390 where the same phone physically
+   turned gives them 844 by 242, because the browser keeps its chrome either way
+   and there is more of the screen left over in portrait.
+
+   The recipe is the standard one and the order of the transforms matters:
+   origin at the top left, rotate, then translate in the element's OWN
+   coordinates, which after the rotation moves it back across the screen. */
+#sideways{ max-width:100%; width:100%; max-height:100%; height:100%;
+  padding:0; border:0; background:var(--bg); overflow:hidden }
+#sideways::backdrop{ background:var(--bg) }
+#swinner{
+  position:absolute; top:0; left:0;
+  width:100vh; height:100vw;
+  width:100dvh; height:100dvw;
+  transform-origin:0 0;
+  transform:rotate(90deg) translate(0, -100%);
+  display:flex; flex-direction:column;
+  background:var(--bg);
+}
+.swhead{ display:flex; align-items:center; gap:.6rem; padding:.4rem .6rem;
+  border-bottom:1px solid var(--teal); flex:0 0 auto }
+.swhead h2{ font-size:.85rem; margin:0; color:var(--ink) }
+#swbody{ flex:1 1 auto; min-height:0; overflow:auto; padding:.3rem .5rem }
+#swribbon{ display:block; width:100%; height:auto }
+.swnote{ color:var(--mute); font-size:.7rem; padding:.2rem .6rem .4rem; flex:0 0 auto }
+/* The button that opens it only earns its place where the upright band cannot
+   show everything, which is exactly where the reader is short of height. */
+#swopen{ margin:.4rem 0 }
+
 /* ---------- dialogs / strips ---------- */
 .strip{background:var(--teal); color:var(--ink); padding:.5rem .7rem; display:flex;
   gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; flex:0 0 auto}
@@ -616,6 +652,31 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   </div>
 </main>
 
+<!-- THE BARS, SIDEWAYS, WITHOUT TURNING THE PHONE. The device cannot be
+     rotated by a web page on this hardware; the drawing can. -->
+<dialog id="sideways" aria-labelledby="swtitle">
+  <div id="swinner">
+    <div class="swhead">
+      <h2 id="swtitle">The rivers, sideways</h2>
+      <span class="grow"></span>
+      <button type="button" id="swclose">Done</button>
+    </div>
+    <!-- FOCUSABLE, because it can scroll. The drawing is sized to fit, and the
+         overflow is the safety net for a screen smaller than any measured
+         here — but a region that CAN scroll and cannot be reached by keyboard
+         is a region somebody cannot read the bottom of. axe caught it; the
+         upright band carries the same tabindex for the same reason. -->
+    <div id="swbody" tabindex="0" role="region" aria-label="The rivers, sideways">
+      <svg id="swribbon" role="img" aria-labelledby="swribtitle swribdesc"
+           preserveAspectRatio="xMinYMin meet">
+        <title id="swribtitle">The rivers, drawn sideways</title>
+        <desc id="swribdesc">Gauges plotted along each river, downstream on the left, coloured by water temperature.</desc>
+      </svg>
+    </div>
+    <p class="swnote" id="swnote"></p>
+  </div>
+</dialog>
+
 <!-- What you just got. The strip that offered the update belongs to the OLD
      build and has never heard of the release it is offering, so the only
      moment anything in this app knows what changed is after the reload. This
@@ -685,7 +746,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.6.1';
+var VERSION = '2.7.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2578,8 +2639,25 @@ function riverHits(list, host, x0, top, rowH){
   wrap.appendChild(box);
 }
 
-function drawRibbon(again){
-  var host = $('#ribbon');
+/* ONE DRAWING, TWO HOSTS.
+
+   The sideways view needs the same bars at a different size, and the one thing
+   it must not be is a second copy of this function — a second formulation of
+   one picture is how the two come to disagree about which river is which, and
+   this session has already written that lesson twice. So `opts.host` swaps the
+   canvas and everything that belongs to the BAND rather than to the drawing —
+   the height budget, the note underneath, the row-press overlay, the
+   corrective pass — is skipped for it.
+
+   The overlay is skipped rather than ported on purpose: it positions itself by
+   comparing bounding rectangles, and inside a rotated container those describe
+   the screen rather than the picture. Hit-testing through a transform is a
+   trap, and the sideways view is for reading; pressing a river is what the
+   normal band is for, and it is one press away. */
+function drawRibbon(again, opts){
+  opts = opts || {};
+  var sideways = !!opts.host;
+  var host = opts.host || $('#ribbon');
   /* Keep the title and desc; they are the accessible name of the figure. */
   Array.prototype.slice.call(host.childNodes).forEach(function(n){
     if (n.nodeName !== 'title' && n.nodeName !== 'desc') host.removeChild(n);
@@ -2602,8 +2680,9 @@ function drawRibbon(again){
      between here and the end of this function — and it is the difference
      between measuring the page and measuring its absence. */
   var wasHidden = document.getElementById('ribbonwrap').hidden;
-  if (wasHidden) document.getElementById('ribbonwrap').hidden = false;
-  var W = narrow ? Math.max(host.clientWidth || 360, 300)
+  if (!sideways && wasHidden) document.getElementById('ribbonwrap').hidden = false;
+  var W = sideways ? opts.W
+        : narrow ? Math.max(host.clientWidth || 360, 300)
                  : Math.max(host.clientWidth || 1000, 520);
   var list = state.riverId ? [byId(state.riverId)] : RIVERS;
   /* Under the breakpoint the ribbon and the readings share one screen, so
@@ -2627,7 +2706,11 @@ function drawRibbon(again){
      where a laptop window stops being able to give a third of itself away
      without the readings under it disappearing. */
   var shortView = (window.innerHeight || 800) < 620;
-  if (narrow || shortView){
+  /* The sideways view is told the box it has and shrinks into it the same way
+     the upright band does — the floor still applies, so it scrolls rather than
+     going illegible if even this is not enough. */
+  if (sideways && isNum(opts.budget)) budget = opts.budget;
+  else if (!sideways && (narrow || shortView)){
     var cs = window.getComputedStyle(wrapEl);
     var extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     Array.prototype.forEach.call(wrapEl.children, function(c){
@@ -2687,8 +2770,8 @@ function drawRibbon(again){
   });
   ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
-  wrap.hidden = !!RIB.tooTight;
-  if (RIB.tooTight){
+  if (!sideways) wrap.hidden = !!RIB.tooTight;
+  if (!sideways && RIB.tooTight){
     /* AND THE OVERLAY GOES WITH IT. Returning here without clearing it leaves
        buttons for rows that are no longer drawn — invisible inside a hidden
        wrapper, and, before the fix above, the very thing that kept the budget
@@ -2699,10 +2782,10 @@ function drawRibbon(again){
     /* AND IT SAYS SO. A view that vanishes without a word is
        indistinguishable from one that failed to load. */
     syncRibbonDropNote();
+    syncSidewaysOffer();
     return;
   }
-  wrap.hidden = false;
-  syncRibbonDropNote();
+  if (!sideways){ wrap.hidden = false; syncRibbonDropNote(); syncSidewaysOffer(); }
   var rowH = RIB.rowH, top = RIB.top;
   var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -2714,13 +2797,13 @@ function drawRibbon(again){
      the ones past the fold are reached rather than lost. `contain` stops a
      flick that runs off the end of this band from carrying on into the page,
      which is the trap nested scrolling always sets on touch. */
-  if (RIB.scrolls && isNum(RIB.budget)){
+  if (!sideways && RIB.scrolls && isNum(RIB.budget)){
     wrap.style.maxHeight = Math.max(0, RIB.budget) + 'px';
     wrap.style.overflowY = 'auto';
     wrap.style.overscrollBehavior = 'contain';
     wrap.setAttribute('aria-label',
       'River ribbon, ' + list.length + ' rivers, scrollable');
-  } else {
+  } else if (!sideways){
     wrap.style.maxHeight = '';
     wrap.style.overflowY = '';
     wrap.style.overscrollBehavior = '';
@@ -2751,7 +2834,8 @@ function drawRibbon(again){
   tempScale(g, RIB.narrow ? 6 : W - 190, H - (RIB.narrow ? 20 : 26),
             RIB.narrow ? 104 : 170, anyTidal);
   host.appendChild(g);
-  riverHits(list, host, x0, top, rowH);
+  if (!sideways) riverHits(list, host, x0, top, rowH);
+  if (sideways) return;
 
   /* THE SHORT NOTE HAS TO CARRY THE SCALE TOO. Bars of visibly different
      lengths with nothing saying why is the same defect as the wash with no
@@ -3918,6 +4002,85 @@ function syncRibbonDropNote(){
     : '';
 }
 
+/* =====================================================================
+   THE SIDEWAYS VIEW — the picture turns, because the phone cannot be turned.
+
+   Asked for as "a button that rotates the screen without the user having to
+   turn on landscape". A web page cannot do that on this hardware and the check
+   is not a memory: Safari's engine reports no `screen.orientation.lock` at all,
+   and Chromium's throws NotSupportedError. A button calling it would be a
+   control that does nothing, which is the defect this app has a rule about.
+
+   Rotating the drawing instead is not a consolation prize. A portrait phone
+   turned this way gives the bars the whole long side of the screen — 844 by
+   390 on an iPhone 13 — where physically rotating the same phone gives them
+   844 by 242, because the browser keeps its chrome and portrait has more
+   screen left to spare. Five rows at full height need about 350 of those 390.
+   ===================================================================== */
+/* The offer follows the DRAW, not the render, for the same reason the note
+   explaining a dropped band does: these two run in no fixed order, and a test
+   made at render time reads whatever the last draw happened to leave. */
+function syncSidewaysOffer(){
+  var row = document.getElementById('swopen');
+  if (!row) return;
+  row.hidden = !sidewaysFits();
+}
+
+function sidewaysFits(){
+  /* Offered where it helps, which is wider than "the band gave up".
+     A band that squeezed its rows down to the legibility floor to get them all
+     in is showing every river at 22px when the sideways view would show them
+     at 44 — cramped is a reason to offer this, not just incomplete. On a tall
+     screen where the rows are already at their natural height it changes
+     nothing and is not offered, because a control that changes nothing is
+     clutter. */
+  return !!(RIB && (RIB.scrolls || RIB.tooTight ||
+                    (isNum(RIB.natural) && RIB.rowH < RIB.natural)));
+}
+
+function openSideways(){
+  var d = $('#sideways');
+  if (!d || typeof d.showModal !== 'function') return;
+  d.showModal();
+  drawSideways();
+  var c = $('#swclose');
+  if (c) c.focus();
+  announce('The rivers, drawn sideways. Press Done to go back.');
+}
+
+function drawSideways(){
+  var host = $('#swribbon');
+  if (!host) return;
+  /* THE NOTE FIRST, because it is one of the two things deciding how tall the
+     drawing's box is. Written after, the measurement below is of a box that is
+     about to change — the same stale-furniture defect the upright band's own
+     budget had, and it showed here as thirty pixels of overflow in a view
+     whose entire purpose is fitting everything on one screen. */
+  var n = $('#swnote');
+  if (n) n.textContent =
+    'Downstream on the left, all ' + countWord(ribbonRowCount()) +
+    ' to one distance scale. This turns the picture, not the phone — a web page cannot rotate the screen itself on this device. Pressing a river is on the upright view.';
+
+  /* The rotated box is as wide as the screen is TALL, and as tall as it is
+     wide. Measured off the container rather than computed from innerHeight and
+     innerWidth, so the browser's own chrome and the safe-area insets are
+     already taken out of both. */
+  var body = $('#swbody');
+  var W = Math.max(320, Math.round((body && body.clientWidth) || window.innerHeight || 640));
+  var H = Math.round((body && body.clientHeight) || 0);
+
+  /* RIB IS A GLOBAL AND THIS DRAW WOULD LEAVE ITS OWN NUMBERS IN IT.
+     Everything that asks "did the upright band have room" — the note under a
+     dropped ribbon, the offer of this very view — reads that global, and after
+     a sideways draw it describes a rotated canvas the size of the whole
+     screen. The band would come back believing it had all the room in the
+     world. One drawing with two hosts has to leave the state of the first
+     alone; borrowing it and putting it back is the whole of that. */
+  var keep = RIB;
+  try { drawRibbon(undefined, { host: host, W: W, budget: H > 80 ? H : null }); }
+  finally { RIB = keep; }
+}
+
 function pickRiverRow(){
   var row = el('div',{class:'rowline'});
   var b = el('button',{type:'button',text:'Choose a river'});
@@ -4002,6 +4165,17 @@ function renderWater(){
        from whichever of the two ran last. */
     p.appendChild(el('p',{class:'note',id:'ribbondropped',hidden:'hidden'}));
     syncRibbonDropNote();
+    /* AND THE WAY TO SEE THEM ALL ANYWAY. Where the upright band cannot show
+       every row — scrolled, or dropped altogether on a screen with no height
+       to give — the picture can be turned instead of the phone. The button
+       exists only in that case: on a tall screen every row is already there
+       and a control that changes nothing is clutter. */
+    var swrow = el('div',{class:'rowline',id:'swopen'});
+    var swb = el('button',{type:'button',text:'See all ' + countWord(ribbonRowCount()) + ' sideways'});
+    swb.addEventListener('click', openSideways);
+    swrow.appendChild(swb);
+    p.appendChild(swrow);
+    syncSidewaysOffer();
     return;
   }
 
@@ -8760,6 +8934,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.7.0', date:'2026-09-01', changes:[
+      'A button that turns the river bars sideways, where there is no room for them upright. It gives them the LONG side of the screen: on an iPhone 13 the bars go from 22 pixels tall in a 390-wide box to 45 tall in a 667-wide one, with every river on screen at once and nothing to scroll.',
+      'It turns the picture, not the phone, and it says so. A web page cannot rotate the screen itself on an iPhone or an iPad \u2014 Safari has no way to do it, and a button that quietly did nothing would be worse than no button. Turning the drawing is the half that works, and it is the better half: a phone held upright has more screen to give than the same phone turned over, because the browser keeps its own bars either way.',
+      'The button only appears where it helps \u2014 where the upright bars are squeezed, scrolled, or gone. On a screen with room for all of them at full size it changes nothing, so it is not offered.',
+  ], broken:[
+      'Pressing a river to open it is on the upright view only. The sideways one is for reading: the invisible buttons that make the bars pressable work out where they are by measuring the screen, and inside a rotated picture that measurement describes the wrong thing.',
+      'It is one drawing shown two ways, not two drawings. If the bars are ever wrong in one they will be wrong in both, which is the trade for them never disagreeing with each other.',
+  ] },
   { v:'2.6.1', date:'2026-09-01', changes:[
       'The river bars scroll instead of disappearing. On a screen with no room for five of them at a size worth reading, the app used to take the whole comparison away \u2014 which is the thing the front page is for. The bars keep their size now, the band keeps its share of the screen, and the ones past the bottom are reached by scrolling.',
       'That brought them back on the small phones, where they had been gone entirely, and it stopped them taking over an iPad held sideways \u2014 which had been drawing a taller band than the whole screen and leaving the readings nothing.',
@@ -9536,6 +9718,47 @@ function boot(){
   (function(){
     var hb = $('#homebtn'), label = 'Home \u2014 back to all ' + riversPhrase();
     hb.title = label; hb.setAttribute('aria-label', label);
+  })();
+  (function(){
+    var d = $('#sideways'), c = $('#swclose');
+    if (c) c.addEventListener('click', function(){ d.close(); });
+    if (d) d.addEventListener('close', function(){
+      announce('Back to the upright view.');
+      /* THE BUTTON, NOT THE ROW IT SITS IN. A div is not focusable, so
+         focusing it silently does nothing and the reader is returned to the
+         top of the document — which is the same "focus lands on BODY" defect
+         the first-run panel was fixed for. */
+      /* A FALLBACK, NOT AN OVERRIDE. A modal returns focus to whatever held it
+         when it opened, and that is the right answer: press the button, come
+         back to the button. Trying to set it here instead raced the platform
+         and lost — focus ended up on whichever tab had been clicked earlier in
+         the session, which is worse than doing nothing.
+         What the platform cannot handle is having nowhere to go, when the
+         element that had focus was rebuilt while this was open. Then focus
+         lands on BODY, which is the "somewhere real" defect the first-run
+         panel was fixed for. So: only then, and only if there is still a
+         button to take it. */
+      setTimeout(function(){
+        var row = document.getElementById('swopen');
+        if (!row || row.hidden) return;
+        /* Left alone when the platform got it right — press the button, come
+           back to the button, and this changes nothing. It is wrong whenever
+           the readings refresh while this is open: the panel is rebuilt, the
+           element the modal was going to restore to is detached, and focus
+           lands wherever was touched before that — measured landing on the
+           Depth tab, three controls away from where the reader was. */
+        if (row.contains(document.activeElement)) return;
+        var b = row.querySelector('button');
+        if (b) b.focus();
+      }, 0);
+    });
+    /* A rotation that survives the screen changing under it. */
+    var swTimer = null;
+    window.addEventListener('resize', function(){
+      if (!d || !d.open) return;
+      clearTimeout(swTimer);
+      swTimer = setTimeout(drawSideways, 180);
+    });
   })();
   $('#homebtn').addEventListener('click', function(){
     selectRiver('');

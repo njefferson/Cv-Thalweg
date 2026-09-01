@@ -7,9 +7,10 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.6.1** at https://staging.cv-thalweg.pages.dev — the
-  river bars scroll rather than vanishing on a short screen; first and last
-  light on the tide chart; and 2.5.1's four device-reported defects.
+- Staged candidate: **2.7.0** at https://staging.cv-thalweg.pages.dev — a
+  sideways view of the river bars; the bars scroll rather than vanishing on a
+  short screen; first and last light on the tide chart; and 2.5.1's four
+  device-reported defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -941,6 +942,69 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## The screen cannot be rotated by a web page, so the picture is
+
+Asked for as "a button that rotates the screen without the user having to turn
+on landscape". **Checked rather than remembered, in both engines:**
+
+- **WebKit — Safari's engine, so every iPhone and iPad — has no
+  `screen.orientation.lock` at all.** `hasLock: false`.
+- Chromium has the method and it threw `NotSupportedError: screen.orientation
+  .lock() is not available on this device`; on a handset it works only inside
+  fullscreen.
+
+So a button calling it would be a control that does nothing, which is the
+defect this repo has a rule about. The device stays put and the DRAWING turns.
+
+**That is not the consolation prize.** A portrait phone rotated this way gives
+the bars 667 by 282 where the same phone physically turned gives them 844 by
+242 — the browser keeps its chrome either way and portrait has more screen left
+to spare. Measured: on an iPhone 13 the rows go from **22px in a 390-wide box
+to 45px in a 667-wide one**, every river on screen, nothing to scroll.
+
+The transform is the standard recipe and the ORDER matters: origin at the top
+left, `rotate(90deg)` then `translate(0,-100%)` in the element's own
+coordinates, which after the rotation moves it back across the screen. The box
+is `100dvh` wide by `100dvw` tall.
+
+**One drawing, two hosts — not two drawings.** `drawRibbon` takes an
+`opts.host`, and everything belonging to the BAND rather than to the picture is
+skipped for it: the height budget, the note, the row-press overlay, the
+corrective pass. A second formulation of one picture is how two views come to
+disagree about which river is which, and this session has already written that
+lesson twice.
+
+**The row-press overlay is skipped on purpose rather than ported.** It places
+itself by comparing bounding rectangles, and inside a rotated container those
+describe the screen rather than the picture. Hit-testing through a transform is
+a trap; the sideways view is for reading and the upright band is one press away.
+
+**Two defects found while building it.**
+
+`RIB` is a global and the sideways draw was leaving its own numbers in it —
+everything that asks "did the upright band have room", including the offer of
+this very view, reads that global, so the band came back believing it had a
+whole rotated screen of room. Borrowed and put back now.
+
+And the note under the drawing was written AFTER the box was measured, so the
+measurement was of a layout about to change — thirty pixels of overflow in a
+view whose entire purpose is fitting on one screen. The same stale-furniture
+defect as the band's own budget, in a function written an hour after it.
+
+**And a focus lesson worth keeping.** After the modal closes, the platform
+restores focus to whatever held it when it opened, and that is the right
+answer. Two attempts to set it manually raced that restoration and lost — focus
+landed on the Depth tab, three controls from where the reader was. What the
+platform cannot handle is having nowhere to go, when the readings refresh and
+rebuild the panel while the view is open. So the handler now leaves a correct
+restoration alone and only steps in when focus did not come back to the opener.
+
+**One test moved rather than weakened.** The desktop suite drives the cramped
+state by hand, so the moment anything redraws, the offer correctly disappears
+and the button focus should return to is gone with it. The precondition only
+holds on a screen that really is short, so the focus-return check lives in the
+walk that runs at phone sizes — verified there by direct measurement first.
 
 ## The band scrolls now, and the budget was keyed on the wrong axis
 

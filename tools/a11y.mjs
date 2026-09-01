@@ -502,6 +502,54 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
       check(`${name}: and the band says it scrolls`,
         /scrollable/i.test(reach.label), JSON.stringify(reach));
   }
+  /* THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED. Safari's engine has
+     no screen.orientation.lock at all, so the device stays put and the drawing
+     rotates — and this is the geometry the whole feature is for, asserted on a
+     screen that really is short rather than on a driven state. */
+  const swRow = await page.evaluate(() => {
+    const r = document.getElementById('swopen');
+    return r ? { there: true, hidden: r.hidden } : { there: false };
+  });
+  if (swRow.there && !swRow.hidden) {
+    const rot = await page.evaluate(async () => {
+      const uprightRowH = RIB.rowH;
+      const uprightW = Number((document.getElementById('ribbon')
+        .getAttribute('viewBox') || '0 0 0 0').split(' ')[2]);
+      const opener = document.querySelector('#swopen button');
+      opener.focus(); opener.click();
+      await new Promise(r => setTimeout(r, 600));
+      const svg = document.getElementById('swribbon');
+      const body = document.getElementById('swbody');
+      const vb = (svg.getAttribute('viewBox') || '').split(' ').map(Number);
+      return { uprightRowH, uprightW, sidewaysRowH: RIB.rowH,
+               canvasW: vb[2], canvasH: vb[3],
+               bars: svg.querySelectorAll('rect[stroke="#1F5B57"]').length,
+               rivers: RIVERS.length,
+               fits: body.scrollHeight <= body.clientHeight + 4,
+               vw: window.innerWidth };
+    });
+    check(`${name}: sideways draws every river`, rot.bars >= rot.rivers,
+      JSON.stringify(rot));
+    check(`${name}: and all of it fits on one screen`, rot.fits, JSON.stringify(rot));
+    /* The whole point: the long side of the screen, and rows the upright band
+       had no room to give. */
+    check(`${name}: the drawing is wider than the screen itself`,
+      rot.canvasW > rot.vw, JSON.stringify(rot));
+    check(`${name}: with taller rows than upright could manage`,
+      rot.sidewaysRowH >= rot.uprightRowH, JSON.stringify(rot));
+    await audit(page, `${name}: the rivers, sideways`);
+    const back = await page.evaluate(async () => {
+      document.getElementById('sideways').close();
+      await new Promise(r => setTimeout(r, 300));
+      const row = document.getElementById('swopen');
+      return { closed: !document.getElementById('sideways').open,
+               onOpener: !!(row && row.contains(document.activeElement)),
+               active: document.activeElement ? document.activeElement.tagName : 'none' };
+    });
+    check(`${name}: it closes and hands focus back to what opened it`,
+      back.closed && back.onOpener, JSON.stringify(back));
+  }
+
   /* AND THE BAND NEVER TAKES MORE THAN ITS SHARE, however wide the screen is.
      The budget keyed on WIDTH, which is a fact about whether the map sits
      beside the rail — not about whether there is height to give away. A phone

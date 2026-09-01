@@ -1319,6 +1319,90 @@ check('a band too small keeps the rows legible and scrolls instead',
 check('a band too small to show even one row is still dropped',
   shortBand.sliver.tooTight, JSON.stringify(shortBand.sliver));
 
+/* --- THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED ---------------
+   Asked for as a button that rotates the screen. No web page can do that on
+   this hardware — Safari's engine has no screen.orientation.lock at all and
+   Chromium's throws NotSupportedError — so a button calling it would be a
+   control that does nothing. The drawing rotates instead, which is also the
+   better half: a portrait phone gives the bars its long side.
+
+   This suite runs at 1280x900, where the band has room and the offer is
+   correctly absent. So the cramped state is driven rather than waited for, and
+   the claims that are ABOUT the geometry — that it fits, that the rows come
+   out taller — are asserted in the walk that actually runs at phone sizes.
+   Here: the mechanics, the wiring and the words. */
+const sw = await page.evaluate(async () => {
+  /* A band with no room, the state a phone is really in. */
+  ribbonMetrics(360, RIVERS.length, 150, true);
+  const crampedRowH = RIB.rowH, cramped = RIB.scrolls || RIB.rowH < RIB.natural;
+  syncSidewaysOffer();
+  const row = document.getElementById('swopen');
+  const offered = row && !row.hidden;
+  if (!offered) { drawRibbon(); return { cramped, offered: false, crampedRowH }; }
+  /* FOCUS IT FIRST, because that is what pressing it does. A modal returns
+     focus to whatever held it when it opened, so a synthetic click that never
+     focused the button asks the platform to restore something that was never
+     true and then blames it for the answer. */
+  const opener = row.querySelector('button');
+  opener.focus();
+  opener.click();
+  await new Promise(r => setTimeout(r, 500));
+  const d = document.getElementById('sideways');
+  const svg = document.getElementById('swribbon');
+  const out = {
+    cramped, offered: true, open: d.open, crampedRowH,
+    bars: svg.querySelectorAll('rect[stroke="#1F5B57"]').length,
+    rivers: RIVERS.length,
+    note: document.getElementById('swnote').textContent,
+    focusInside: d.contains(document.activeElement),
+    /* No row-press overlay in here: it positions itself from bounding boxes,
+       and inside a rotated container those describe the screen rather than the
+       picture. Hit-testing through a transform is a trap. */
+    hits: !!document.querySelector('#swinner #riverhits'),
+    /* The drawing is the SAME drawing — one function, two hosts — so the
+       upright band must still be intact behind it. */
+    uprightIntact: document.querySelectorAll('#ribbon rect[stroke="#1F5B57"]').length > 0
+  };
+  d.close();
+  await new Promise(r => setTimeout(r, 200));
+  out.closed = !d.open;
+  drawRibbon();
+  return out;
+});
+check('a band with no room is recognised as cramped', sw.cramped,
+  JSON.stringify({ rowH: sw.crampedRowH }));
+check('and it offers to show the rivers sideways', sw.offered, JSON.stringify(sw));
+check('the sideways view opens', sw.open === true, JSON.stringify(sw));
+check('every river is drawn in it', sw.bars >= sw.rivers, JSON.stringify(sw));
+/* IT MUST NOT CLAIM TO HAVE ROTATED THE DEVICE. */
+check('it says it turns the picture and not the phone',
+  /turns the picture, not the phone/.test(sw.note) &&
+  /cannot rotate the screen itself/.test(sw.note), sw.note);
+check('the row-press overlay is not carried into the rotated view', !sw.hits,
+  JSON.stringify(sw));
+/* ONE DRAWING, TWO HOSTS — the second host must not have eaten the first. */
+check('drawing it sideways leaves the upright band standing', sw.uprightIntact,
+  JSON.stringify(sw));
+check('the keyboard is inside it while it is open', sw.focusInside,
+  JSON.stringify(sw));
+check('it closes', sw.closed, JSON.stringify(sw));
+/* WHERE FOCUS LANDS AFTER IT CLOSES IS ASSERTED IN THE WALK, not here. This
+   suite runs at 1280x900 and drives the cramped state by hand, so the moment
+   anything redraws, the offer correctly disappears — and the button focus
+   should return to is gone with it. The precondition for that check only
+   holds on a screen that is really short, which is where the walk runs. */
+
+/* AND IT IS NOT OFFERED WHERE IT CHANGES NOTHING. A control that does nothing
+   is the defect this whole feature exists to avoid being. */
+check('a band already showing every row at full height does not offer it',
+  await page.evaluate(() => {
+    ribbonMetrics(900, RIVERS.length, 900, true);
+    syncSidewaysOffer();
+    const hidden = document.getElementById('swopen').hidden;
+    drawRibbon();
+    return hidden;
+  }));
+
 /* NO SENTENCE NAMES A COUNT THAT LIVES IN AN ARRAY. Every one of them said
    FOUR, and there have been five entries since the Delta arrived. */
 const copy = await page.evaluate(() => ({
