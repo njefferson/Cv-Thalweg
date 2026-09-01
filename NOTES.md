@@ -5,12 +5,12 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.2.0 on `staging`. **Production is 2.0.0** and stays there until a
+- Version 2.3.0 on `staging`. **Production is 2.2.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.2.0** at https://staging.cv-thalweg.pages.dev — the
-  Delta as its own entry, surveys filed by the water they sit on, and the bottom
-  change between two surveys of one bed.
+- Staged candidate: **2.3.0** at https://staging.cv-thalweg.pages.dev — the
+  Delta's own regulations, verbatim from CDFW's service; the tide mark gains an
+  arrow and times; and three layout defects found by reading the screen.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -910,6 +910,55 @@ the tide — which is the thing the caption was ever for.
 `tools/fetch-delta.mjs --check` is wired into `gates.yml` beside the centrelines
 and the access lands, because a baked artefact nothing checks is one that goes
 stale in the tree.
+
+## The Delta's regulations, found by asking CDFW's own service
+
+Searched 2026-09-01 because "no Delta season" was an absence, not a finding.
+**The legal-text hosts are refused by this session's egress** — westlaw,
+casetext and Cornell all return `connect_rejected` — but CDFW publishes the
+regulations itself as a queryable ArcGIS table, discovered from the source of
+`apps.wildlife.ca.gov/sportfishingregs/`:
+
+`services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/RFRService/FeatureServer/2`,
+fields `Code`, `ParentCode`, `Verbatim`, `Title`, `Source` — the whole of Title
+14 as text, searchable by section number.
+
+**The finding: section 7.40 is the "Alphabetical List of Hatchery Trout,
+Hatchery Steelhead, and Salmon Waters with Special Fishing Regulations" — a
+list of NAMED waters, and the Delta is not on it.** That is not an oversight and
+not a gap in this app's research: the Delta appears in Title 14 five times and
+none of them is a salmon season. **A salmon season in the Delta is the season of
+whichever named water you are standing on**, which this app already carries for
+the Sacramento and the Mokelumne.
+
+What the Delta has of its own, now shipped verbatim with its section number:
+1.71 (what the Delta legally is — defined by highways, and **not the same
+boundary as the Water Code's Legal Delta that this app uses for its extent**),
+2.10(c)(1) (hook gaps: single no greater than 1 inch, multiple no greater than
+3/4), 5.00(a)(1) (black bass: open all year, 12-inch minimum, five-fish bag),
+and 2.25(b)(1) (bow and arrow).
+
+**The two Delta boundaries are a real distinction and the app should not blur
+them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
+Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
+close but not identical, and only the second governs what is legal.
+
+## Three layout defects, all found by looking at the screen
+
+**width:100% and an explicit height are a contradiction.** The tide-along
+figure scaled its viewBox down to fit the width, kept the height it was told,
+and floated the drawing in the middle of the difference — a screen of blank
+above sixteen Delta rows. `preserveAspectRatio="xMinYMin meet"` plus
+`height:auto`, and a check that the drawn height matches the box.
+
+**A row has to contain its own caption.** The tide caption hangs below the lower
+band of figures, which put it in the NEXT river's upper band: the Delta's
+caption sat on the Mokelumne's temperature and the two read as one label. Rows
+carrying a caption are 14px taller.
+
+**A control with nothing to act on looks broken.** The depth ramp recolours
+switched-on surfaces; with none on it flipped its own pressed state, rebuilt an
+empty list, and changed nothing visible. It says so now.
 
 ## The Delta as built (2.2.0), and the three things it turned on
 

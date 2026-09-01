@@ -646,7 +646,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.2.0';
+var VERSION = '2.3.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -894,7 +894,31 @@ var RIVERS = [
     { id:'9414883', status:PROV.VERIFIED, hint:'Stockton, San Joaquin River' }
   ],
   tideDiscover:true,
-  reaches:[]
+  /* NO REACHES, AND NOW THE REASON IS A FINDING RATHER THAN AN ABSENCE.
+     Section 7.40 is the "Alphabetical List of Hatchery Trout, Hatchery
+     Steelhead, and Salmon Waters with Special Fishing Regulations" — a list of
+     NAMED waters. The Delta is not on it, and that is not an oversight: read
+     from CDFW's own regulations service on 2026-09-01, the Delta appears in
+     Title 14 five times and none of them is a salmon season. Its salmon season
+     is the season of whichever named water you are standing on, which this app
+     already carries for the Sacramento and the Mokelumne.
+     What the Delta HAS of its own is gear and species rules, verbatim below
+     with their section numbers. */
+  reaches:[],
+  rules:[
+    { code:'1.71', title:'What the Delta is',
+      status:PROV.VERIFIED,
+      text:'The Sacramento-San Joaquin River Delta includes all rivers, sloughs, canals, cuts, forebays, and flooded islands within the area south of Interstate 80 to its junction with Highway 50, and south of Highway 50 via the Pioneer Bridge to its junction with Highway 99, west of Highway 99, north of Interstate 580, 205, and Highway 120, and east of Interstate 680.' },
+    { code:'2.10(c)(1)', title:'Hook gaps in the Delta',
+      status:PROV.VERIFIED,
+      text:'No person shall use any single hook with a gap greater than 1 inch or any multiple hook with a gap greater than 3/4 inch.' },
+    { code:'5.00(a)(1)', title:'Black bass in the Delta',
+      status:PROV.VERIFIED,
+      text:'Lakes/Reservoirs and the Sacramento-San Joaquin Delta: The following waters, except for those listed in subsection (b), are open to fishing all year, with a 12-inch total length minimum size limit and a five-fish daily bag limit: All lakes and reservoirs in the State, and the Sacramento-San Joaquin River Delta.' },
+    { code:'2.25(b)(1)', title:'Bow and arrow fishing',
+      status:PROV.VERIFIED,
+      text:'Bow and arrow fishing is provided for within the boundaries of the Sacramento-San Joaquin River Delta.' }
+  ]
 },
 {
   id:'mokelumne', name:'Mokelumne River', short:'Mokelumne',
@@ -1552,6 +1576,10 @@ function loadTide(river, station){
       (hourly.length ? '' : ', highs and lows only'));
     var payload = {
       station: station,
+      /* WHEN THIS WAS READ. A prediction with no time on it is a number the
+         reader has to trust blind — and an offline copy of one is a number
+         that may be a day old and still looks exactly as confident. */
+      at: new Date().toISOString(),
       hourly: hourly.map(function(p){ return { t:p.t, v:Number(p.v) }; }),
       hourlyUnavailable: !hourly.length,
       hilo: hilo.map(function(p){ return { t:p.t, v:Number(p.v), type:p.type }; }),
@@ -2124,6 +2152,12 @@ function ribbonMetrics(W, rowCount, budget, tidal){
      both. Reserved only when a tidal river is actually drawn — the ribbon
      showing the Feather alone has no wash on it and owes no room for one. */
   if (tidal) m.foot += 16;
+  /* A ROW HAS TO CONTAIN ITS OWN CAPTION. The tide caption hangs below the
+     lower band of figures, which put it in the NEXT river's upper band — the
+     Delta's "tide reaches about here" landed on the Mokelumne's temperature,
+     and the two read as one label. Rows carrying a caption get the height it
+     needs rather than borrowing it from the row underneath. */
+  if (tidal && rowCount > 1) m.rowH += 14;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
@@ -2170,7 +2204,7 @@ function ribbonSpan(river, rows){
    With the real gauge networks on these four rivers it does not bind. */
 var RIB_MIN_BAR = 28;
 
-function ribbonRow(g, river, rows, x0, x1, y, showName, span, W){
+function ribbonRow(g, river, rows, x0, x1, y, showName, span, W, list1){
   var edge = span.edge;
 
   rows = rows.filter(function(r){ return !r.context; });
@@ -2217,10 +2251,42 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W){
       stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
       'stroke-linecap':'round', 'pointer-events':'none' }));
 
+    /* AND WHICH WAY IT COMES FROM. A rule across the bar marks a limit and
+       says nothing about which side of it is tidal — the wash says that, but
+       the wash is a tint and the reader has to already know it means the sea.
+       Downstream is on the left and the sea is at that end, so the tide runs
+       UPSTREAM into the mark: the arrow points the way the water is pushed,
+       and stops where the pushing stops. */
+    var ah = Math.min(9, Math.max(4, (tx - x0) / 6));
+    if (tx - x0 > 12){
+      g.appendChild(svg('path', {
+        d:'M' + (tx - ah - 3) + ' ' + (y - 4) + ' L' + (tx - 3) + ' ' + y +
+          ' L' + (tx - ah - 3) + ' ' + (y + 4) + ' Z',
+        fill:'#7BD5D9', 'pointer-events':'none' }));
+    }
+
     /* THE LABEL HANGS OFF THE MARK, and the leader is what makes that true
        even when the words have to shuffle sideways to stay on the drawing.
        Anchoring the text to the end of the bar without a leader is how it
        came to look like a label for the end of the bar. */
+    /* AND WHEN. The mark says how far the tide gets; these say when it next
+       turns, both ways, and when the prediction was read — because a
+       prediction with no time on it is a number the reader has to trust
+       blind. Times only: the date is today unless it says otherwise, and a
+       full timestamp on a 9px line is unreadable. */
+    /* THE TIMES GO WHERE THERE IS ROOM FOR THEM. On the all-rivers view a row
+       is 66px and already carries figures above, figures below and a caption;
+       two more lines of text is what made the Delta's caption collide with the
+       Mokelumne's reading. On a single river there is one row and the whole
+       drawing beneath it. */
+    var hl = (list1 === 1) ? nextHighLow(river) : null;
+    var when = '';
+    if (hl){
+      var bits = [];
+      if (hl.high) bits.push('high ' + clockLocal(hl.high.at));
+      if (hl.low)  bits.push('low ' + clockLocal(hl.low.at));
+      when = bits.join(' \u00b7 ');
+    }
     var text = RIB.narrow ? 'tide to here' : 'tide reaches about here';
     var ly = y + RIB.dot + (RIB.narrow ? 25 : 31);
     var half = text.length * RIB.note * 0.29;
@@ -2237,6 +2303,19 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W){
       fill:'#9FB3B1', 'font-size':String(RIB.note), 'text-anchor':anchor });
     lab.textContent = text;
     g.appendChild(lab);
+    if (when){
+      var w2 = svg('text', { x:lx, y:ly + RIB.note + 2, 'pointer-events':'none',
+        fill:'#7BD5D9', 'font-size':String(RIB.note), 'text-anchor':anchor });
+      w2.textContent = when;
+      g.appendChild(w2);
+      var tt = state.tides[river.id];
+      if (tt && tt.at && !RIB.narrow){
+        var w3 = svg('text', { x:lx, y:ly + (RIB.note + 2) * 2, 'pointer-events':'none',
+          fill:'#6E8785', 'font-size':String(RIB.note), 'text-anchor':anchor });
+        w3.textContent = 'predicted ' + clockLocal(tt.at);
+        g.appendChild(w3);
+      }
+    }
   }
 
   if (showName){
@@ -2326,6 +2405,10 @@ function tempScale(g, x, y, w, tidal){
   g.appendChild(svg('line', { x1:x + tw, x2:x + tw, y1:ty - 3, y2:ty + 11,
     stroke:'#7BD5D9', 'stroke-width':'1.5', 'stroke-dasharray':'3 2',
     'stroke-linecap':'round' }));
+  /* The same arrow the bars carry, or the key is describing a different mark. */
+  g.appendChild(svg('path', {
+    d:'M' + (x + tw - 10) + ' ' + (ty + 1) + ' L' + (x + tw - 3) + ' ' + (ty + 4) +
+      ' L' + (x + tw - 10) + ' ' + (ty + 7) + ' Z', fill:'#7BD5D9' }));
   /* SHORT ENOUGH TO FIT INSIDE THE RAMP'S OWN WIDTH. The first wording ran
      past the right-hand edge and came out as "to the dashed m", which is the
      same defect as the clipped swatch one line up — the drawing does not
@@ -2333,6 +2416,9 @@ function tempScale(g, x, y, w, tidal){
      swatch is the same mark that stands on the bars, so it does the pointing
      and the words do not have to. */
   var tl = svg('text', { x:x + tw + 8, y:ty + 7, fill:'#9FB3B1', 'font-size':'9' });
+  /* The arrow on the swatch says which way; the words do not have to, and
+     the ones that tried ran off the right-hand edge — which the bounding-box
+     check caught, being exactly what it is for. */
   tl.textContent = 'tidal reach';
   g.appendChild(tl);
 }
@@ -2485,7 +2571,7 @@ function drawRibbon(again){
     var sp = spans[i];
     var frac = (maxM > 0 && sp) ? sp.metres / maxM : 1;
     var x1 = x0 + Math.max(RIB_MIN_BAR, Math.min(full, full * frac));
-    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W);
+    var n = ribbonRow(g, river, rows, x0, x1, top + i * rowH, list.length > 1, sp, W, list.length);
     plotted += n;
     missing += onRiver.length - n;
   });
@@ -3122,6 +3208,23 @@ function meanTemp(river){
                       .map(function(r){ return r.tempF; });
   if (!t.length) return null;
   return { f: t.reduce(function(a,b){ return a+b; },0) / t.length, n: t.length };
+}
+
+/* THE NEXT HIGH AND THE NEXT LOW, both, rather than whichever comes first.
+   A fisher planning an hour out wants to know which way the water will be
+   going and when it stops — one turn answers half of that. */
+function nextHighLow(river){
+  var t = state.tides[river.id];
+  if (!t || !t.hilo || !t.hilo.length) return null;
+  var now = Date.now(), out = { high:null, low:null };
+  for (var i = 0; i < t.hilo.length; i++){
+    var when = new Date(t.hilo[i].t.replace(' ','T'));
+    if (when.getTime() <= now) continue;
+    var k = t.hilo[i].type === 'H' ? 'high' : 'low';
+    if (!out[k]) out[k] = { at:when, v:t.hilo[i].v };
+    if (out.high && out.low) break;
+  }
+  return (out.high || out.low) ? out : null;
 }
 
 /* The next turn, from the predictions already fetched. */
@@ -3922,9 +4025,20 @@ function renderLayers(){
       renderLayers();
     });
     rampRow.appendChild(rampBtn);
-    rampRow.appendChild(el('span',{class:'note',
-      text:'Colours the surface by depth instead of grey. Applies to every surface below.'}));
     p.appendChild(rampRow);
+    /* "I CAN'T SEE THAT DEPTH RAMP DOES ANYTHING" — and it did not, because it
+       recolours the surfaces that are SWITCHED ON and there were none. The
+       button flipped its own pressed state, rebuilt an empty list, and looked
+       broken. It is a preference, so it still takes; what was missing is the
+       app saying that nothing is showing yet. */
+    var onNow = Object.keys(state.layers || {})
+      .filter(function(k){ return k.indexOf('r:') === 0; }).length;
+    p.appendChild(el('p',{class:'note',
+      text: onNow
+        ? 'Colours the ' + (onNow === 1 ? 'surface' : onNow + ' surfaces') +
+          ' you have switched on by depth instead of grey.'
+        : 'Colours a surface by depth instead of grey \u2014 but no surface is switched on, so there is nothing to colour yet. Turn one on below and it will come up in colour' +
+          (state.ramp ? '.' : ' once this is pressed.')}));
   }
   collapsible(p, cat.raster, 'raster', 'surface', rasterControl);
 
@@ -4589,7 +4703,25 @@ function renderBrief(){
 
   rivers.forEach(function(river){
     p.appendChild(el('h2',{class:'sec',text:river.name + ' — season'}));
-    if (!river.reaches.length){
+    if (!river.reaches.length && (river.rules || []).length){
+      /* NOT AN ABSENCE — A FINDING. Section 7.40 lists NAMED waters with
+         special regulations and the Delta is not one, so its salmon season is
+         the season of whichever named water you are on. What it does have of
+         its own is below, in the regulation's words with its number. */
+      p.appendChild(el('div',{class:'warnbox',
+        text:'The Delta has no season of its own. Section 7.40 is a list of named waters with special regulations, and the Delta is not on it — so the salmon season where you are standing is the season of the river you are standing on: pick that river above. What the Delta does have of its own is below. Nothing here is a substitute for the printed regulations.'}));
+      river.rules.forEach(function(rl){
+        var box = el('div',{class:'rdg'});
+        var h = el('div',{class:'rdg-name'});
+        h.appendChild(el('span',{text:rl.title}));
+        h.appendChild(flagEl(rl.status));
+        box.appendChild(h);
+        box.appendChild(el('div',{class:'rdg-id',
+          text:'Title 14, section ' + rl.code + ' \u2014 in its own words'}));
+        box.appendChild(el('p',{class:'note',text:rl.text}));
+        p.appendChild(box);
+      });
+    } else if (!river.reaches.length){
       p.appendChild(el('div',{class:'warnbox',
         text:'The reach boundaries and dates for this river were not confirmed against Title 14 section 7.40 when this build was made, so none are shown. Nothing here is a substitute for the printed regulations.'}));
     }
@@ -5520,8 +5652,16 @@ function tideAlongFigure(river, gs, hist){
   var keyH = 20;
   var H = top + gs.length * rowH + 26 + keyH;
 
+  /* WIDTH 100% AND AN EXPLICIT HEIGHT ARE A CONTRADICTION, and the browser
+     resolves it by letterboxing: the viewBox scales down to fit the width, the
+     element keeps the height it was told, and the drawing floats in the middle
+     of a few hundred pixels of nothing. With sixteen Delta gauges that was a
+     screen of blank above the rows. Give it the viewBox and let the aspect
+     ratio set the height, and anchor the drawing to the top-left so any
+     rounding leftover is at the bottom rather than split around it. */
   var fig = svg('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%',
-    height:String(H), role:'img',
+    preserveAspectRatio:'xMinYMin meet',
+    style:'height:auto; display:block', role:'img',
     'aria-label':'Which way the water is running at each gauge on the ' +
       river.name + ', downstream at the top' +
       (hist ? ', with the last day beside it shaded blue where the tide was pushing upstream and green where the river was running down' : '') + '.',
@@ -5619,7 +5759,6 @@ function tideAlongFigure(river, gs, hist){
       t2.textContent = pair[1];
       g.appendChild(t2);
     });
-  if (narrow) fig.setAttribute('height', String(H + 13));
   if (narrow) fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 13));
 
   fig.appendChild(g);
@@ -7468,6 +7607,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.3.0', date:'2026-09-01', changes:[
+      'The tide mark on each bar now has an arrow showing which way the water is pushed \u2014 upstream, into the mark. A line across a bar says where something stops without saying which side of it is tidal; the arrow says it.',
+      'When one river is showing, the mark also carries the next high and the next low, and what time the prediction itself was read. A prediction with no time on it is a number you have to trust blind, and an offline copy of one can be a day old and look exactly as confident.',
+      'The tide captions stopped landing on the row underneath. On the all-rivers view the Delta\u2019s caption was sitting on the Mokelumne\u2019s temperature and the two read as one label. Rows that carry a caption are taller now, so each one contains its own.',
+      'The tide-along-the-river figure no longer opens with a screen of blank space above it. It was being told to be one height while its drawing was scaled to another, so the picture floated in the middle of the difference \u2014 worst on the Delta, which has sixteen gauges.',
+      'The Delta has its rules. Section 7.40 is a list of NAMED waters with special regulations and the Delta is not on it, so there is no Delta salmon season to show \u2014 the season where you stand is the season of the river you are standing on. What the Delta does have of its own is now here in the regulation\u2019s own words with its section number: what the Delta legally IS, the hook-gap limits, the black bass rules, and bow-and-arrow fishing.',
+      'The depth ramp says why nothing happened. It colours the surfaces you have switched on, and with none switched on it changed its own state and nothing else, which is indistinguishable from a dead button.',
+  ] },
   { v:'2.2.0', date:'2026-08-31', changes:[
       'The Delta is in the app. It is not a fifth river \u2014 it is where the four arrive \u2014 so it has its own card under them, and what counts as the Delta is the state\u2019s own published Legal Delta Boundary rather than anybody\u2019s idea of where it starts. Ninety-seven named channels come with it, so a tap snaps to the water and a cross-section cuts across whichever channel is nearest.',
       'This matters because most of the depth data was invisible. Of the twenty surveys the state publishes, ELEVEN were of water that belonged to none of the four rivers \u2014 Old River at three cuts, Grant Line, Middle River, Indian Slough \u2014 and the app downloaded every one of them each time it opened and could show you none of them.',

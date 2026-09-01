@@ -492,6 +492,22 @@ check('the declared station still has its NOAA name and a real position',
            Number.isFinite(st.lat) && Number.isFinite(st.lon) &&
            st.lat > 37 && st.lat < 41;
   }));
+/* --- A CONTROL THAT LOOKS BROKEN BECAUSE IT HAS NOTHING TO ACT ON --------
+   The depth ramp recolours the surfaces that are switched on. With none on it
+   flipped its own pressed state, rebuilt an empty list, and changed nothing a
+   reader could see — which is indistinguishable from a dead button. */
+check('the depth ramp says why nothing changed when no surface is on',
+  await page.evaluate(async () => {
+    const sel = document.getElementById('riverpick');
+    sel.value = 'sacramento'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 1500));
+    document.getElementById('tab-layers').click();
+    await new Promise(r => setTimeout(r, 1200));
+    const t = document.getElementById('panel-layers').textContent;
+    return /no surface is switched on/.test(t);
+  }),
+  await page.evaluate(() => (document.getElementById('panel-layers') || {}).textContent.slice(0, 300)));
+
 /* --- THE DELTA, WHICH IS NOT A RIVER ------------------------------------
    Eleven of the twenty published surveys landed inside no declared river and
    were fetched on every cold open to be shown to nobody. What counts as the
@@ -506,14 +522,32 @@ check('it has no reaches, because none were confirmed against the regulation',
     const d = RIVERS.find(r => r.id === 'delta');
     return Array.isArray(d.reaches) && d.reaches.length === 0;
   }));
-check('and the season panel says so rather than showing an empty one',
-  await page.evaluate(async () => {
-    const sel = document.getElementById('riverpick');
-    sel.value = 'delta'; sel.dispatchEvent(new Event('change', { bubbles: true }));
-    await new Promise(r => setTimeout(r, 1200));
-    const t = document.body.textContent;
-    return /were not confirmed against Title 14/.test(t);
-  }));
+/* NOT AN ABSENCE BUT A FINDING. Section 7.40 is a list of NAMED waters with
+   special regulations and the Delta is not on it, so its salmon season is the
+   season of whichever river you are standing on. Read from CDFW's own
+   regulations service: the Delta appears in Title 14 five times and none of
+   them is a salmon season. What it has of its own is gear and species rules,
+   carried verbatim with their numbers. */
+const deltaSeason = await page.evaluate(async () => {
+  const sel = document.getElementById('riverpick');
+  sel.value = 'delta'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 1400));
+  return document.body.textContent;
+});
+check('the season panel says the Delta has none of its own, and why',
+  /no season of its own/.test(deltaSeason) && /list of named waters/.test(deltaSeason),
+  deltaSeason.slice(0, 200));
+check('and sends the reader to the river they are standing on',
+  /season of the river you are standing on/.test(deltaSeason));
+check('it carries the rules the Delta does have, with their section numbers',
+  /Title 14, section 1\.71/.test(deltaSeason) &&
+  /Title 14, section 2\.10\(c\)\(1\)/.test(deltaSeason) &&
+  /Title 14, section 5\.00\(a\)\(1\)/.test(deltaSeason));
+/* VERBATIM, because a regulation paraphrased is a regulation invented. */
+check('and quotes them in the regulation\u2019s own words',
+  /gap greater than 1 inch/.test(deltaSeason) &&
+  /12-inch total length minimum size limit/.test(deltaSeason) &&
+  /south of Interstate 80/.test(deltaSeason));
 /* A COURSE IT DOES NOT HAVE IS NOT OFFERED. Read the panel only once it has
    actually drawn its profile section — the first version of this asserted
    against a panel still saying "reading the service directory", where the
@@ -707,6 +741,31 @@ check('the figure is described in words for anything that cannot see it',
   !!along.descId && along.describedBy === along.descId && along.descLines >= 1,
   JSON.stringify({ describedBy: along.describedBy, descId: along.descId,
                    lines: along.descLines }));
+
+/* A DRAWING MUST FILL THE BOX IT RESERVES. width:100% with an explicit height
+   is a contradiction: the viewBox scales down to fit the width, the element
+   keeps the height it was told, and the picture floats in the middle of the
+   difference. With sixteen Delta gauges that was a screen of blank above the
+   rows — reported as "what is this??", which is the right question. */
+check('the figure fills the height it takes up, with no letterbox',
+  await page.evaluate(() => {
+    const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+    if (!fig) return false;
+    const box = fig.getBoundingClientRect();
+    const vb = (fig.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+    if (vb.length !== 4 || !vb[2] || !vb[3]) return false;
+    /* what the drawing occupies once the viewBox is scaled to the width */
+    const drawn = box.width * (vb[3] / vb[2]);
+    return Math.abs(drawn - box.height) <= 2;
+  }),
+  await page.evaluate(() => {
+    const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+    if (!fig) return 'no figure';
+    const b = fig.getBoundingClientRect();
+    const vb = (fig.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+    return JSON.stringify({ w: Math.round(b.width), h: Math.round(b.height),
+      drawn: Math.round(b.width * (vb[3] / vb[2])), viewBox: vb });
+  }));
 
 /* A GAUGE ARGUING WITH ITSELF IS DROPPED FROM THE DRAWING AND NOT FROM THE
    ACCOUNT OF IT. The rest of the app refuses to choose between a velocity and
