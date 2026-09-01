@@ -833,6 +833,31 @@ that no longer matches anything, and the a11y check on a `riverNamesPhrase()`
 that drops its last river.
 
 
+## The hub pin and the doctrine marker had drifted here too
+
+`.doctrine-sync` records the hub commit this repo has RECONCILED with. The
+`uses: .../hub-gates.yml@<sha>` line in `gates.yml` is the commit CI CHECKS THE
+HUB OUT AT to run the shared gates. **They are the same fact, they are written
+in two files, and nothing here was comparing them.** The marker had moved and
+the pin had not, so CI was running the privacy, quote, third-person, no-grid and
+branch-guard checks from 2026-08-29 while this repo's marker said it had read
+and applied everything since.
+
+Both now read the same commit, and `tools/hub-pin-check.mjs` keeps them that
+way — on every commit through `.branch-guard`'s `also=`, and in CI because a
+fresh clone has no hook.
+
+**It is a COPY, and the copy is correct rather than lazy.** The hub's shared
+gates are never forked; they take `--repo .` precisely so five divergent
+versions cannot exist. This one cannot follow that rule, and the reason is the
+circularity it exists to break: CI fetches the hub AT the pin, so a gate
+validating the pin would be fetched at the very commit it is checking, and a pin
+left far enough behind would check out a hub that does not contain the file at
+all — failing with a missing module instead of a diagnosis. Taken from
+solve-ent, which was the only sibling that had it and, measured on 2026-09-01,
+the only sibling whose marker and pin agreed.
+
+
 ## Scratch
 
 Throwaway drivers — a browser script written to reproduce one bug — go in the

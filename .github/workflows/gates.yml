@@ -34,7 +34,7 @@ permissions:
 jobs:
   # Everything the hub owns, in one line rather than eight steps that drift.
   hub-gates:
-    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@e2a5b7cb6b59311bdc7379abd0dea442edc8422f
+    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@c13dfc885a1c3c608a0d105d4a11b0b7e872189a
     with:
       pwa: true
       # This repo carries three workflows, one of which holds a write token, and
@@ -86,6 +86,14 @@ jobs:
       # one file, two answers, and the stale half was the half nobody could see.
       - name: Counts in copy are asked of their tables
         run: node tools/copy-count.mjs
+
+      # The hub commit is written in .doctrine-sync and in the uses: line above,
+      # and they are the same fact. A pin left behind means the shared gates run
+      # rules this repo has already adopted and they have never heard of, and
+      # every one of them goes green. It runs on every commit through
+      # .branch-guard as well; here it is because a fresh clone has no hook.
+      - name: The hub pin and the doctrine marker agree
+        run: node tools/hub-pin-check.mjs
 
       # The river centrelines are generated too, and a line that teleports would
       # draw a profile straight across country. This asks USGS nothing — it
