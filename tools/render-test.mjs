@@ -3099,6 +3099,59 @@ check('and offers to show it, keep it, or let it go',
   held.buttons.some(b => /Keep it as a mark/.test(b)) &&
   held.buttons.some(b => /Let it go/.test(b)), JSON.stringify(held.buttons));
 
+/* --- THE DRAWING SURVIVES ITS OWN COMMENTARY -------------------------------
+   Holding a point fills `#profheld` with four paragraphs and two buttons. The
+   section has a fixed height, and with the drawing on `flex:1 1 auto;
+   min-height:0` the flexbox did exactly what it was told: it took the picture
+   to ZERO while the SVG went on painting at its old size outside its own
+   container, with the held panel over it. Tracing worked ONCE and then the
+   profile stopped answering to a finger, silently.
+
+   It cost most of an hour because it looks precisely like a broken test — on a
+   fresh page every view traced correctly, and only a second trace in the same
+   page failed. The assertion is therefore about the SECOND one. */
+const afterHold = await page.evaluate(() => {
+  const wrap = document.getElementById('profwrap');
+  const r = document.querySelector('#profsvg rect[style*="touch-action"]');
+  const b = r.getBoundingClientRect();
+  const at = document.elementFromPoint(b.x + b.width * 0.42, b.y + b.height / 2);
+  return { wrapH: wrap.clientHeight, rectH: Math.round(b.height),
+           on: at && (at.tagName + '.' + (at.getAttribute('class') || '')) };
+});
+check('holding a point does not squeeze the drawing out of its own box',
+  afterHold.wrapH > 80, JSON.stringify(afterHold));
+/* THE ONE THAT WOULD HAVE CAUGHT IT. A picture can have a height and still be
+   unreachable: what decides whether a finger lands on it is what the document
+   says is on top at that point. */
+check('and the drawing is still the thing under a finger on it',
+  /rect/i.test(afterHold.on || ''), JSON.stringify(afterHold));
+
+/* And it can be traced AGAIN — including after a re-render, which is what
+   pressing a view button or a zoom button does. */
+await page.evaluate(() => { state.profShow = 'both'; renderProfile(); });
+await page.waitForTimeout(400);
+const second = await page.evaluate(() => {
+  const r = document.querySelector('#profsvg rect[style*="touch-action"]');
+  const b = r.getBoundingClientRect();
+  return { x: b.x + b.width * 0.55, y: b.y + b.height / 2 };
+});
+await page.mouse.move(second.x, second.y);
+await page.mouse.down();
+await page.mouse.move(second.x + 30, second.y, { steps: 5 });
+const readAgain = await page.evaluate(() => {
+  const t = [...document.querySelectorAll('#profsvg text')];
+  return t.length ? t[t.length - 1].textContent : '';
+});
+await page.mouse.up();
+await page.waitForTimeout(300);
+check('the profile can be traced again after holding a point and changing view',
+  readAgain.length > 0, JSON.stringify({ readAgain }));
+/* THE READOUT CARRIES ITS UNITS, and in the combined view it carries both.
+   A bare number beside a picture that can show a depth or a width is the one
+   thing this view must not produce. */
+check('and the combined view reads out a depth and a width, each with its unit',
+  /ft/.test(readAgain) && /m across/.test(readAgain), JSON.stringify({ readAgain }));
+
 /* LEFT AND RIGHT ARE AS THE RIVER RUNS, and the baked centreline is stored
    MOUTH FIRST — so downstream at a point is back towards the previous index.
    Getting that backwards swaps every left for a right, silently and

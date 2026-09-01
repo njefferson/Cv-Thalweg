@@ -162,8 +162,16 @@ main{flex:1 1 auto; display:flex; min-height:0}
   padding:0!important; overflow:hidden!important}
 #panel-map > #map{flex:1 1 auto; min-width:0}
 #panel-map{flex-direction:column}
+/* THE SECTION SCROLLS RATHER THAN CRUSHING THE DRAWING. It has a fixed height,
+   and holding a traced point fills `#profheld` with four paragraphs and two
+   buttons — 154 px of them measured on a laptop. With the drawing on
+   `flex:1 1 auto; min-height:0` the flexbox did what it was told and took the
+   picture down to ZERO, while the SVG went on painting at its old size outside
+   its own container with the held panel over it. The visible symptom was that
+   tracing worked once and then the profile stopped answering to a finger at
+   all, with nothing in the console. */
 #profile{flex:0 0 auto; border-top:1px solid var(--teal); background:var(--panel-2);
-  display:flex; flex-direction:column; min-height:0}
+  display:flex; flex-direction:column; min-height:0; overflow-y:auto}
 .profhead{display:flex; align-items:center; gap:.4rem; padding:.35rem .5rem;
   border-bottom:1px solid var(--teal)}
 .profhead h2{font-size:.8rem; margin:0; font-weight:600; letter-spacing:.04em}
@@ -177,7 +185,10 @@ main{flex:1 1 auto; display:flex; min-height:0}
 /* Scroll IS the pan, so a finger already knows how to use it and no gesture
    has to be invented. The zoom buttons change how wide the drawing is; the
    container scrolls it. */
-.profwrap{overflow-x:auto; overflow-y:hidden; flex:1 1 auto; min-height:0}
+/* A FLOOR THE FLEXBOX CANNOT TAKE AWAY. The drawing is what this section is
+   for; the panel underneath it is commentary, and commentary must not be able
+   to squeeze the thing it comments on out of existence. */
+.profwrap{overflow-x:auto; overflow-y:hidden; flex:1 1 auto; min-height:110px}
 #profsvg{display:block; height:100%}
 #profnote{margin:.3rem .5rem .45rem; font-size:.72rem}
 @media (max-width:900px){ #profile{height:44vh; height:44dvh} }
@@ -805,7 +816,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.11.0';
+var VERSION = '2.11.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -8441,8 +8452,17 @@ var PROF_VIEWS = [
   { id:'both',  label:'Depth and width', says:'the bed, and how far it is bank to bank' },
   { id:'width', label:'Width',           says:'how far it is bank to bank, on its own' }
 ];
+/* THE DEFAULT IS BOTH, and the reason is what the data actually covers: DWR
+   has sounded a small fraction of these rivers and USGS mapped the banks of all
+   of them, so a profile opening on Depth alone opens on the emptier of the two
+   pictures most of the time. */
 function profView(){
-  var want = state.profShow || 'depth';
+  var want = state.profShow || 'both';
+  /* AND IT FALLS BACK WHERE THERE IS NO WIDTH. The buttons are only offered
+     when a width exists, so a default of "both" on a line with none would
+     leave the reader in a view they were never shown a way out of. */
+  var have = state.profile && state.profile.widths && state.profile.widths.length > 1;
+  if (!have && want !== 'depth') want = 'depth';
   return PROF_VIEWS.filter(function(v){ return v.id === want; })[0] || PROF_VIEWS[0];
 }
 
@@ -8479,8 +8499,47 @@ function renderProfile(){
   renderBedChange(m);
   renderProfViews();
 
+  /* Whatever the last render was still holding, before this one throws it
+     away. See the note beside the pointer handlers below. */
+  if (state.profHit && state.profHit._pid !== null && state.profHit._pid !== undefined) {
+    try { state.profHit.releasePointerCapture(state.profHit._pid); } catch (err) {}
+    state.profHit._pid = null;
+  }
+
   var wrap = $('#profwrap');
   var H = Math.max(90, wrap.clientHeight || 150);
+
+  /* THE DRAWING WAS SIZED TO A BOX THAT THEN CHANGED UNDER IT.
+
+     The height comes from the wrapper, once, at render. Letting go of a trace
+     fills `#profheld` with four paragraphs and two buttons, the section
+     re-flows, and the wrapper gets SHORTER — while the SVG keeps the height it
+     was drawn at. The part that no longer fits hangs outside its container
+     with the held panel painted over it, and the hit rect goes with it: a
+     press on the lower half of the picture lands on a paragraph.
+
+     Measured, because it looked exactly like a broken test. On a fresh page
+     every view traced correctly; in one page the first trace worked and every
+     one after it was dead, and `elementFromPoint` at the centre of the hit
+     rect's own bounding box returned a `<p>`. The first guess — a pointer
+     capture stranded on a discarded node — was wrong, and the fix for it is
+     kept below because it is right anyway.
+
+     A ResizeObserver re-renders when the wrapper's height actually moves. It
+     converges: this function reads the wrapper's height and never sets it. */
+  if (!state.profRO && window.ResizeObserver){
+    state.profLastH = H;
+    state.profRO = new ResizeObserver(function(){
+      var now = $('#profwrap');
+      if (!now || !state.profile) return;
+      var h = Math.max(90, now.clientHeight || 150);
+      if (Math.abs(h - (state.profLastH || 0)) < 3) return;
+      state.profLastH = h;
+      renderProfile();
+    });
+    state.profRO.observe(wrap);
+  }
+  state.profLastH = H;
   var base = Math.max(320, wrap.clientWidth || 360);
   var W = Math.round(base * (state.profZoom || 1));
   var padL = 34, padR = 10, padT = 10, padB = 18;
@@ -8670,6 +8729,11 @@ function renderProfile(){
       'to bank, so bars and shallow margins are inside it.' +
       (wm ? '' : '');
   }
+  /* THE WIDTH VIEW USED TO RETURN HERE, and returning took the finger-tracing
+     with it — the whole reason to drag along a profile is to find the narrows
+     or the deep bit and put it somewhere on the map, and this view had the
+     picture and not the gesture. It sets the sentence and carries on now; the
+     tracing below reads whichever quantities the view is showing. */
   if (view.id === 'width'){
     var wLead = state.profWhole
       ? 'Down the river\u2019s own line, '
@@ -8677,13 +8741,7 @@ function renderProfile(){
     var wSentence = wLead + 'how far it is from bank to bank.' + wSay + youText;
     note.textContent = wSentence;
     name(wSentence);
-    /* NO FINGER-TRACING IN THIS VIEW, and it is a real loss rather than an
-       oversight: the tracing reads a DEPTH at the point under the finger and
-       moves a mark along the line on the map, and there is no depth here to
-       read. Listed in the release notes as still not right rather than left
-       for somebody to discover. */
-    return;
-  }
+  } else {
 
   var names = m.bands.filter(function(b){ return b.measured; })
     .map(function(b){ return readableSurvey(b.survey) + (isNum(b.deepest)
@@ -8704,6 +8762,7 @@ function renderProfile(){
     (view.id === 'both' ? wSay : '');
   note.textContent = sentence;
   name(sentence);
+  }
 
   /* TRACING. The picture says how deep it is somewhere along the line and the
      map says where things are, and until now a reader had to hold the join
@@ -8726,28 +8785,50 @@ function renderProfile(){
     var px = ev.clientX - box.left;
     var frac = (px - padL) / Math.max(1, (W - padL - padR));
     frac = Math.max(0, Math.min(1, frac));
-    var along = frac * m.length;
+    var along = frac * axisLen;
     head.setAttribute('x1', x(along)); head.setAttribute('x2', x(along));
     head.setAttribute('opacity', 1);
 
     /* The nearest measured sample of the first band, so the number shown is
        one the survey actually returned rather than a reading off the line. */
-    var band = m.bands[0], best = null;
+    var band = (m.bands || [])[0], best = null;
     (band ? band.pts : []).forEach(function(pt){
       if (!isNum(pt.v)) return;
       if (!best || Math.abs(pt.d - along) < Math.abs(best.d - along)) best = pt;
     });
+    var tol = axisLen / 20;
+    var sample = best && Math.abs(best.d - along) < tol ? best : null;
+
+    /* THE WIDTH UNDER THE FINGER, on the same terms as the depth: the nearest
+       sample USGS actually measured, not a value read off the drawn line, and
+       nothing at all where the nearest is too far away to be about this place.
+       The two quantities carry their units into the readout because a bare
+       number beside a picture that can show either is the one thing this view
+       must not produce. */
+    var wBest = null;
+    (m.widths || []).forEach(function(pt){
+      if (!wBest || Math.abs(pt.along - along) < Math.abs(wBest.along - along)) wBest = pt;
+    });
+    var wSample = wBest && Math.abs(wBest.along - along) < tol ? wBest : null;
+
+    var says = [];
+    if (view.id !== 'width')
+      says.push(sample ? fmt(Math.abs(sample.v), 1) + ' ft' : 'no depth here');
+    if (view.id !== 'depth')
+      says.push(wSample ? wSample.m + ' m across' : 'no width here');
     read.setAttribute('x', Math.min(W - padR - 60, x(along) + 4));
     read.setAttribute('opacity', 1);
-    read.textContent = best && Math.abs(best.d - along) < (m.length / 20)
-      ? fmt(Math.abs(best.v), 1) + ' ft'
-      : 'not measured here';
-    var sample = best && Math.abs(best.d - along) < (m.length / 20) ? best : null;
+    /* "not measured here" was the whole readout when only the depth existed.
+       With two quantities it has to say WHICH is missing, or a reader in the
+       combined view cannot tell whether the bed or the banks are the gap. */
+    read.textContent = says.join(' \u00b7 ') || 'not measured here';
     markTrace(sample, along);
     var at = sample && isNum(sample.lat) ? [sample.lat, sample.lon] : pointAlong(m.pts, along);
     /* A sample carries a position and a value; the SURVEY it came from belongs
-       to the band, not to the point inside it. */
+       to the band, not to the point inside it. The width travels with the held
+       point too, so letting go of a narrows keeps the number that made it one. */
     state.traceAt = at ? { at:at, along:along, v: sample ? sample.v : null,
+                           widthM: wSample ? wSample.m : null,
                            survey: (sample && band && band.survey) ? band.survey.name : null } : null;
   }
   /* LIFTING THE FINGER USED TO THROW THE POINT AWAY.
@@ -8761,10 +8842,36 @@ function renderProfile(){
   function release(){
     if (state.traceAt) renderHeld(state.traceAt);
   }
-  hit.addEventListener('pointerdown', function(e){ hit.setPointerCapture(e.pointerId); trace(e); });
+  /* THE CAPTURE HAS TO BE GIVEN BACK, AND THE OLD RECT TAKES IT TO THE GRAVE.
+
+     Tracing captures the pointer so a finger that slides off the drawing keeps
+     controlling it. Every re-render of this section — a view button, either
+     zoom button — throws the whole SVG away and builds a new hit rect, and a
+     capture still held by the discarded one leaves the browser routing pointer
+     events at a node that is no longer in the document. The symptom is exact
+     and it is what a reader will actually do: trace the profile, press
+     "Width", drag again, and NOTHING HAPPENS — no line, no readout, no mark on
+     the map, with no error anywhere.
+
+     Measured rather than reasoned about: on a fresh page every view traced
+     correctly, and in one page the first view traced and the two after it were
+     dead. That is the whole difference between a defect and a bad test.
+
+     So the id is kept with the rect, the capture is released on the way up,
+     and the next render releases whatever the last one was still holding. */
+  hit.addEventListener('pointerdown', function(e){
+    try { hit.setPointerCapture(e.pointerId); hit._pid = e.pointerId; } catch (err) {}
+    trace(e);
+  });
   hit.addEventListener('pointermove', function(e){ if (e.buttons || e.pointerType === 'touch') trace(e); });
-  hit.addEventListener('pointerup', release);
-  hit.addEventListener('pointercancel', release);
+  function letGo(e){
+    if (e) try { hit.releasePointerCapture(e.pointerId); } catch (err) {}
+    hit._pid = null;
+    release();
+  }
+  hit.addEventListener('pointerup', letGo);
+  hit.addEventListener('pointercancel', letGo);
+  state.profHit = hit;
 }
 
 /* WHICH BANK, AND HOW SURE THE APP IS ABOUT SAYING SO.
@@ -8818,11 +8925,21 @@ function renderHeld(held){
   if (!river) return;
   var lat = held.at[0], lon = held.at[1];
 
+  /* WHAT IS HELD, in whichever quantities were actually found there. Depth and
+     width come from different surveys by different agencies, so one can be
+     present and the other absent at the same point — and saying "not measured
+     here" when the width was measured and the bed was not would be the panel
+     losing what it has because of what it has not. */
+  var says = [];
+  if (isNum(held.v)) says.push(fmt(Math.abs(held.v), 1) + ' ft deep');
+  if (isNum(held.widthM)) says.push(held.widthM + ' m bank to bank');
   var line = el('p',{class:'note'});
-  line.appendChild(el('b',{ text: isNum(held.v)
-    ? fmt(Math.abs(held.v), 1) + ' ft here'
-    : 'Not measured here' }));
+  line.appendChild(el('b',{ text: says.length
+    ? initialCap(joinNames(says)) + ' here'
+    : 'Neither the bed nor the banks are measured here' }));
   box.appendChild(line);
+  if (isNum(held.widthM)) box.appendChild(el('p',{class:'note',
+    text:'That width is USGS\u2019s mapped channel at 1:24,000, bank to bank \u2014 not today\u2019s water, and not the width of anything you could take a boat down.'}));
 
   var b = bankOf(river, lat, lon);
   if (b)
@@ -9695,6 +9812,13 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.11.1', date:'2026-09-01', changes:[
+      'Dragging a finger along the profile now reads out the width as well as the depth, in whichever view you are in \u2014 \u201c16.3 ft \u00b7 178 m across\u201d with both showing, the width alone in the Width view. Letting go keeps both, and the held panel says which was found and which was not, because the bed and the banks were surveyed by different people and one can be there without the other.',
+      'The profile opens on Depth and width. The state has sounded a small fraction of these rivers and USGS mapped the banks of all of them, so opening on Depth alone was opening on the emptier of the two pictures most of the time.',
+      'AND TRACING WAS BROKEN AFTER THE FIRST GO, in every version that had it. Holding a point fills the panel underneath with four paragraphs and two buttons; the section is a fixed height, and the drawing was being squeezed to nothing while it went on painting outside its own box with that panel over it. You could trace once. The second drag landed on a paragraph and did nothing at all, and there was no error to see. The drawing has a floor now and the section scrolls instead.',
+  ], broken:[
+      'The width readout finds the nearest place USGS measured, and says there is no width rather than inventing one where the nearest is too far off. On the upper reaches, where USGS maps the river as a line and not an area, that is most of it.',
+  ] },
   { v:'2.11.0', date:'2026-09-01', changes:[
       'How wide the river is, along the same line the depth is drawn on. The profile has three views now \u2014 Depth, Depth and width, and Width on its own \u2014 and the width has its own scale in metres so it can never be read as a depth.',
       'It is measured rather than estimated: a line cast straight across USGS\u2019s mapped water surface, perpendicular to the river\u2019s own course, taking the distance between the two nearest banks. Six hundred metres between samples down the Sacramento.',
