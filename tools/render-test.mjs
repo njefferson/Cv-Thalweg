@@ -1289,6 +1289,36 @@ check('there is a button for every river the ribbon draws',
   ribbonBand.hitButtons === ribbonBand.rivers,
   JSON.stringify({ buttons: ribbonBand.hitButtons, rivers: ribbonBand.rivers }));
 
+/* A SHORT SCREEN SCROLLS THE BAND RATHER THAN DROPPING IT. Five rows at a
+   legible height need more room than a phone has above the cards, and the old
+   answer was to remove the comparison the landing page exists for. A row has a
+   floor below which a dot and its figure cannot be read, so squeezing is not
+   available either — the third option is to keep the size, cap the band, and
+   let the rest be reached. */
+const shortBand = await page.evaluate(async () => {
+  const before = { w: window.innerWidth, h: window.innerHeight };
+  /* Drive the metrics directly: the viewport cannot be resized from in here,
+     and what is under test is the arithmetic, not the browser. */
+  ribbonMetrics(360, 5, 112, true);
+  const tight = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  ribbonMetrics(360, 5, 300, true);
+  const roomy = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  ribbonMetrics(360, 5, 40, true);
+  const sliver = { rowH: RIB.rowH, scrolls: RIB.scrolls, tooTight: RIB.tooTight };
+  drawRibbon();
+  return { tight, roomy, sliver, before };
+});
+check('a band with room shows every row without scrolling',
+  !shortBand.roomy.scrolls && !shortBand.roomy.tooTight,
+  JSON.stringify(shortBand.roomy));
+/* THE ROWS KEEP THEIR HEIGHT. An illegible row is not a smaller row. */
+check('a band too small keeps the rows legible and scrolls instead',
+  shortBand.tight.scrolls && shortBand.tight.rowH >= 22 && !shortBand.tight.tooTight,
+  JSON.stringify(shortBand.tight));
+/* And the one case where scrolling would be a sliver of a bar still drops. */
+check('a band too small to show even one row is still dropped',
+  shortBand.sliver.tooTight, JSON.stringify(shortBand.sliver));
+
 /* NO SENTENCE NAMES A COUNT THAT LIVES IN AN ARRAY. Every one of them said
    FOUR, and there have been five entries since the Delta arrived. */
 const copy = await page.evaluate(() => ({

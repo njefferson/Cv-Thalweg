@@ -685,7 +685,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.6.0';
+var VERSION = '2.6.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2202,12 +2202,43 @@ function ribbonMetrics(W, rowCount, budget, tidal){
      and the two read as one label. Rows carrying a caption get the height it
      needs rather than borrowing it from the row underneath. */
   if (tidal && rowCount > 1) m.rowH += 14;
+  /* SHRINK TO FIT, AND WHEN IT WILL NOT FIT, SCROLL RATHER THAN VANISH.
+
+     A row has a floor below which a dot and its figure are not legible, and
+     five rows at that floor need more height than a phone held sideways has
+     in total — a landscape iPhone gives this band about 75px to work with.
+     The old answer was to drop the whole thing, which is how the comparison
+     the landing page exists for disappeared the moment somebody turned their
+     phone. Squeezing below the floor is not available either: an illegible
+     row is not a smaller row, it is a different defect.
+
+     So the third option. Rows keep their legible height, the band keeps its
+     share of the screen, and what does not fit is reached by scrolling. The
+     overflow is VERTICAL because the rows stack — turning the band sideways
+     would mean laying the rivers out along the axis their bars already use,
+     which is the one thing a stacked comparison must not do. */
+  m.natural = m.rowH;
+  m.scrolls = false;
   if (isNum(budget) && rowCount > 0){
     var avail = budget - m.top - m.foot;
     var fit = Math.floor(avail / rowCount);
-    if (fit < m.rowH) m.rowH = fit;
+    if (fit < m.rowH){
+      if (fit >= 22) m.rowH = fit;          /* still legible: shrink to fit */
+      else m.scrolls = true;                /* below the floor: keep the size */
+    }
   }
-  m.tooTight = m.rowH < 22;
+  /* THE ONLY REMAINING REASON TO DROP IT is a band too short to show a whole
+     row, where "scrollable" would be a sliver of a bar and a scrollbar.
+
+     The test is the BAND against one row, not the band minus the top and the
+     foot: when the drawing scrolls, its margins and its key scroll with it and
+     do not have to be on screen at once. Requiring them to fit is what took
+     the ribbon off an iPad held sideways, which has room for a row and a half
+     and every reason to be given it. A phone held sideways has seventeen
+     pixels after the caption underneath has taken its share, and that is a
+     sliver — so it keeps the drop, and the note under it says so. */
+  m.budget = isNum(budget) ? budget : null;
+  m.tooTight = m.scrolls && isNum(budget) && budget < (m.rowH + 8);
   RIB = m;
 }
 
@@ -2583,7 +2614,20 @@ function drawRibbon(again){
      budget that only bounds the SVG bounds the wrong thing. */
   var wrapEl = document.getElementById('ribbonwrap');
   var budget = null;
-  if (narrow){
+  /* THE BUDGET IS ABOUT HEIGHT AND WAS KEYED ON WIDTH.
+
+     `narrow` means "the map is not beside the rail", which is a fact about
+     width — and it was standing in for "the ribbon and the readings share one
+     screen", which is a fact about HEIGHT. A phone held sideways is 932px
+     wide and 267px tall: wide enough to escape the budget entirely, and short
+     enough that the band then drew 300px of ribbon into a 267px viewport and
+     left the readings nothing at all. Measured, not reasoned about.
+
+     So a short viewport gets the budget whatever its width. 620px is about
+     where a laptop window stops being able to give a third of itself away
+     without the readings under it disappearing. */
+  var shortView = (window.innerHeight || 800) < 620;
+  if (narrow || shortView){
     var cs = window.getComputedStyle(wrapEl);
     var extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     Array.prototype.forEach.call(wrapEl.children, function(c){
@@ -2664,6 +2708,24 @@ function drawRibbon(again){
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   host.setAttribute('height', H);
   host.setAttribute('width', W);
+
+  /* AND THE BAND EITHER FITS OR SCROLLS. Capped at its share of the screen
+     with the drawing at full height inside it, so every river is present and
+     the ones past the fold are reached rather than lost. `contain` stops a
+     flick that runs off the end of this band from carrying on into the page,
+     which is the trap nested scrolling always sets on touch. */
+  if (RIB.scrolls && isNum(RIB.budget)){
+    wrap.style.maxHeight = Math.max(0, RIB.budget) + 'px';
+    wrap.style.overflowY = 'auto';
+    wrap.style.overscrollBehavior = 'contain';
+    wrap.setAttribute('aria-label',
+      'River ribbon, ' + list.length + ' rivers, scrollable');
+  } else {
+    wrap.style.maxHeight = '';
+    wrap.style.overflowY = '';
+    wrap.style.overscrollBehavior = '';
+    wrap.setAttribute('aria-label', 'River ribbon');
+  }
   var g = svg('g', {});
   var plotted = 0, missing = 0;
 
@@ -3839,9 +3901,20 @@ function syncRibbonDropNote(){
   var wrap = document.getElementById('ribbonwrap');
   var dropped = !!(wrap && wrap.hidden);
   slot.hidden = !dropped;
+  /* AND WHEN IT IS DROPPED, THE ADVICE HAS TO MATCH THE SCREEN IT IS ON.
+
+     The band is bounded by HEIGHT, and a phone held sideways has about two
+     hundred pixels of it — less than the same phone upright, not more. A
+     reader who turns the phone to get more room is reaching for the wrong
+     axis, and the note used to tell them only that the screen was short,
+     which is exactly the thing rotating feels like it should fix. */
+  var landscape = (window.innerWidth || 0) > (window.innerHeight || 0);
   slot.textContent = dropped
     ? 'The river ribbon is not shown: ' + countWord(ribbonRowCount()) +
-      ' rows of it will not fit above these cards at a legible size on a screen this short. Pick a single river and it comes back for that one.'
+      ' rows of it need more height than this screen has to spare, at a size worth reading.' +
+      (landscape
+        ? ' Turning the phone upright gives it the height — held sideways there is less of it, not more.'
+        : ' Pick a single river and it comes back for that one.')
     : '';
 }
 
@@ -8687,6 +8760,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.6.1', date:'2026-09-01', changes:[
+      'The river bars scroll instead of disappearing. On a screen with no room for five of them at a size worth reading, the app used to take the whole comparison away \u2014 which is the thing the front page is for. The bars keep their size now, the band keeps its share of the screen, and the ones past the bottom are reached by scrolling.',
+      'That brought them back on the small phones, where they had been gone entirely, and it stopped them taking over an iPad held sideways \u2014 which had been drawing a taller band than the whole screen and leaving the readings nothing.',
+      'And the note explaining a missing band now tells you the right thing to do about it. It is bounded by HEIGHT, and turning a phone sideways gives it LESS of that, not more \u2014 so where rotating is the wrong move the note says so, rather than leaving you to try it.',
+  ], broken:[
+      'A phone held sideways still cannot show five bars. There are about two hundred pixels of height on that screen in total, and the caption underneath takes a quarter of them. Held upright the same phone has room, and the note says so.',
+      'Where the bars do fit at a smaller size they are still shrunk to fit rather than scrolled, because the point of stacking them is seeing them at once.',
+  ] },
   { v:'2.6.0', date:'2026-09-01', changes:[
       'The tide chart knows when it is dark. Night is shaded behind the curve and the low light at either end of the day a shade lighter, so you can see at a glance whether a turn lands at first light, in the middle of the afternoon, or at two in the morning. First light, sunrise, sunset and last light are written out underneath as well.',
       'And it names the turns that fall in the low light \u2014 which of the next day and a half\u2019s highs and lows land in the hour around dawn or dusk. Fishing the change at first or last light is a convention among anglers; the app is telling you when the two coincide and nothing whatever about what the fish will do.',

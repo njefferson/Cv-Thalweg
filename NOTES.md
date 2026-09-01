@@ -7,8 +7,9 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.6.0** at https://staging.cv-thalweg.pages.dev — first
-  and last light on the tide chart, and 2.5.1's four device-reported defects.
+- Staged candidate: **2.6.1** at https://staging.cv-thalweg.pages.dev — the
+  river bars scroll rather than vanishing on a short screen; first and last
+  light on the tide chart; and 2.5.1's four device-reported defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -940,6 +941,53 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## The band scrolls now, and the budget was keyed on the wrong axis
+
+Reported from the device: the ribbon had been taken off for a narrow view and
+turning the phone landscape did not bring it back. Measured across eight real
+geometries, two separate defects fell out — and the second is the one nobody
+would have found by reasoning.
+
+**A phone held sideways has LESS height, not more.** Landscape on an iPhone is
+about 233px of viewport; the band's share of that is 75px and the caption
+underneath takes 58 of them. Rotating is reaching for the wrong axis. So the
+note now says that where it applies, rather than telling a reader the screen is
+short and leaving them to try the thing that makes it shorter.
+
+**The budget keyed on WIDTH and it is about HEIGHT.** `narrow` means "the map is
+not beside the rail" — a fact about width, standing in for "the ribbon and the
+readings share one screen", which is a fact about height. An iPhone 15 Pro Max
+held sideways is **932px wide and 267px tall**: wide enough to escape the budget
+entirely, short enough that the band then drew a 300px ribbon into a 267px
+viewport and left the readings nothing at all. An iPad mini sideways was drawing
+366px into 461px, 79% of the screen. Neither was reachable from the portrait
+geometries the suite had always measured.
+
+**And the third option instead of all-or-nothing.** A row has a floor below
+which a dot and its figure are not legible, so squeezing is not available — an
+illegible row is not a smaller row. Five rows at that floor need more height
+than a short screen has. The old answer was to drop the comparison the landing
+page exists for. Now: rows keep their height, the band keeps its share, and what
+does not fit is reached by scrolling, with `overscroll-behavior: contain` so a
+flick off the end does not carry into the page.
+
+That is what the request asked for, on the axis that actually overflows. The
+rows stack, so the overflow is vertical; laying them out sideways would put the
+rivers along the same axis their bars already use, which is the one thing a
+stacked comparison must not do.
+
+**One threshold was wrong at first and the measurement caught it.** The drop
+test asked whether the band minus its top margin and its key could hold a row —
+but when the drawing scrolls, its margins and its key scroll with it and need
+not be on screen at once. Requiring them to fit took the ribbon off an iPad held
+sideways, which has room for a row and a half and every reason to be given it.
+The test is the band against one row.
+
+**Where it stands:** the small phones have their bars back, scrolled at full
+size where they used to be gone; an iPad sideways is capped at 21% of the screen
+instead of 79%; and a phone held sideways still cannot show five, which is a
+real limit that the note now explains correctly.
 
 ## First and last light, and the only thing here that can be checked against physics
 

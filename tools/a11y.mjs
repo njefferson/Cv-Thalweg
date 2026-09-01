@@ -479,6 +479,58 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   check(`${name}: the ribbon's own overlay does not eat its height budget`,
     band.hidden ? band.rowH > 0 : band.rowH >= 22,
     JSON.stringify(band));
+  /* A BAND THAT CANNOT FIT SCROLLS RATHER THAN VANISHING. Five rows at a
+     legible height need more than a short screen has, and the old answer was
+     to drop the comparison the landing page exists for. Rows keep their size,
+     the band keeps its share, and the rest is reached by scrolling — so where
+     it is shown at all, either everything is visible or the band really can
+     be scrolled to the rest of it. */
+  if (!band.hidden){
+    const reach = await page.evaluate(() => {
+      const w = document.getElementById('ribbonwrap');
+      const over = w.scrollHeight - w.clientHeight;
+      if (over <= 4) return { needed: false, ok: true };
+      w.scrollTop = w.scrollHeight;
+      const moved = w.scrollTop > 4;
+      w.scrollTop = 0;
+      return { needed: true, ok: moved, over: Math.round(over),
+               label: w.getAttribute('aria-label') || '' };
+    });
+    check(`${name}: what does not fit in the ribbon can be scrolled to`,
+      reach.ok, JSON.stringify(reach));
+    if (reach.needed)
+      check(`${name}: and the band says it scrolls`,
+        /scrollable/i.test(reach.label), JSON.stringify(reach));
+  }
+  /* AND THE BAND NEVER TAKES MORE THAN ITS SHARE, however wide the screen is.
+     The budget keyed on WIDTH, which is a fact about whether the map sits
+     beside the rail — not about whether there is height to give away. A phone
+     held sideways is 932 wide and 267 tall: wide enough to escape the budget,
+     short enough that the band then drew 300px into a 267px viewport. */
+  check(`${name}: the ribbon keeps to its share wherever a budget applies`,
+    await page.evaluate(() => {
+      const w = document.getElementById('ribbonwrap');
+      if (w.hidden) return true;
+      /* A tall wide screen has no budget and never had one: there the map sits
+         beside the rail and the band spans the top with the whole page under
+         it. The invariant is not "always a third" — it is that a budget is in
+         force whenever this band and the readings are sharing one screen, and
+         that where one is in force it is kept to. */
+      const budgeted = window.innerWidth <= 900 || window.innerHeight < 620;
+      if (!budgeted) return true;
+      return w.getBoundingClientRect().height <= window.innerHeight * 0.34 + 2;
+    }),
+    JSON.stringify({ vw: width, vh: height }));
+  /* AND THE OTHER HALF OF IT: a short screen must actually get a budget. This
+     is the check that would have caught the width-keyed one, which let a
+     932x267 phone draw 300px of ribbon into a 267px viewport. */
+  check(`${name}: a short screen gets a budget however wide it is`,
+    await page.evaluate(() => {
+      if (window.innerHeight >= 620) return true;
+      drawRibbon();
+      return RIB.budget !== null && RIB.budget !== undefined;
+    }),
+    JSON.stringify({ vw: width, vh: height }));
   if (!band.hidden)
     check(`${name}: every river the ribbon draws has a row button`,
       band.buttons === band.rivers, JSON.stringify(band));
