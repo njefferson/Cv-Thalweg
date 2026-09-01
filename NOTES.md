@@ -7,10 +7,10 @@ session needs before it touches anything.
 
 - **2.5.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
   verified by reading that address rather than the push output.
-- Staged candidate: **2.8.1** at https://staging.cv-thalweg.pages.dev — the
-  scrolling band now looks like one; each river drawn to its own scale with its
-  length on the row; a sideways view of the bars; first and last light on the
-  tide chart; and 2.5.1's four device-reported defects.
+- Staged candidate: **2.9.0** at https://staging.cv-thalweg.pages.dev — the
+  band is whole or replaced by an offer that says what is behind it; each river
+  to its own scale with its length on the row; a sideways view of the bars;
+  first and last light on the tide chart; and 2.5.1's four device defects.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -942,6 +942,53 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## All of them or none of them, decided by fit
+
+The question put was which arrangement serves how a fisher actually plans. The
+answer came from separating two moments that want different things.
+
+**Choosing where to go** is a comparing task, and the river cards already do it:
+season, temperature and its reading, flow with the gauge it came from, clarity,
+which way the water is running, the tide phase with its next turn and swing.
+The cards are the choosing instrument.
+
+**What the cards cannot do**, and the only thing the stacked band uniquely
+gives, is the temperature ALONG each river on one scale — that the lower
+Sacramento is warm while the upper is cold, and the American is uniform top to
+bottom. A mean per card hides it, and for a fall-run fishery it is the fact
+that matters most.
+
+**Standing on the bank** is a different task, and by then a river is picked and
+the band is one row. None of this touches it.
+
+So the band's value is real and it needs room. **A version too small to read
+does not serve the moment it exists for** — it occupies a third of the screen
+looking as though it does. And scrolling is the worst of the options, because
+the comparison requires seeing them TOGETHER: two rows at a time is not a
+comparison, it is a list.
+
+**So on the landing view it is all of them or none of them**, and where they do
+not fit the band gives way to an offer.
+
+**Keyed on whether it fits, not on whether this is a phone.** A tall phone in
+portrait may hold five rows honestly and a short one will not, and the app
+already measures which. Reaching for a device rule here is exactly what put the
+height budget on a width test earlier the same day.
+
+**The offer names what is behind it.** The old sentence said the rows would not
+fit and sent the reader to pick a single river — an apology and a detour that
+never said what the band is FOR. A reader who has never seen it on a big screen
+had no idea there was anything to want. It now names the three things only the
+stacked view gives and says they are one press away at full size.
+
+**What the scroll work bought, and what replaced it.** 2.6.1's scrolling band
+and 2.8.1's fade were right answers to the question as it stood, and both are
+now unused on the landing view. That is not waste: the fade work is what made it
+obvious that a scrolled comparison is a compromised one, and the scroll path
+stays for the single-river case. The a11y checks about reaching rows below a
+fold were replaced rather than weakened — there is no fold now, and what is
+asserted instead is that the band is never shown half-finished.
 
 ## The band scrolled and only said so to a screen reader
 

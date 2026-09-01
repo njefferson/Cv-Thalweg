@@ -764,7 +764,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.8.1';
+var VERSION = '2.9.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2820,8 +2820,28 @@ function drawRibbon(again, opts){
   });
   ribbonMetrics(W, list.length, budget, anyTidal);
   var wrap = document.getElementById('ribbonwrap');
-  if (!sideways) wrap.hidden = !!RIB.tooTight;
-  if (!sideways && RIB.tooTight){
+
+  /* A COMPROMISED COMPARISON IS NOT A COMPARISON.
+
+     The stacked band exists for one thing the river cards cannot do: the water
+     temperature ALONG each river, on one scale, all of them at once. Reading
+     that needs them together and at a size worth reading — so a band scrolled
+     to two rows at a time defeats the only job it has, and so does one squeezed
+     until the dots touch. A glance at something illegible is not a glance.
+
+     So on the landing view it is all of them or none of them. Where they do
+     not fit, the band gives way to an offer that says what is behind it and
+     opens the sideways view, where the same picture gets the long side of the
+     screen at full row height. The readings get their third of the screen back
+     in the meantime.
+
+     KEYED ON WHETHER IT FITS, NOT ON WHETHER THIS IS A PHONE. A tall phone in
+     portrait may hold five rows honestly and a short one will not, and the
+     app already measures which. Reaching for a device rule here is what put
+     the height budget on a width test earlier today. */
+  var replaced = !sideways && list.length > 1 && (RIB.scrolls || RIB.tooTight);
+  if (!sideways) wrap.hidden = !!RIB.tooTight || replaced;
+  if (!sideways && (RIB.tooTight || replaced)){
     /* AND THE OVERLAY GOES WITH IT. Returning here without clearing it leaves
        buttons for rows that are no longer drawn — invisible inside a hidden
        wrapper, and, before the fix above, the very thing that kept the budget
@@ -4092,13 +4112,24 @@ function syncRibbonDropNote(){
      reader who turns the phone to get more room is reaching for the wrong
      axis, and the note used to tell them only that the screen was short,
      which is exactly the thing rotating feels like it should fix. */
-  var landscape = (window.innerWidth || 0) > (window.innerHeight || 0);
+  /* WHAT IS BEHIND IT, NOT THAT SOMETHING IS MISSING.
+
+     The old sentence said the rows would not fit and told the reader to pick a
+     single river — an apology and a detour. It never said what the band is
+     FOR, so a reader who had never seen it on a big screen had no idea there
+     was anything to want. Content you cannot see and cannot know to look for
+     is content that is not there, and that was true of the whole comparison,
+     not just the rows below a fold.
+
+     So this names the three things only the stacked view gives, and says they
+     are one press away at full size. The button sits directly under it. */
+  var n = ribbonRowCount();
   slot.textContent = dropped
-    ? 'The river ribbon is not shown: ' + countWord(ribbonRowCount()) +
-      ' rows of it need more height than this screen has to spare, at a size worth reading.' +
-      (landscape
-        ? ' Turning the phone upright gives it the height — held sideways there is less of it, not more.'
-        : ' Pick a single river and it comes back for that one.')
+    ? countWord(n).charAt(0).toUpperCase() + countWord(n).slice(1) +
+      ' rivers side by side — the water temperature along each one, how far up ' +
+      'the tide reaches, and where every gauge sits. There is not the height for ' +
+      'them here at a size worth reading. Turned sideways they fit at full size, ' +
+      'all of them at once.'
     : '';
 }
 
@@ -4271,7 +4302,8 @@ function renderWater(){
        exists only in that case: on a tall screen every row is already there
        and a control that changes nothing is clutter. */
     var swrow = el('div',{class:'rowline',id:'swopen'});
-    var swb = el('button',{type:'button',text:'See all ' + countWord(ribbonRowCount()) + ' sideways'});
+    var swb = el('button',{type:'button',
+      text:'\u21bb  See all ' + countWord(ribbonRowCount()) + ' sideways'});
     swb.addEventListener('click', openSideways);
     swrow.appendChild(swb);
     p.appendChild(swrow);
@@ -9034,6 +9066,14 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.9.0', date:'2026-09-01', changes:[
+      'On the front page the river bars are now all of them or none of them. They are there for one thing the cards underneath cannot do \u2014 the water temperature ALONG each river, on one scale, all five at once \u2014 and reading that needs them together and big enough to read. Two rows at a time, scrolled, defeats the only job they have.',
+      'Where there is not the height for them, they give way to a panel that tells you what you are missing and opens it: five rivers side by side, the temperature along each, how far up the tide reaches, and where every gauge sits. One press and they are there at full size on the long side of the screen.',
+      'That gives the readings back a third of the screen on a phone, and it is decided by whether the bars actually FIT rather than by guessing what kind of device you are on \u2014 a tall phone held upright may have room for all five and a short one will not.',
+  ], broken:[
+      'On a short screen the bars are no longer glanceable on the front page; you press for them. A glance at something too small to read is not a glance, but it is a press you did not used to make.',
+      'The sideways view is for reading. Pressing a river to open it is on the upright bars, where the invisible buttons that make them pressable can work out where they are.',
+  ] },
   { v:'2.8.1', date:'2026-09-01', changes:[
       'The river bars now LOOK like they scroll, on a phone where they do. They were scrolling and saying so only to a screen reader \u2014 which is to say saying so to everything except the eye: the band simply ended, with rivers below the fold and nothing suggesting they were there.',
       'The bottom edge fades while there is more to reach, and the note underneath says how many rivers are below it. The fade goes once you are at the end, so the last row is not left dimmed by a hint about something already on screen.',

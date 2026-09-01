@@ -479,57 +479,54 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   check(`${name}: the ribbon's own overlay does not eat its height budget`,
     band.hidden ? band.rowH > 0 : band.rowH >= (band.floor || 22),
     JSON.stringify(band));
-  /* A BAND THAT CANNOT FIT SCROLLS RATHER THAN VANISHING. Five rows at a
-     legible height need more than a short screen has, and the old answer was
-     to drop the comparison the landing page exists for. Rows keep their size,
-     the band keeps its share, and the rest is reached by scrolling — so where
-     it is shown at all, either everything is visible or the band really can
-     be scrolled to the rest of it. */
-  if (!band.hidden){
-    const reach = await page.evaluate(() => {
-      const w = document.getElementById('ribbonwrap');
-      const over = w.scrollHeight - w.clientHeight;
-      if (over <= 4) return { needed: false, ok: true };
-      w.scrollTop = w.scrollHeight;
-      const moved = w.scrollTop > 4;
-      w.scrollTop = 0;
-      return { needed: true, ok: moved, over: Math.round(over),
-               label: w.getAttribute('aria-label') || '' };
-    });
-    check(`${name}: what does not fit in the ribbon can be scrolled to`,
-      reach.ok, JSON.stringify(reach));
-    if (reach.needed){
-      check(`${name}: and the band says it scrolls`,
-        /scrollable/i.test(reach.label), JSON.stringify(reach));
-      /* AND IT SAYS SO TO THE EYE. The aria-label above told everything except
-         the reader looking at it: a band that simply ended, with rivers below
-         the fold and nothing suggesting they were there. */
-      const seen = await page.evaluate(async () => {
-        const w = document.getElementById('ribbonwrap');
-        const masked = () => { const cs = getComputedStyle(w);
-          return (cs.maskImage || cs.webkitMaskImage || 'none') !== 'none'; };
-        w.scrollTop = 0;
-        markRibbonScrollEnd();
-        const atTop = masked();
-        w.scrollTop = w.scrollHeight;
-        markRibbonScrollEnd();
-        const atBottom = masked();
-        w.scrollTop = 0; markRibbonScrollEnd();
-        return { atTop, atBottom,
-                 note: (document.getElementById('ribbonnote') || {}).textContent || '' };
-      });
-      check(`${name}: the scrolling band is faded at its edge so it looks scrollable`,
-        seen.atTop, JSON.stringify(seen).slice(0, 200));
-      /* And the fade goes at the end, so the last row is not left dimmed by a
-         hint about content already on screen. */
-      check(`${name}: and the fade goes once there is nothing more to reach`,
-        !seen.atBottom, JSON.stringify(seen).slice(0, 200));
-      /* A fade is a hint; a number is an instruction. */
-      check(`${name}: the note says how many rivers are below the fold`,
-        /Scroll (for|the band for) /.test(seen.note) && /\d/.test(seen.note),
-        seen.note.slice(-90));
-    }
+  /* ALL OF THEM OR NONE OF THEM, ON THE LANDING VIEW.
+
+     The stacked band exists for one thing the river cards cannot do: the water
+     temperature ALONG each river, on one scale, all at once. Reading that needs
+     them together and at a readable size — so a band scrolled two rows at a
+     time defeats the only job it has. Where they do not fit it gives way to an
+     offer that names what is behind it and opens the sideways view.
+
+     This replaced the scroll checks that used to live here. The behaviour is
+     different on purpose, not weakened: what was being asserted was that the
+     rows below a fold could be reached, and there is no fold now. */
+  const landing = await page.evaluate(() => {
+    drawRibbon(); drawRibbon();
+    const wrap = document.getElementById('ribbonwrap');
+    const note = document.getElementById('ribbondropped');
+    const row = document.getElementById('swopen');
+    return {
+      bandShown: !wrap.hidden,
+      /* Every row present, at or above the legibility floor, or not at all. */
+      rowH: RIB.rowH, floor: RIB.floor, scrolls: RIB.scrolls,
+      overflow: Math.round(wrap.scrollHeight - wrap.clientHeight),
+      offered: !!(row && !row.hidden),
+      says: note && !note.hidden ? note.textContent : ''
+    };
+  });
+  /* Whichever way it went, the comparison is never shown half-finished. */
+  check(`${name}: the band is either whole or replaced, never scrolled`,
+    !landing.bandShown || landing.overflow <= 4,
+    JSON.stringify(landing).slice(0, 200));
+  if (landing.bandShown)
+    check(`${name}: a shown band has every row at a readable height`,
+      landing.rowH >= landing.floor, JSON.stringify(landing));
+  if (!landing.bandShown) {
+    /* AND THE READER IS TOLD WHAT THEY ARE MISSING. A reader who has never
+       seen this on a big screen has no idea there is anything to want, so
+       "not shown" is not enough — it has to name what is behind it. */
+    check(`${name}: a replaced band says what the stacked view is for`,
+      /temperature along each one/.test(landing.says) &&
+      /how far up the tide reaches/.test(landing.says) &&
+      /where every gauge sits/.test(landing.says),
+      landing.says.slice(0, 200));
+    check(`${name}: and says it is reachable sideways at full size`,
+      /sideways/.test(landing.says) && /full size/.test(landing.says),
+      landing.says.slice(-120));
+    check(`${name}: with the way to get there beside it`, landing.offered,
+      JSON.stringify(landing).slice(0, 160));
   }
+
   /* THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED. Safari's engine has
      no screen.orientation.lock at all, so the device stays put and the drawing
      rotates — and this is the geometry the whole feature is for, asserted on a
@@ -1214,7 +1211,7 @@ for (const [label, width, height] of [
   check(`${label}: a dropped ribbon is announced rather than just missing`,
     await page.evaluate(() => document.getElementById('ribbonwrap').hidden === false ||
       [...document.querySelectorAll('#panel-water .note')]
-        .some(n => /river ribbon is not shown/i.test(n.textContent))));
+        .some(n => /rivers side by side/i.test(n.textContent))));
 
   await page.selectOption('#riverpick', 'sacramento');
   await page.waitForTimeout(1800);
