@@ -10,9 +10,10 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- Staged candidate: **2.11.0** at https://staging.cv-thalweg.pages.dev — how
-  wide the river is along the profile, and the moon. 2.10.0 is on staging behind
-  it and has not been promoted.
+- **2.11.0 is live at https://cv-thalweg.pages.dev**, promoted with 2.10.0 on
+  2026-09-01 and verified by reading that address.
+- Staged candidate: **2.11.1** — the width under the finger, Depth and width as
+  the default view, and the tracing defect below.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1046,6 +1047,45 @@ There is a reason, and it is the reason not to keep looking for one file: on
 this water these zones are set by county ordinance and by the signs on the bank,
 under the Harbors and Navigation Code. They are not one state layer, and an app
 that drew them from one would be asserting a boundary nobody published.
+
+
+## Tracing worked once, and then the drawing was gone
+
+The finger-tracing readout was extended to carry the width. It worked on a
+fresh page in all three views and failed in every view but the first when they
+were tried one after another in one page — which is the exact shape of a bad
+test, and most of an hour went on the wrong hypotheses because of it.
+
+**A pointer capture stranded on a discarded node** was the first guess: every
+re-render throws the SVG away and builds a new hit rect, and a capture held by
+the old one would route events at a node that is no longer in the document.
+That fix is real and is kept. It was not the cause.
+
+**The cause, measured rather than reasoned about.** `#profile` is a fixed
+height — 230 px on a laptop, 44dvh on a phone. Holding a traced point fills
+`#profheld` with four paragraphs and two buttons, 154 px of them. The drawing's
+wrapper was `flex:1 1 auto; min-height:0`, so the flexbox did exactly what it
+was told and took it to **zero**, while the SVG went on painting at its old
+size outside its own container with the held panel over it. `elementFromPoint`
+at the centre of the hit rect's own bounding box returned a `<p class="note">`.
+Before a trace: wrapper 87 px, the rect on top. After one: wrapper **0**, rect
+122 px tall, a paragraph on top.
+
+**So you could trace once. The second drag landed on commentary and did
+nothing, with no error anywhere** — and this was true in every released version
+that had the held panel, not just this one.
+
+The fix is that the drawing has a floor the flexbox cannot take away
+(`min-height:110px`) and the section scrolls rather than crushing it. **The
+picture is what the section is for; the panel underneath is commentary, and
+commentary must not be able to squeeze out the thing it comments on.**
+
+**The assertion that would have caught it is not about height.** A picture can
+have a height and still be unreachable, so the check asks what the document
+says is on top at a point inside it — and it is made on the SECOND trace, after
+a hold and a re-render, because the first one always worked. That is the same
+shape as the touch-target checks this repo already carries: measured by hit
+testing rather than by styling.
 
 
 ## Scratch
