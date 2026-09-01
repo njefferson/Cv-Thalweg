@@ -5,12 +5,14 @@ session needs before it touches anything.
 
 ## State
 
-- Version 2.3.0 on `staging`. **Production is 2.2.0** and stays there until a
+- Version 2.4.0 on `staging`. **Production is 2.3.0** and stays there until a
   promote — these are two numbers on purpose, and writing one of them here
   covering both is how a handoff comes to name a build nobody can open.
-- Staged candidate: **2.3.0** at https://staging.cv-thalweg.pages.dev — the
-  Delta's own regulations, verbatim from CDFW's service; the tide mark gains an
-  arrow and times; and three layout defects found by reading the screen.
+- Staged candidate: **2.4.0** at https://staging.cv-thalweg.pages.dev — the
+  tide says which way it is MOVING as well as which way it comes in; a measured
+  mark for how far up the tide actually pushed in the last day; and striped
+  bass, sturgeon and black bass, read from CDFW's own service rather than typed
+  in, with a monthly workflow that re-reads them.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -942,6 +944,119 @@ and 2.25(b)(1) (bow and arrow).
 them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
+
+## The regulations are baked now, and two of the four typed ones had drifted
+
+The four Delta sections above shipped in 2.3.0 **typed into the river record by
+hand**, which is what a hand copy of somebody else's rule always looks like: no
+way to tell from reading the file whether it is right. Asked properly in 2.4.0,
+two of the four had already drifted.
+
+- **5.00(a)(1)** had lost the regulation's own parenthetical, "(see Section 1.71
+  for definition of the Delta)" — a cross-reference the department put there on
+  purpose, dropped in the copying.
+- **2.25(b)(1)** had been rewritten. The typed version read as a sentence about
+  bow-and-arrow fishing being provided for; what CDFW publishes is "Within the
+  boundaries of the Sacramento-San Joaquin River Delta (See Section1.71)", which
+  is a bounds clause under a heading, not a permission.
+
+Neither was wrong on purpose and neither was noticeable. `tools/fetch-regs.mjs`
+asks the service and writes `public/regulations.js`; the river record now names
+a topic and carries no words at all.
+
+**A parent section is usually a heading with nothing in it.** Asked for 5.80 the
+service returns "Inland White Sturgeon"; asked for 5.80(a) it returns "Open
+season:" — a colon and then nothing, because the season is in three children
+naming the Carquinez Bridge, the Feather confluence and the I-5 bridge. So an
+entry in `WANTED` can declare `children`, and the bake fetches the section and
+its direct children and keeps them together. The check refuses a section that is
+a bare heading with nothing under it: a section number in front of a colon reads
+as authority for a rule that is not there.
+
+**And it refuses tables rather than flattening them.** 5.00(b) comes back as
+`[row]water|season|size|bag[row]` — genuinely tabular, fourteen of them. Doctrine
+2 says a table does not render where this is read and loses its columns without
+saying so, and stripping the marker would turn it into prose with stray pipes
+in it, which is worse than refusing it. Both refusals were watched going red on
+a local plant.
+
+**Staleness is the whole point of the file**, so it has two guards that are not
+the same guard. `.github/workflows/regulations.yml` re-bakes monthly and commits
+only if the text moved; `tools/fetch-regs.mjs --check` in `gates.yml` fails if
+the bake is more than 120 days old. The second is what catches the first
+silently stopping — a scheduled workflow that quietly dies is the exact failure
+this arrangement exists to survive, and a schedule cannot report its own death.
+
+**What is carried, and what is deliberately not.** Twenty-one sections: the
+Delta's three, black bass, four on striped bass, eleven on sturgeon and two on
+salmon. Not the rest of Title 14 — it is about lakes, counties and coastline
+this app has never heard of, and carrying all of it would be a megabyte of rules
+for water nobody using this is standing in.
+
+**The sturgeon sections are why the species went in at all.** They are not a
+statewide sentence: the white sturgeon season is written against the Carquinez
+Bridge, the confluence of the Feather and the I-5 bridge (§5.80(a)(1)–(2)), all
+tributaries are closed year-round (§5.80(a)(3)), there is a year-round closure
+from Keswick Dam to the Highway 162 bridge (§5.80(i)(1)) and another in the Yolo
+Bypass above Lisbon Weir (§5.80(j)). Those are places on the two rivers this app
+draws. The daily and annual limits are both zero, which is worth knowing before
+driving out rather than after.
+
+## The tide's direction in TIME, which was missing the whole time
+
+Everything the app said about the tide was a direction in SPACE: the sea is
+downstream, the flood pushes upstream, the cyan wash marks how far, and 2.3.0
+added an arrow saying which way the water is pushed. None of it answered whether
+the water in front of a person at four in the afternoon is coming up or going
+down — which is a direction in TIME and the one an afternoon gets planned
+around. It was derivable from the highs and lows already fetched and stored, and
+was nowhere stated.
+
+`tidePhase(river)` takes the turn behind now and the turn ahead. Rising if the
+next is a high; falling if it is a low; plus how far through the swing, how big
+the swing is, and how long to the turn.
+
+**It refuses two cases rather than answering them.** With only the turn AHEAD it
+returns nothing, because the direction would be right by luck; stored
+predictions can begin later than the last turn. And where the two turns disagree
+about which is higher — a "high" below the lows either side of it — it returns
+nothing, because that is a broken prediction rather than a tide and an arrow
+drawn from it would be a guess.
+
+**That second guard found a defect in this repo's own test fixture.** The
+render-test stub put its turns on a six-hour grid and read their heights off a
+sine with a period of 24.5 hours, so a row labelled "high" could sit a foot
+below the lows either side of it. Nothing noticed for as long as the app only
+listed the turns. The moment it worked out a direction, an incoherent tide is a
+fixture that exercises the failure branch and reports a pass. The stub is
+semidiurnal now with its turns at the real extremes.
+
+**It is said as a LEVEL prediction at one station, every time it is shown**, and
+the measured section below it says the two need not agree. On an estuary the
+current runs on for a while after the level turns — slack is not the turn of the
+tide — so a reader finding them disagreeing has not found a fault, and being
+told so costs one sentence.
+
+## How far up the tide actually got — measured, and a floor
+
+There are now two marks and they answer different questions.
+
+- The ribbon's dashed rule is the **declared** one: the furthest-upstream NOAA
+  station on the river. It is a fact about where the instruments are and it
+  never moves.
+- The figure's new rule is **measured**: of the gauges publishing a day of
+  velocity, the highest that actually ran backwards in that day.
+
+The real limit moves — how far a flood pushes depends on how much water the
+river is carrying, so it walks up and down the river with the season and with
+every storm. **The measured mark is a floor and the app says so in the key, in
+the paragraph and in the hidden description**: the next gauge up may have
+reversed and simply not be instrumented for it, and where the highest gauge on
+the list is the one that reversed, there is no ceiling in the data at all and it
+says that too.
+
+It needs the day. The instant arrows answer for this minute, and a gauge ebbing
+now may have flooded at dawn.
 
 ## Three layout defects, all found by looking at the screen
 

@@ -104,6 +104,16 @@ jobs:
       - name: The baked Delta
         run: node tools/fetch-delta.mjs --check
 
+      # The regulations are baked too, and they are the one artefact here where
+      # going stale is not a tidiness problem: a section number in front of last
+      # season's limit reads as authority. This asks CDFW nothing — it reads
+      # what was committed and refuses a heading with no rule under it, a table
+      # (which does not render where this is read), a section with no words, and
+      # a bake nobody has re-read in four months. Fetching is its own workflow,
+      # monthly; this only refuses a bad or an old one.
+      - name: The baked regulations
+        run: node tools/fetch-regs.mjs --repo . --check
+
       # playwright-core, not playwright: this repo depends on the core package
       # and `npx playwright install` therefore had nothing to run, which
       # --no-install correctly refused rather than fetching a package at run

@@ -314,6 +314,16 @@ input[type=range]{accent-color:var(--cyan); flex:1 1 90px; min-width:80px}
 .hilo{display:flex; justify-content:space-between; font-size:.8rem;
   border-bottom:1px solid #16302e; padding:.22rem 0}
 .hilo b{font-family:var(--water); font-style:italic; font-weight:400}
+/* WHICH WAY THE WATER IS MOVING, given the weight of a heading rather than a
+   note — it is the first thing a person opening the tide wants and it used to
+   be nowhere. The arrow and the words say the same thing twice on purpose:
+   colour and shape are not readable to everybody, and neither is a glyph. */
+.tidephase{display:flex; gap:.5rem; align-items:flex-start;
+  border:1px solid var(--teal-line); border-left-width:3px; border-radius:3px;
+  background:var(--panel-2); padding:.45rem .55rem; margin:.4rem 0}
+.tidephase .arr{flex:0 0 auto; margin-top:.1rem}
+.tidephase .say{font-size:.85rem; color:var(--ink)}
+.tidephase .sub{display:block; font-size:.74rem; color:var(--mute); margin-top:.15rem}
 .markrow{display:flex; gap:.4rem; align-items:center; border-bottom:1px solid #16302e; padding:.3rem 0}
 .markrow .grow{font-size:.8rem}
 textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink);
@@ -623,6 +633,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      tools/fetch-access.mjs. Places the department says the public may go —
      NOT boat ramps, and nothing in this app calls them that. -->
 <script src="access-lands.js"></script>
+<!-- The sections of Title 14 this app quotes, baked by tools/fetch-regs.mjs
+     from CDFW's own regulations service and re-baked monthly by a workflow.
+     A regulation typed into source is right on the day it is typed and
+     silently wrong afterwards, and a stale one is worse than none because it
+     carries a section number and reads as authority. 7.6 KB, loaded up front
+     because the brief needs it on first render and offline. -->
+<script src="regulations.js"></script>
 <!-- river-lines.js is NOT loaded here. It is each river's main stem from USGS,
      baked by tools/fetch-centrelines.mjs, and at 39 KB it was being fetched and
      parsed on every open for a reader who might never profile anything. It is
@@ -646,7 +663,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.3.0';
+var VERSION = '2.4.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -905,20 +922,17 @@ var RIVERS = [
      What the Delta HAS of its own is gear and species rules, verbatim below
      with their section numbers. */
   reaches:[],
-  rules:[
-    { code:'1.71', title:'What the Delta is',
-      status:PROV.VERIFIED,
-      text:'The Sacramento-San Joaquin River Delta includes all rivers, sloughs, canals, cuts, forebays, and flooded islands within the area south of Interstate 80 to its junction with Highway 50, and south of Highway 50 via the Pioneer Bridge to its junction with Highway 99, west of Highway 99, north of Interstate 580, 205, and Highway 120, and east of Interstate 680.' },
-    { code:'2.10(c)(1)', title:'Hook gaps in the Delta',
-      status:PROV.VERIFIED,
-      text:'No person shall use any single hook with a gap greater than 1 inch or any multiple hook with a gap greater than 3/4 inch.' },
-    { code:'5.00(a)(1)', title:'Black bass in the Delta',
-      status:PROV.VERIFIED,
-      text:'Lakes/Reservoirs and the Sacramento-San Joaquin Delta: The following waters, except for those listed in subsection (b), are open to fishing all year, with a 12-inch total length minimum size limit and a five-fish daily bag limit: All lakes and reservoirs in the State, and the Sacramento-San Joaquin River Delta.' },
-    { code:'2.25(b)(1)', title:'Bow and arrow fishing',
-      status:PROV.VERIFIED,
-      text:'Bow and arrow fishing is provided for within the boundaries of the Sacramento-San Joaquin River Delta.' }
-  ]
+  /* THE WORDS ARE NOT TYPED HERE, AND THAT IS THE POINT.
+     They used to be: four sections copied into this record by hand. Two of
+     the four had drifted from the regulation in the copying — 5.00(a)(1) had
+     lost its own pointer to section 1.71, and 2.25(b)(1) had been rewritten
+     into a sentence CDFW never published. Neither was wrong on purpose and
+     neither could be noticed by reading this file, which is what a hand copy
+     of somebody else's rule always looks like.
+     So this names the TOPIC and `public/regulations.js` carries the words,
+     baked from the department's own service and re-baked monthly by a
+     workflow. Adding a section means adding it to tools/fetch-regs.mjs. */
+  ruleTopics:['delta']
 },
 {
   id:'mokelumne', name:'Mokelumne River', short:'Mokelumne',
@@ -2287,6 +2301,11 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W, list1){
       if (hl.low)  bits.push('low ' + clockLocal(hl.low.at));
       when = bits.join(' \u00b7 ');
     }
+    /* AND WHICH WAY IT IS MOVING RIGHT NOW. Two times with no direction on
+       them make the reader compare them against a clock to work out whether
+       the water is coming up — arithmetic the app has already done. The word
+       goes first because it is the answer and the times are the detail. */
+    var rph = (list1 === 1) ? tidePhase(river) : null;
     var text = RIB.narrow ? 'tide to here' : 'tide reaches about here';
     var ly = y + RIB.dot + (RIB.narrow ? 25 : 31);
     var half = text.length * RIB.note * 0.29;
@@ -2305,8 +2324,9 @@ function ribbonRow(g, river, rows, x0, x1, y, showName, span, W, list1){
     g.appendChild(lab);
     if (when){
       var w2 = svg('text', { x:lx, y:ly + RIB.note + 2, 'pointer-events':'none',
-        fill:'#7BD5D9', 'font-size':String(RIB.note), 'text-anchor':anchor });
-      w2.textContent = when;
+        fill: rph ? (rph.rising ? '#7BD5D9' : '#9BD98C') : '#7BD5D9',
+        'font-size':String(RIB.note), 'text-anchor':anchor });
+      w2.textContent = (rph ? (rph.rising ? '\u2191 rising \u00b7 ' : '\u2193 falling \u00b7 ') : '') + when;
       g.appendChild(w2);
       var tt = state.tides[river.id];
       if (tt && tt.at && !RIB.narrow){
@@ -2613,7 +2633,20 @@ function drawRibbon(again){
                Math.round((window.innerHeight || 800) * 0.32);
     if (over > 2) drawRibbon(over);
   }
-  $('#ribbondesc').textContent = note + '. Readings are listed in the Water panel.';
+  /* THE RIBBON IS A role="img" AND ITS SUBTREE IS PRUNED, so the rising or
+     falling drawn on the bar reaches nobody who cannot see it. It goes in the
+     description in words, for the one river a description can speak for. */
+  var descTide = '';
+  if (state.riverId){
+    var rv = byId(state.riverId);
+    if (rv && rv.tidal){
+      var pd = tidePhase(rv);
+      if (pd) descTide = ' The tide is ' + (pd.rising ? 'rising' : 'falling') +
+        ', ' + (pd.rising ? 'high' : 'low') + ' water in ' +
+        Math.max(0, pd.minutes) + ' minutes at the station being read.';
+    }
+  }
+  $('#ribbondesc').textContent = note + '.' + descTide + ' Readings are listed in the Water panel.';
 }
 
 function byId(id){
@@ -3227,6 +3260,114 @@ function nextHighLow(river){
   return (out.high || out.low) ? out : null;
 }
 
+/* The strip itself. An arrow that means rising or falling, the sentence that
+   says the same thing, and — under it — the line that keeps this honest: it is
+   a level prediction at one station, not a current where you are standing. */
+function tidePhaseBox(river, stationName){
+  var ph = tidePhase(river);
+  if (!ph) return null;
+  var box = el('div',{class:'tidephase'});
+  box.style.borderLeftColor = ph.rising ? FLOOD : EBB;
+
+  /* THE ARROW IS DECORATION AND IS MARKED AS SUCH. Everything it means is in
+     the sentence beside it, so a reader who cannot see it loses nothing —
+     and a reader who can is not told the same thing twice out loud. */
+  var a = svg('svg',{ viewBox:'0 0 14 20', width:'12', height:'17',
+    class:'arr', 'aria-hidden':'true', focusable:'false' });
+  var col = ph.rising ? FLOOD : EBB;
+  a.appendChild(svg('line',{ x1:'7', y1: ph.rising ? '19' : '1',
+    x2:'7', y2: ph.rising ? '5' : '15', stroke:col, 'stroke-width':'2.4',
+    'stroke-linecap':'round' }));
+  a.appendChild(svg('path',{ d: ph.rising ? 'M7 1 L13 8 L1 8 Z' : 'M7 19 L13 12 L1 12 Z',
+    fill:col }));
+  box.appendChild(a);
+
+  var t = el('div',{class:'grow'});
+  t.appendChild(el('span',{class:'say',text:tidePhaseWords(ph, stationName)}));
+  /* HOW FAR THROUGH THE SWING. "Rising" with four hours to run and "rising"
+     with twenty minutes left are the same word about two different
+     afternoons, and the reader is the one who has to plan around it. */
+  var pct = ph.through === null ? null : Math.round(ph.through * 100);
+  var sub = 'A prediction of the water LEVEL at one station, not the current where you are standing — the water can still be running one way while the level goes the other, and the tide turns hours apart between the top of this reach and the bottom.';
+  if (pct !== null)
+    sub = (pct < 15 ? 'Just turned. ' : pct > 85 ? 'Nearly at the turn. ' : 'About ' + pct + '% through this swing. ') + sub;
+  t.appendChild(el('span',{class:'sub',text:sub}));
+  box.appendChild(t);
+  return box;
+}
+
+/* WHICH WAY THE TIDE IS MOVING RIGHT NOW, which is not the same question as
+   which way it flows in.
+
+   Everything this app said about the tide was a DIRECTION IN SPACE — the sea
+   is downstream, the flood pushes upstream, the wash on the ribbon marks how
+   far. All of that is true of the tide in general and none of it tells a
+   person standing on a bank at four in the afternoon whether the water in
+   front of them is coming up or going down. That is a direction IN TIME, and
+   it is the one a fisher plans the next two hours around.
+
+   It is arithmetic on the highs and lows already fetched: between a low and
+   the next high the water is rising, between a high and the next low it is
+   falling. No new request, and it works with no signal — the predictions are
+   brought down a week ahead.
+
+   WHAT IT IS NOT. It is a PREDICTION, at ONE STATION, of the water LEVEL. It
+   is not a statement about which way the current is running where you are:
+   the water can still be running upstream after high water while the level
+   falls, and on this river the tide turns hours apart between the top of a
+   reach and the bottom. The measured answer to "which way is the water
+   going" is the velocity figure further down, and where the two disagree the
+   water is the authority. Both are shown and each says which it is.
+
+   RANGE IS PART OF THE ANSWER. A rise of half a foot and a rise of five feet
+   are both "rising" and are not the same afternoon. */
+function tidePhase(river){
+  var t = state.tides[river.id];
+  if (!t || !t.hilo || !t.hilo.length) return null;
+  var now = Date.now(), prev = null, next = null;
+  for (var i = 0; i < t.hilo.length; i++){
+    var when = new Date(t.hilo[i].t.replace(' ','T')).getTime();
+    if (!isFinite(when)) continue;
+    if (when <= now){ prev = { at:when, type:t.hilo[i].type, v:t.hilo[i].v }; }
+    else { next = { at:when, type:t.hilo[i].type, v:t.hilo[i].v }; break; }
+  }
+  /* WITHOUT THE TURN BEHIND IT THERE IS NO PHASE TO STATE. Stored predictions
+     can begin after the last turn, and inferring the direction from the next
+     turn alone would be right by luck. */
+  if (!next || !prev) return null;
+  var rising = next.type === 'H';
+  /* The two turns disagreeing about which is higher is a broken prediction,
+     not a tide. Better to say nothing than to draw an arrow from it. */
+  if (isNum(prev.v) && isNum(next.v)){
+    if (rising && next.v <= prev.v) return null;
+    if (!rising && next.v >= prev.v) return null;
+  }
+  var span = next.at - prev.at;
+  return {
+    rising: rising,
+    from: prev, to: next,
+    /* How far through the swing, so "rising" can be "just started" or
+       "nearly there" — a fisher with an hour left of flood is in a different
+       afternoon from one with four. */
+    through: span > 0 ? Math.max(0, Math.min(1, (now - prev.at) / span)) : null,
+    range: (isNum(prev.v) && isNum(next.v)) ? Math.abs(next.v - prev.v) : null,
+    minutes: Math.round((next.at - now) / 60000)
+  };
+}
+
+/* The same thing in a sentence, because an arrow is not a sentence and this
+   has to be readable by something that cannot see the arrow. */
+function tidePhaseWords(ph, station){
+  if (!ph) return '';
+  var mins = ph.minutes, when = mins < 60
+    ? mins + (mins === 1 ? ' minute' : ' minutes')
+    : Math.floor(mins / 60) + 'h' + (mins % 60 ? ' ' + (mins % 60) + 'm' : '');
+  return 'The tide is ' + (ph.rising ? 'rising' : 'falling') +
+    (ph.range !== null ? ' — ' + fmt(ph.range, 1) + ' ft between this turn and the next' : '') +
+    ', ' + (ph.rising ? 'high' : 'low') + ' water in ' + when +
+    (station ? ', predicted at ' + station : '') + '.';
+}
+
 /* The next turn, from the predictions already fetched. */
 function nextTurn(river){
   var t = state.tides[river.id];
@@ -3263,6 +3404,7 @@ function riverCard(river){
   var temp = meanTemp(river);
   var flow = downstreamFlow(river);
   var turn = river.tidal ? nextTurn(river) : null;
+  var ph   = river.tidal ? tidePhase(river) : null;
   var payload = state.gauges[river.id];
 
   var card = el('button',{ type:'button', class:'rivercard' });
@@ -3344,6 +3486,16 @@ function riverCard(river){
   if (river.tidal){
     var td = el('div',{class:'rc-line'});
     if (turn){
+      /* WHICH WAY IT IS MOVING, BEFORE WHEN IT NEXT TURNS. The card said
+         "next H 16:42" and left the reader to work out that the water is
+         therefore coming up — which is the fact they wanted and the one the
+         card did not state. The arrow is decoration; the word carries it. */
+      if (ph){
+        var pw = el('span',{text: ph.rising ? '↑ rising ' : '↓ falling '});
+        pw.style.color = ph.rising ? FLOOD : EBB;
+        td.appendChild(pw);
+        td.appendChild(document.createTextNode('· '));
+      }
       td.appendChild(document.createTextNode('next ' + turn.type + ' '));
       td.appendChild(el('b',{text:clockLocal(turn.at.toISOString())}));
       td.appendChild(document.createTextNode(' · ' + fmt(turn.v,1) + ' ft'));
@@ -3357,6 +3509,7 @@ function riverCard(river){
     (temp ? fmt(temp.f,0) + ' degrees, ' + (tempReading(temp.f) || '') + ' ' : '') +
     (flow ? commas(fmt(flow.flow,0)) + ' cubic feet per second at ' + flow.name +
        (flow.tidal ? ', tidal flow rather than river discharge' : '') + '. ' : '') +
+    (ph ? 'The tide is ' + (ph.rising ? 'rising' : 'falling') + '. ' : '') +
     (turn ? 'Next ' + turn.type + ' at ' + clockLocal(turn.at.toISOString()) + '. ' : '') +
     'Show this river.');
   card.addEventListener('click', function(){
@@ -3713,6 +3866,18 @@ function tideSection(river){
     (st ? st.name + ' — ' : '') + 'station ' + t.station + ', MLLW. '));
   head.appendChild(flagEl(st ? st.status : PROV.VERIFIED));
   box.appendChild(head);
+
+  /* FIRST, BEFORE THE CHART AND BEFORE THE LIST OF TURNS. Everything this
+     panel showed was a direction in SPACE — where the sea is, how far up the
+     flood reaches — and a person opening it at four in the afternoon wants a
+     direction in TIME: is the water in front of me coming up or going down.
+     That was derivable from the highs and lows already on the screen and was
+     nowhere stated, which left the reader to do the arithmetic the app had
+     already done. */
+  var phbox = tidePhaseBox(river, st ? (st.name || st.id) : null);
+  if (phbox) box.appendChild(phbox);
+  else box.appendChild(el('p',{class:'note',
+    text:'Whether the tide is rising or falling right now cannot be said from what is stored: it needs the turn before now as well as the one after it, and the stored predictions start later than that. The turns below are unaffected. Reconnect and it comes back.'}));
 
   if (t.hourlyUnavailable){
     box.appendChild(el('p',{class:'note',
@@ -4686,6 +4851,67 @@ function marksGeoJSON(){
    Anything that could not be read from the regulation is marked as such
    and left unresolved rather than settled by picking the likelier side.
    ===================================================================== */
+/* =====================================================================
+   The regulations, in CDFW's words.
+
+   `public/regulations.js` is baked by tools/fetch-regs.mjs from the
+   department's own sport fishing regulations service and re-baked monthly by
+   a workflow, so what is on the screen is what CDFW published, with the date
+   it was read. Nothing here summarises, paraphrases or reorders: a regulation
+   paraphrased is a regulation invented, and this app had two of those in it
+   until the bake replaced them.
+
+   THE FILE MAY BE ABSENT AND THE APP MUST STILL WORK. It is precached, so on
+   a normal install it is there offline; a first load on a bad connection can
+   still lose it. Every reader of it goes through here and gets an empty list
+   rather than an exception.
+   ===================================================================== */
+function regsFor(topic){
+  if (typeof REGULATIONS === 'undefined' || !REGULATIONS) return [];
+  return REGULATIONS.filter(function(r){ return r.topic === topic; });
+}
+function regsMeta(){
+  return (typeof REGULATIONS_META !== 'undefined' && REGULATIONS_META) || null;
+}
+
+/* WHEN IT WAS READ, EVERY TIME IT IS SHOWN. A section number with no date on
+   it is a claim about today that nobody checked. The workflow re-bakes
+   monthly and the gate refuses a bake older than four months, so this line is
+   the reader's own way of seeing that held. */
+function regsDateNote(){
+  var m = regsMeta();
+  if (!m || !m.fetchedAt)
+    return 'These were copied from CDFW without a date on them, which means nothing here can tell you how old they are. Read the printed regulations.';
+  var days = Math.round((Date.now() - Date.parse(m.fetchedAt + 'T12:00')) / 86400000);
+  return 'Read from CDFW’s own regulations service on ' +
+    dayLocal(m.fetchedAt + 'T12:00') +
+    (days > 0 ? ', ' + days + (days === 1 ? ' day' : ' days') + ' ago' : ', today') +
+    '. They are re-read every month. The printed regulations are the authority, and where they differ from this the printed ones are right.';
+}
+
+/* One section, drawn the same way everywhere it appears: what it is about,
+   its number, its words, and its sub-sections underneath where it has them —
+   because "Open season:" on its own is a colon in front of nothing, and the
+   dates that answer it live in three children that name the Carquinez Bridge,
+   the Feather confluence and the I-5 bridge. */
+function ruleBox(rl){
+  var box = el('div',{class:'rdg'});
+  var h = el('div',{class:'rdg-name'});
+  h.appendChild(el('span',{text:rl.about || rl.title || rl.code}));
+  h.appendChild(flagEl(PROV.VERIFIED));
+  box.appendChild(h);
+  box.appendChild(el('div',{class:'rdg-id',
+    text:'Title 14, section ' + rl.code + ' — in its own words'}));
+  box.appendChild(el('p',{class:'note',text:rl.text}));
+  (rl.parts || []).forEach(function(pt){
+    var sub = el('p',{class:'note',style:'margin-left:12px'});
+    sub.appendChild(el('span',{class:'rdg-id',text:pt.code + ' '}));
+    sub.appendChild(document.createTextNode(pt.text));
+    box.appendChild(sub);
+  });
+  return box;
+}
+
 function renderBrief(){
   var p = $('#panel-brief'); p.innerHTML = '';
   var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
@@ -4703,24 +4929,23 @@ function renderBrief(){
 
   rivers.forEach(function(river){
     p.appendChild(el('h2',{class:'sec',text:river.name + ' — season'}));
-    if (!river.reaches.length && (river.rules || []).length){
+    var topics = river.ruleTopics || [];
+    var own = topics.reduce(function(all, t){ return all.concat(regsFor(t)); }, []);
+    if (!river.reaches.length && own.length){
       /* NOT AN ABSENCE — A FINDING. Section 7.40 lists NAMED waters with
          special regulations and the Delta is not one, so its salmon season is
          the season of whichever named water you are on. What it does have of
          its own is below, in the regulation's words with its number. */
       p.appendChild(el('div',{class:'warnbox',
         text:'The Delta has no season of its own. Section 7.40 is a list of named waters with special regulations, and the Delta is not on it — so the salmon season where you are standing is the season of the river you are standing on: pick that river above. What the Delta does have of its own is below. Nothing here is a substitute for the printed regulations.'}));
-      river.rules.forEach(function(rl){
-        var box = el('div',{class:'rdg'});
-        var h = el('div',{class:'rdg-name'});
-        h.appendChild(el('span',{text:rl.title}));
-        h.appendChild(flagEl(rl.status));
-        box.appendChild(h);
-        box.appendChild(el('div',{class:'rdg-id',
-          text:'Title 14, section ' + rl.code + ' \u2014 in its own words'}));
-        box.appendChild(el('p',{class:'note',text:rl.text}));
-        p.appendChild(box);
-      });
+      own.forEach(function(rl){ p.appendChild(ruleBox(rl)); });
+      p.appendChild(el('p',{class:'note',text:regsDateNote()}));
+    } else if (!river.reaches.length && topics.length){
+      /* THE TOPIC WAS DECLARED AND THE WORDS DID NOT ARRIVE. Saying nothing
+         here would read as "this water has no rules of its own", which is the
+         opposite of what happened. */
+      p.appendChild(el('div',{class:'warnbox',
+        text:'This water’s own rules could not be read: regulations.js did not load. That is a missing file on this device, not a finding about the Delta — it has rules of its own and they are not shown. Read the printed regulations.'}));
     } else if (!river.reaches.length){
       p.appendChild(el('div',{class:'warnbox',
         text:'The reach boundaries and dates for this river were not confirmed against Title 14 section 7.40 when this build was made, so none are shown. Nothing here is a substitute for the printed regulations.'}));
@@ -4756,6 +4981,57 @@ function renderBrief(){
       p.appendChild(box);
     });
   });
+
+  /* =====================================================================
+     THE OTHER FISH IN THE SAME WATER.
+
+     This app is built for the fall-run Chinook and says so everywhere. But a
+     person standing on the lower Sacramento in the closed season is not
+     standing beside an empty river, and the rules that govern what else they
+     may do there are in the same code, a few sections along. Leaving them out
+     did not make the app more focused; it made it silent on the thing the
+     reader was about to do anyway.
+
+     THE STURGEON RULES ARE THE REASON THIS IS HERE RATHER THAN A LINK. They
+     are not a statewide sentence: the white sturgeon season is written against
+     the Carquinez Bridge, the confluence of the Feather and the I-5 bridge,
+     and there is a year-round closure from Keswick Dam to the Highway 162
+     bridge. Those are places on the two rivers this app draws. The daily and
+     annual limits are both zero, which is a thing a person needs to know
+     before they drive out, not after.
+     ===================================================================== */
+  var SPECIES = [
+    { topic:'striper',  name:'Striped bass' },
+    { topic:'sturgeon', name:'Sturgeon' },
+    { topic:'bass',     name:'Black bass' }
+  ];
+  var anySpecies = SPECIES.filter(function(sp){ return regsFor(sp.topic).length; });
+  p.appendChild(el('h2',{class:'sec',text:'What else is legal in this water'}));
+  if (!anySpecies.length){
+    p.appendChild(el('div',{class:'warnbox',
+      text:'The species rules could not be read: regulations.js did not load on this device. That is a missing file, not a finding — the rules exist. Read the printed regulations.'}));
+  } else {
+    p.appendChild(el('p',{class:'note',
+      text:'Thalweg is built for the fall-run Chinook and everything above is about them. These are the other fish in the same water, in the regulation’s own words with its section number — because the season being shut is not the same thing as the river being empty, and the rules for what else you may do there are a few sections along in the same code.'}));
+    anySpecies.forEach(function(sp){
+      var got = regsFor(sp.topic);
+      var d = el('details',{class:'foldbox'});
+      var sum = el('summary',{});
+      sum.appendChild(el('b',{text:sp.name}));
+      /* HOW MANY SECTIONS ARE BEHIND IT. A shut fold with a bare noun on it
+         gives a reader no reason to open it and no idea what they get. */
+      sum.appendChild(el('span',{class:'rdg-id',
+        text:got.length + (got.length === 1 ? ' section' : ' sections') + ' of Title 14'}));
+      d.appendChild(sum);
+      var body = el('div',{class:'foldbody'});
+      got.forEach(function(rl){ body.appendChild(ruleBox(rl)); });
+      d.appendChild(body);
+      p.appendChild(d);
+    });
+    p.appendChild(el('p',{class:'note',text:regsDateNote()}));
+    p.appendChild(el('p',{class:'note',
+      text:'Only the sections that bear on this water are here. Title 14 is much longer than this and the rest of it is about lakes, counties and coastline this app has never heard of — carrying all of it would be a megabyte of rules for water you are not standing in.'}));
+  }
 
   p.appendChild(el('h2',{class:'sec',text:'Water temperature'}));
   var ul = el('ul',{class:'tight'});
@@ -5544,6 +5820,56 @@ function velConflicts(river){
 var FLOOD = '#7BD5D9';   /* the tide pushing in  */
 var EBB   = '#9BD98C';   /* the river running out */
 
+/* HOW FAR UP THE TIDE ACTUALLY GOT, MEASURED.
+
+   The ribbon already carries a "tide reaches about here" mark, and it is the
+   DECLARED one: the furthest-upstream NOAA station on the river, which is a
+   fact about where the instruments are rather than about the water. It does
+   not move. The real limit does — how far a flood pushes depends on how much
+   water the river is carrying, so it walks up and down the river with the
+   season and with every storm, and in a wet week it can be twenty miles below
+   where the dashed rule stands.
+
+   This is the other one, and it is measured: of the gauges that publish a day
+   of velocity, the furthest upstream that actually ran BACKWARDS in that day.
+   Above it, nothing that measures direction saw the tide win.
+
+   IT IS A FLOOR, NOT A LIMIT, AND THE APP MUST SAY SO. The next gauge up may
+   have reversed too and simply not be instrumented for it — the network stops
+   where it stops. So this is "the tide was measured pushing water back at
+   least this far", which is a fact, and never "the tide reaches here", which
+   would be this figure asserting the shape of the whole river from six
+   instruments. Where the highest gauge on the list is the one that reversed,
+   there is no upper bound in the data at all and it says that too.
+
+   Needs the day: the instant reading answers only for this minute, and a
+   gauge that is ebbing right now may have flooded four hours ago. */
+function maxReversal(river, gs, hist){
+  if (!hist) return null;
+  var found = null, withDay = 0;
+  gs.forEach(function(r, i){
+    var pts = hist[r.id] || [];
+    if (!pts.length) return;
+    withDay++;
+    var ran = velocityRuns(pts).filter(function(run){ return run.dir === 'up'; });
+    if (!ran.length) return;
+    /* gs is sorted downstream first, so a later index is further up. */
+    var peak = ran.reduce(function(a, b){ return b.peak > a.peak ? b : a; });
+    found = { i:i, row:r, last:ran[ran.length - 1], peak:peak.peak };
+  });
+  if (!found) return null;
+  found.withDay = withDay;
+  /* Nothing above it measured direction, so the data has no upper bound. */
+  found.topmost = found.i === gs.length - 1;
+  /* The lowest gauge above it that has a day and did NOT reverse — the one
+     that puts a ceiling on this. */
+  found.above = null;
+  for (var k = found.i + 1; k < gs.length; k++){
+    if ((hist[gs[k].id] || []).length){ found.above = gs[k]; break; }
+  }
+  return found;
+}
+
 function loadVelocityDay(river, gs){
   if (state.velLoading) return;
   state.velLoading = true; state.velFailed = null;
@@ -5569,6 +5895,19 @@ function tideAlongRiver(river){
     return box;
   }
 
+  /* THE TWO ANSWERS SIDE BY SIDE, WHICH IS THE POINT OF HAVING BOTH.
+     The panel above predicts the water LEVEL at one station; this measures
+     which way it is RUNNING at every gauge that can tell. They are famously
+     out of step on an estuary — the current keeps running upstream for a
+     while after high water, and slack is not the turn of the tide — so a
+     reader who finds them disagreeing has not found a fault. Saying so is
+     cheaper than letting them work out which one is lying. */
+  var lvl = tidePhase(river);
+  if (lvl)
+    box.appendChild(el('p',{class:'note',
+      text:'The level at the station above is ' + (lvl.rising ? 'rising' : 'falling') +
+        '. That is a prediction of height at one place; what follows is measured direction at each gauge, and the two are not the same thing and need not agree \u2014 on this water the current runs on for a while after the level turns, so a rising level with the water still running out is ordinary rather than a fault.'}));
+
   var up = gs.filter(function(r){ return r.vel < 0; }).length;
   box.appendChild(el('p',{class:'note',
     text: up === 0
@@ -5584,6 +5923,31 @@ function tideAlongRiver(river){
   if (!hist && !state.velLoading && !state.velFailed && sget(river.id, 'velday'))
     loadVelocityDay(river, gs);
   box.appendChild(tideAlongFigure(river, gs, hist));
+
+  /* HOW FAR UP IT GOT, IN A SENTENCE, and the two things that stop it being
+     a claim about the whole river: how many gauges published a day at all,
+     and what sits above the one that reversed. A figure with a rule drawn
+     across it and no account of what bounds it invites the reader to take it
+     for the limit of the tide, which it is not. */
+  var mxr = maxReversal(river, gs, hist);
+  if (hist){
+    if (!mxr){
+      box.appendChild(el('p',{class:'note',
+        text:'No gauge on this river measured water running upstream at any point in the last day. That is not the same as the tide not reaching them: it means no instrument that publishes direction saw it win, over the day shown.'}));
+    } else {
+      var far = 'Measured, the tide pushed water back up this river at least as far as ' +
+        shortGauge(river, mxr.row, 99) + ' in the last day — ' +
+        fmt(mxr.peak, 2) + ' ft/s at its hardest, and it last did so ' +
+        agoWords(Date.now() - mxr.last.from) + '.';
+      far += mxr.topmost
+        ? ' That is the furthest-upstream gauge on this river that publishes a day of direction, so nothing in the data puts a ceiling on it: the tide may well push further and there is no instrument up there to say.'
+        : ' The next gauge up that published a day, ' + shortGauge(river, mxr.above, 99) +
+          ', did not reverse in that day — so the turn-round point sat somewhere between the two.';
+      far += ' This is a floor and not a limit. ' + mxr.withDay + ' of these ' + gs.length +
+        ' gauges published a day of readings, and how far a flood pushes moves with how much water the river is carrying — it walks up and down the river with the season and with every storm, which is why the dashed mark on the ribbon above, drawn at the furthest-upstream tide STATION, does not move and this does.';
+      box.appendChild(el('p',{class:'note',text:far}));
+    }
+  }
 
   /* Dropped from the drawing, not from the account of it. */
   var bad = velConflicts(river);
@@ -5664,7 +6028,7 @@ function tideAlongFigure(river, gs, hist){
     style:'height:auto; display:block', role:'img',
     'aria-label':'Which way the water is running at each gauge on the ' +
       river.name + ', downstream at the top' +
-      (hist ? ', with the last day beside it shaded blue where the tide was pushing upstream and green where the river was running down' : '') + '.',
+      (hist ? ', with the last day beside it shaded blue where the tide was pushing upstream and green where the river was running down, and a dashed rule under the highest gauge that ran backwards in that day' : '') + '.',
     'aria-describedby': 'alongdesc-' + river.id });
   var g = svg('g', {});
 
@@ -5679,8 +6043,30 @@ function tideAlongFigure(river, gs, hist){
     g.appendChild(rt);
   }
 
+  /* THE HIGHEST GAUGE THAT ACTUALLY RAN BACKWARDS IN THE DAY. Measured, and
+     only available once the day has been asked for — the instant arrows
+     answer for this minute and a gauge ebbing now may have flooded at dawn. */
+  var mx = maxReversal(river, gs, hist);
+
   gs.forEach(function(r, i){
     var y = top + i * rowH;
+
+    /* THE MARK GOES BEHIND THE ROW, not beside it: a badge in the margin on a
+       320px drawing is another column to find room for, and this has to read
+       as "up to HERE" rather than as a note about one gauge. A rule under the
+       row is the boundary; the tint above it is the reach the tide was
+       measured in. */
+    if (mx && i === mx.i){
+      g.appendChild(svg('rect',{ x:0, y:top - 8, width:W,
+        height:(y + 9) - (top - 8), fill:FLOOD, 'fill-opacity':'.07' }));
+      g.appendChild(svg('line',{ x1:0, y1:y + 10, x2:W, y2:y + 10,
+        stroke:FLOOD, 'stroke-width':'1.2', 'stroke-dasharray':'4 3' }));
+      /* NO CAPTION ON THE ROW. At 9px the sentence is 230px wide, the band
+         starts at 186 on a phone, and the row below is 34px down — it would
+         cross the day's shading and touch the next gauge's name. The rule and
+         the tint are the mark; the words are in the key at the foot, where
+         there is room for them, and in the paragraph above the figure. */
+    }
 
     var nm = svg('text',{ x:0, y:y + 4, fill:'#E6F0EF', 'font-size':'10' });
     nm.textContent = shortGauge(river, r, narrow ? 17 : 24);
@@ -5759,7 +6145,20 @@ function tideAlongFigure(river, gs, hist){
       t2.textContent = pair[1];
       g.appendChild(t2);
     });
-  if (narrow) fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 13));
+  /* THE THIRD THING THE PICTURE SAYS IN A MARK, said in words in the same
+     place as the other two. A dashed rule and a tint with nothing naming them
+     is the defect the first two entries here exist to fix, one release ago. */
+  var extraKey = 0;
+  if (mx){
+    var ry = ky + (narrow ? 2 * 13 : 15);
+    g.appendChild(svg('line',{ x1:0, y1:ry - 3, x2:14, y2:ry - 3,
+      stroke:FLOOD, 'stroke-width':'1.2', 'stroke-dasharray':'4 3' }));
+    var t3 = svg('text',{ x:19, y:ry, fill:'#9FB3B1', 'font-size':'9' });
+    t3.textContent = 'the tide pushed back at least this far in the last day';
+    g.appendChild(t3);
+    extraKey = narrow ? 13 : 15;
+  }
+  fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + (narrow ? 13 : 0) + extraKey));
 
   fig.appendChild(g);
 
@@ -5790,6 +6189,13 @@ function tideAlongFigure(river, gs, hist){
     }
     desc.appendChild(el('p', { text: line + '.' }));
   });
+  /* The rule and the tint are drawn inside a role="img" and are therefore
+     unreachable. They are the figure's third statement and it says it here. */
+  if (mx)
+    desc.appendChild(el('p', { text:'The tide was measured pushing water back upstream at least as far as ' +
+      shortGauge(river, mx.row, 99) + ' in the last day' +
+      (mx.topmost ? ', which is the furthest-upstream gauge here that publishes direction, so nothing above it measures whether the tide goes further' : '') +
+      '. This is a floor, not the limit of the tide.' }));
   wrap2.appendChild(desc);
   return wrap2;
 }
@@ -7607,6 +8013,17 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.4.0', date:'2026-09-01', changes:[
+      'The tide says which way it is MOVING, not just which way it comes in. Everything the app said about the tide was a direction on the map \u2014 the sea is downstream, the flood pushes up, the wash marks how far. None of that told you whether the water in front of you at four in the afternoon is coming up or going down, which is the thing you plan the next two hours around. It says so now, on the tide panel, on each river\u2019s card and on the bar, with how far through the swing it is and how long until the turn.',
+      'It is a prediction of the HEIGHT at one station and it says so. The water can still be running upstream while the level falls \u2014 that is ordinary on this river, not a fault \u2014 so the measured direction at each gauge is still shown underneath, and the app says plainly that the two need not agree.',
+      'How far up the tide actually got, measured. The dashed mark on the bar is where the furthest tide STATION is, and it never moves. The new mark, on the figure of gauges, is the highest one that really ran backwards in the last day. It is a floor and the app says so: the next gauge up may have reversed too and simply not be measured, and how far a flood pushes moves with how much water the river is carrying.',
+      'Striped bass, sturgeon and black bass are in the app. The season being shut is not the same thing as the river being empty, and the rules for what else you may legally do there are a few sections along in the same code. The sturgeon ones are the reason: the white sturgeon season is written against the Carquinez Bridge, the confluence of the Feather and the I-5 bridge, there is a year-round closure from Keswick Dam to the Highway 162 bridge, and the daily and annual limits are both zero \u2014 all of which is worth knowing before you drive out rather than after.',
+      'None of those rules is typed into this app, and they cannot go stale without saying so. They are read from the department\u2019s own regulations service, in its words, with the date it was read printed beside them, and re-read every month. Two of the four Delta rules that WERE typed in had already drifted from the regulation in the copying \u2014 one had lost its own pointer to another section and one had been rewritten into a sentence nobody published. Both are now the real text.',
+  ], broken:[
+      'Whether the tide is rising or falling needs the turn before now as well as the one after it. Stored predictions can begin later than that, in which case the app says it cannot tell you rather than guessing from one end.',
+      'How far the tide pushed back can only be shown once you have asked for the last day of velocity, because the arrows on their own answer for this minute and a gauge running out now may have been running in at dawn.',
+      'Only the sections of Title 14 that bear on this water are carried. The rest of it is about lakes, counties and coastline this app has never heard of.',
+  ] },
   { v:'2.3.0', date:'2026-09-01', changes:[
       'The tide mark on each bar now has an arrow showing which way the water is pushed \u2014 upstream, into the mark. A line across a bar says where something stops without saying which side of it is tidal; the arrow says it.',
       'When one river is showing, the mark also carries the next high and the next low, and what time the prediction itself was read. A prediction with no time on it is a number you have to trust blind, and an offline copy of one can be a day old and look exactly as confident.',
