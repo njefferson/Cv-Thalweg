@@ -945,6 +945,45 @@ them.** The extent baked in `delta.js` is DWR's Legal Delta Boundary under Water
 Code §12220; the fishing rules apply to §1.71's highway-bounded area. They are
 close but not identical, and only the second governs what is legal.
 
+## Six tools in this repo fetch, and two of them were still going direct
+
+`NODE_USE_ENV_PROXY` is read at STARTUP, so a tool that fetches has to re-exec
+itself (hub LESSONS §173). Four bake tools carried those lines. Two did not, and
+both were the ones where their absence was hardest to see.
+
+**`tools/live-test.mjs`** relays the browser's requests through Node, so with the
+re-exec missing every request came back refused. The suite reported twenty-seven
+failures — no gauge, no tide, no survey directory — which read as four
+independent public agencies down in the same minute. **The implausibility was
+the only clue**, because every message was in the app's own honest register:
+"10 gauges on this river did not answer, so there is no flow figure — not that
+the river has none." The app was telling the truth about what it received.
+
+**And the relay counted the refusal as a response.** It fetched, got a 403 with
+a body, incremented its success counter and passed it to the page, so nothing
+threw and nothing was logged — the run's own summary said it had relayed live
+responses from four hosts. It had relayed four hosts' worth of "no". It now
+names a 403 or 407 as a refusal at the point of refusal and again by host at the
+end, because a red run has to be a question somebody can act on rather than an
+afternoon of disbelieving four agencies. (Hub LESSONS §201.)
+
+**`tools/serve.mjs`** is not only a static server: it runs `worker.js`'s handle
+at `/bathy`, exactly as Pages does, and the app routes CDEC through the same
+path. With the proxy missing, that answered 403 for DWR's bathymetry AND for
+every Feather reading — nine more failures, none of which said "this file".
+
+**The server's re-exec had to forward signals, and the bakes' does not.** A bake
+re-execs with `spawnSync` and exits; a server is stopped with `kill $!`, and
+`$!` is the PARENT. The first version left a child holding port 8787 after the
+kill, so the next run could not bind it and the suite after that would have
+measured a server it did not start, from a tree it does not know. It forwards
+SIGINT, SIGTERM and SIGHUP now and leaves when the child leaves — verified by
+killing it and finding the port free.
+
+**None of this is visible in CI**, where the runner's egress is open and the
+live job has always passed. It is only visible from a container behind a proxy,
+which is where the work is done.
+
 ## The regulations are baked now, and two of the four typed ones had drifted
 
 The four Delta sections above shipped in 2.3.0 **typed into the river record by
