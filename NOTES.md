@@ -40,7 +40,15 @@ session needs before it touches anything.
   `geographies` path is refused 403 there. The stored preference reads false
   with nothing stored, and `lookUpAddress` has exactly one call site in the
   deployed file — the offer button.
-- Staged candidate: **2.18.0** — a plus code typed or pasted into the search box
+- Staged candidate: **2.19.0** — the ⓘ says who is responsible for what: a
+  hobby project, no warranty, the published sources are the authority over
+  anything on screen, checking before you go is the reader's, and whoever wrote
+  it is not answerable for what anybody does with it. The panel that quotes the
+  law opens with the short version and the date the wording was copied. Three
+  more species — American shad, steelhead and trout with its report card, and
+  sunfish and crappie. Catfish is refused with its reason recorded: its limit is
+  eleven tables.
+- 2.18.0 — a plus code typed or pasted into the search box
   is decoded on the device. Open Location Code is arithmetic rather than a
   lookup, so it belongs with the pasted map link and not with the address
   finder. Full codes only: recovering a short code's missing front against a

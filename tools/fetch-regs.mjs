@@ -85,6 +85,51 @@ const WANTED = [
   { code: '5.81(b)',     topic: 'sturgeon', about: 'Green sturgeon: removal from water' },
   { code: '5.81(c)',     topic: 'sturgeon', about: 'Green sturgeon: reporting' },
 
+  /* AMERICAN SHAD, which runs up every river this app draws and is the biggest
+     thing in them when the salmon season is shut. Three subsections, all
+     prose. */
+  { code: '5.65(a)',     topic: 'shad',     about: 'American shad: open season' },
+  { code: '5.65(b)',     topic: 'shad',     about: 'American shad: limit' },
+  { code: '5.65(c)',     topic: 'shad',     about: 'American shad: methods of take' },
+
+  /* STEELHEAD IS A TROUT, in this code's own words, which is why §1.86 comes
+     first — without it §5.85 and §5.88 do not obviously apply to the fish an
+     angler here came for. §5.85(a)(2) gives the statewide stream season and
+     then excepts the waters listed in §7.40(b), and the reaches this app draws
+     ARE those waters, so the subtree matters more than the headline: (a)(3)(A)
+     is the sentence that says so. */
+  { code: '1.86',        topic: 'trout',    about: 'What counts as trout, and that steelhead is one' },
+  { code: '5.85(a)',     topic: 'trout',    about: 'Trout: the statewide seasons and limits, and what overrides them', children: true },
+  { code: '5.88(a)',     topic: 'trout',    about: 'Steelhead: report card required' },
+  { code: '5.88(b)',     topic: 'trout',    about: 'Steelhead: recording before you start' },
+  { code: '5.88(c)',     topic: 'trout',    about: 'Steelhead: recording a fish kept' },
+  { code: '5.88(d)',     topic: 'trout',    about: 'Steelhead: moving on, or finishing for the day' },
+  { code: '5.88(e)',     topic: 'trout',    about: 'Steelhead: a card with every line used' },
+  { code: '5.88(f)',     topic: 'trout',    about: 'Steelhead: what the card costs' },
+
+  /* SUNFISH AND CRAPPIE — the Delta's panfish, and §1.77 is what the word
+     covers, Sacramento perch included. */
+  { code: '1.77',        topic: 'panfish',  about: 'What counts as sunfish' },
+  { code: '5.82(a)',     topic: 'panfish',  about: 'Sunfish and crappie: open season' },
+  { code: '5.82(b)',     topic: 'panfish',  about: 'Sunfish and crappie: limit', children: true },
+  { code: '5.82(c)',     topic: 'panfish',  about: 'Sunfish and crappie: size limit' },
+
+  /* CATFISH IS DELIBERATELY ABSENT, and the reason is recorded here so nobody
+     re-litigates it (§15.1b — record what was rejected and why).
+     §5.15(a) is a clean open season and §5.15(c) a clean carcass rule, but
+     §5.15(b) is the LIMIT, and it is a heading — "no limit, except as follows"
+     — over eleven children that are every one of them a TABLE of county and
+     water against a number. Doctrine §2 refuses a table: it loses its columns
+     on the reader's tablet without saying so. Shipping (a) and (c) without (b)
+     would put an open season and a carcass rule on screen with the limit
+     missing, and shipping (b) alone would be the dangling cross-reference this
+     bake was just fixed for. None of the eleven names water this app draws —
+     they are the Colorado River and Southern districts and a list of southern
+     lakes and park ponds — but a reader cannot know that from an absence.
+     If catfish is wanted here, it needs the tables rendered as prose per row
+     by hand from the printed regulations, which is a different job with a
+     different standard of care. */
+
   { code: '1.73(a)',     topic: 'salmon',   about: 'What counts as salmon' },
   { code: '1.75',        topic: 'salmon',   about: 'Salmon spawning areas' }
 ];
