@@ -40,7 +40,13 @@ session needs before it touches anything.
   `geographies` path is refused 403 there. The stored preference reads false
   with nothing stored, and `lookUpAddress` has exactly one call site in the
   deployed file — the offer button.
-- Staged candidate: **2.19.0** — the ⓘ says who is responsible for what: a
+- **2.19.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02 and
+  verified at the address: the page and the service worker both serve it, the
+  deployed page is byte-identical to `main:public/index.html`, all seven
+  sentences of the responsibility statement are in the served HTML, and the
+  deployed `regulations.js` carries eight topics and thirty-seven sections with
+  no 5.15.
+- No staged candidate. 2.19.0 — the ⓘ says who is responsible for what: a
   hobby project, no warranty, the published sources are the authority over
   anything on screen, checking before you go is the reader's, and whoever wrote
   it is not answerable for what anybody does with it. The panel that quotes the
