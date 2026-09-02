@@ -970,7 +970,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.16.0';
+var VERSION = '2.17.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -7175,8 +7175,17 @@ function ruleBox(rl){
   box.appendChild(el('div',{class:'rdg-id',
     text:'Title 14, section ' + rl.code + ' — in its own words'}));
   box.appendChild(el('p',{class:'note',text:rl.text}));
+  /* INDENTED BY HOW DEEP THE SECTION NUMBER IS, not by a fixed step.
+     These arrive flat and they are not flat: §5.75(d) is "Exceptions:" over a
+     list of waters over a limit and a size, and §5.80(i) is a closure over a
+     reach of river over three things that are unlawful there. Drawn at one
+     indent, "Limit: Ten." sits beside the waters it belongs to instead of
+     under them — which on a legal surface is not untidiness, it is a rule
+     that reads as though it applies here. */
+  var base = (rl.code.match(/\(/g) || []).length;
   (rl.parts || []).forEach(function(pt){
-    var sub = el('p',{class:'note',style:'margin-left:12px'});
+    var depth = Math.max(1, (pt.code.match(/\(/g) || []).length - base);
+    var sub = el('p',{class:'note',style:'margin-left:' + (depth * 12) + 'px'});
     sub.appendChild(el('span',{class:'rdg-id',text:pt.code + ' '}));
     sub.appendChild(document.createTextNode(pt.text));
     box.appendChild(sub);
@@ -10926,6 +10935,15 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.17.0', date:'2026-09-02', changes:[
+      'Striped bass is complete. The limit and the minimum size both read \u201cexcept in waters listed in (d) below\u201d, and (d) was not in the app \u2014 so two rules pointed at an exception you had no way to read. It is here now: the waters it names, and the different limit and size that apply in them.',
+      'And a sturgeon closure was missing the part that matters. The Sierra and Valley District closure showed its name and the reach of the Sacramento it covers \u2014 Keswick Dam to the Highway 162 bridge \u2014 and nothing whatever about what is forbidden there. Taking any sturgeon, using wire leaders, and using lamprey or any type of shrimp as bait all are. Every one of those was in the regulation and none of them reached the screen.',
+      'Sub-sections now sit underneath the ones they belong to instead of all at one step. On a phone, \u201cLimit: Ten.\u201d beside a list of waters reads as a rule about the water you are on; under that list, it reads as what it is.',
+  ], broken:[
+      'The app carries the sections about the water it draws \u2014 the seasons, the limits, the closures on these rivers and the Delta \u2014 and not the ones about the ocean or the North Coast. Somewhere it does not draw, the sections here may not be the ones that govern you.',
+      'A section CDFW publishes as a table is still left out rather than shown. A table loses its columns on a phone without saying so, and a regulation with its columns lost would be worse than one you had to go and look up.',
+      'None of this replaces the printed regulations, and every section says so beside its number. What is here is CDFW\u2019s own wording, so you can check it against theirs.',
+  ] },
   { v:'2.16.0', date:'2026-09-02', changes:[
       'A map link somebody sent you works in the search box. Paste it and the app goes there \u2014 Google, Apple, OpenStreetMap, or a plain geo: link, whichever way it was made. Nothing is sent to anybody to do it: the position is already sitting inside the link, so this reads it on your own phone.',
       'And it can look up a street address, if you switch that on. It is off to begin with \u2014 the \u24d8 button, under What it will not do. Switched on it still sends nothing while you type: when a search finds nothing, a button appears saying exactly what it would send and to whom, and only pressing that sends it. One press, one search, every time.',

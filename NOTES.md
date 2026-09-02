@@ -40,7 +40,15 @@ session needs before it touches anything.
   `geographies` path is refused 403 there. The stored preference reads false
   with nothing stored, and `lookUpAddress` has exactly one call site in the
   deployed file — the offer button.
-- No staged candidate.
+- Staged candidate: **2.17.0** — the species regulations are complete where they
+  were quietly not. The bake followed each section's DIRECT children only, over
+  a source three levels deep: the Sierra and Valley District sturgeon closure
+  arrived as a title plus a reach of the Sacramento with nothing forbidden in
+  it, and striped bass §5.75(b) and (c) each pointed at an exception, (d), that
+  had never been asked for. Both are fixed, the bake follows subtrees to
+  closure and writes the source's own child count so `--check` can count them,
+  and render-test refuses any rule whose words point at a subsection the app
+  does not carry.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
