@@ -3099,6 +3099,48 @@ check('and offers to show it, keep it, or let it go',
   held.buttons.some(b => /Keep it as a mark/.test(b)) &&
   held.buttons.some(b => /Let it go/.test(b)), JSON.stringify(held.buttons));
 
+/* A LINE THROUGH A GAP IS A MEASUREMENT NOBODY MADE, and the width had been
+   drawing one. Kept only the measured samples, the series ran straight from
+   the last width before a refusal to the first after it — across a confluence,
+   or across a whole reach USGS maps as a line rather than an area — at a slope
+   that reads exactly like data. The depth bands have refused to do this since
+   they were built; this asserts the same rule for the other dimension.
+
+   The refusals are INJECTED rather than hunted for: on the Sacramento's
+   surveyed run every sample happens to carry a width, so the branch that
+   matters would never run against the real file. What is being tested is the
+   drawing's response to a gap, and a gap is a gap wherever it came from. */
+const gapped = await page.evaluate(() => {
+  const before = state.profile.widths.slice();
+  state.profShow = 'width';
+  const w = state.profile.widths;
+  const cut = Math.floor(w.length / 2);
+  /* Three consecutive refusals in the middle, which is what a confluence
+     looks like in the baked file. */
+  for (let i = cut; i < cut + 3 && i < w.length; i++) w[i] = { along: w[i].along, m: null };
+  renderProfile();
+  const svg = document.getElementById('profsvg');
+  const out = {
+    runs: svg.querySelectorAll('path[stroke="#8FD9B4"]').length,
+    dashed: svg.querySelectorAll('line[stroke-dasharray]').length,
+    note: document.getElementById('profnote').textContent
+  };
+  state.profile.widths = before;
+  renderProfile();
+  return out;
+});
+check('a gap in the width breaks the line rather than being drawn through',
+  gapped.runs === 2, JSON.stringify({ runs: gapped.runs }));
+/* A BREAK ON ITS OWN READS AS NOTHING. On the upper reaches most samples
+   refuse, and a reader seeing a few short strokes with no explanation would
+   reasonably conclude the app is broken rather than that USGS maps the river
+   there as a line. */
+check('and the gap is marked on the drawing, not merely left blank',
+  gapped.dashed >= 1, JSON.stringify({ dashed: gapped.dashed }));
+check('and the words under it say what a dotted stretch means',
+  /dotted/.test(gapped.note) && /no width to give/.test(gapped.note),
+  gapped.note.slice(0, 300));
+
 /* --- THE DRAWING SURVIVES ITS OWN COMMENTARY -------------------------------
    Holding a point fills `#profheld` with four paragraphs and two buttons. The
    section has a fixed height, and with the drawing on `flex:1 1 auto;

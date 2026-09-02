@@ -14,8 +14,7 @@ session needs before it touches anything.
   verified by reading that address rather than the push output — the page and
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
-- Nothing is staged ahead of production: `staging` and `main` carry the same
-  release.
+- Staged candidate: **2.11.2** — the width chart says where it has nothing.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1088,6 +1087,46 @@ says is on top at a point inside it — and it is made on the SECOND trace, afte
 a hold and a re-render, because the first one always worked. That is the same
 shape as the touch-target checks this repo already carries: measured by hit
 testing rather than by styling.
+
+
+## The width was drawing a line through its own refusals
+
+`tools/fetch-widths.mjs` refuses to give a width at a confluence, at a bypass,
+and wherever USGS's flowline sits outside USGS's own area polygon — and the
+generator, the check and the baked file all handled that correctly. **The chart
+then drew straight through every one of them**, because `widthAlong` kept only
+the samples that carried a number, so the series ran from the last width before
+a gap to the first after it at a slope that reads exactly like data.
+
+That is the defect the depth bands were built not to have, three hundred lines
+above in the same function: *a line drawn straight across a gap invents a bottom
+between two places nobody measured.* A width is no different, and the refusals
+this repo was careful to produce were being thrown away one layer later.
+
+Now the refusals travel to the chart, the line is drawn as RUNS split on them,
+and each gap gets a dotted rule at the foot of the band. **The mark matters as
+much as the break**: on the upper reaches most samples refuse, and a reader
+seeing a few short strokes with nothing to explain them would reasonably
+conclude the app is broken rather than that USGS maps the river there as a line
+rather than an area.
+
+The readout has three answers now instead of two — a width, "no single width
+here" where USGS mapped the place and the cast refused, and "no width here"
+where nothing was sampled. Collapsing the middle one into the last would
+understate what is actually known.
+
+**THE TEST INJECTS THE GAP RATHER THAN HUNTING FOR ONE.** On the Sacramento's
+surveyed run every sample happens to carry a width, so the branch that matters
+would never run against the real file — which is how it shipped in the first
+place. Three consecutive nulls are written into the model, the drawing is
+asserted to produce two runs and a dashed rule, and the model is put back.
+
+**And a release note was overclaiming.** 2.11.0 said "Width survives a missing
+survey ... so Width works on stretches where Depth has nothing to show, which is
+most of them." Half true: a line you draw yourself gets a width anywhere, but
+the down-river button profiles `surveyedRun(line)` and always has, so on the
+Sacramento it covers 31 km of 359. The note now says which half is which, and
+the limit is listed as still not right.
 
 
 ## Scratch
