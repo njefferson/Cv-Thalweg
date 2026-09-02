@@ -1777,6 +1777,72 @@ for (const [label, width, height] of [
       await page.evaluate(() => document.getElementById('profile').hidden));
   }
 
+  /* FINDING A PLACE, BY FINGER. The box is on the map panel, above the map, and
+     the results land ON TOP of the map — which is exactly the shape that gets
+     shipped unreachable, because `querySelector` answers the same for a control
+     under a map pane as for one a thumb can actually land on. So this hit-tests
+     rather than measures, the way the ramp layer's press had to after it
+     shipped returning a depth reading from twenty pixels away. */
+  await page.click('#tab-map');
+  await page.waitForTimeout(600);
+  const findbox = await page.evaluate(() => {
+    const q = document.getElementById('findq');
+    if (!q) return { there: false };
+    const r = q.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { there: true, h: Math.round(r.height), w: Math.round(r.width),
+             inView: r.left >= 0 && r.right <= innerWidth + 0.5,
+             hit: hit ? hit.id : null,
+             name: (document.querySelector('label[for=findq]') || {}).textContent || '' };
+  });
+  check('touch: the search box is on the map panel and a thumb reaches it',
+    findbox.there && findbox.h >= 44 && findbox.inView && findbox.hit === 'findq',
+    JSON.stringify(findbox));
+  check('touch: and it is named for anyone reading by ear',
+    /find/i.test(findbox.name), JSON.stringify(findbox));
+
+  await page.fill('#findq', 'walnut');
+  await page.waitForTimeout(400);
+  const results = await page.evaluate(() => {
+    const bs = [...document.querySelectorAll('#findlist button')];
+    const r = document.getElementById('findlist').getBoundingClientRect();
+    return {
+      n: bs.length,
+      inView: r.left >= 0 && r.right <= innerWidth + 0.5,
+      small: bs.filter(b => b.getBoundingClientRect().height < 44).length,
+      unreachable: bs.filter(b => {
+        const q = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+        return !(hit && b.contains(hit));
+      }).length,
+      named: bs.filter(b => (b.getAttribute('aria-label') || '').length > 4).length
+    };
+  });
+  check('touch: the results are reachable, thumb-sized and inside the window',
+    results.n > 0 && results.inView && results.small === 0 && results.unreachable === 0,
+    JSON.stringify(results));
+  check('touch: and each one says what kind of place it is, not just its name',
+    results.n > 0 && results.named === results.n, JSON.stringify(results));
+  const clearBtn = await page.evaluate(() => {
+    const b = document.getElementById('findclear');
+    const r = b.getBoundingClientRect();
+    return { hidden: b.hidden, h: Math.round(r.height), w: Math.round(r.width),
+             name: b.getAttribute('aria-label') || '' };
+  });
+  check('touch: the way to empty the box is a thumb target and says so',
+    !clearBtn.hidden && clearBtn.h >= 44 && clearBtn.w >= 44 && /clear/i.test(clearBtn.name),
+    JSON.stringify(clearBtn));
+  /* THE OPEN RESULT LIST IS ITS OWN STATE and is audited as one — the update
+     strip shipped unmeasured for a day for exactly this reason. */
+  await audit(page, 'touch: the search results');
+  /* NOT noOverflow HERE. That helper measures every element on the page, and
+     with the map open Leaflet's own tile container and SVG panes extend well
+     past the window BY DESIGN — that is how a map larger than the screen is
+     drawn. The question that matters is whether the SEARCH stays inside, and
+     the box and the list are each measured against the window above. */
+  await page.fill('#findq', '');
+  await page.waitForTimeout(300);
+
   check('touch: no page errors', errs.length === 0, errs.join(' | '));
   await ctx.close();
 }

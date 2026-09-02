@@ -15,8 +15,15 @@ session needs before it touches anything.
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
 - **2.13.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02.
-- Staged candidate: **2.14.1** — the Tide tab actually opens the Tide panel.
-  2.13.1 and 2.14.0 are behind it.
+- **2.14.1 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02 and
+  verified at the page and the service worker; the Gates run whose head SHA is
+  that commit finished green on `main`.
+- Staged candidate: **2.15.0** — you can look a place up. A search over the
+  gauges, tide stations, launches, public land, the Delta's named channels and
+  the reader's own marks, plus a position typed in, at
+  https://staging.cv-thalweg.pages.dev — it works with no signal, because the
+  gauge names and positions now travel with the app rather than arriving with a
+  live reading.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys

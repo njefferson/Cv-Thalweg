@@ -73,6 +73,13 @@ jobs:
       - name: The baked tide stations
         run: node tools/fetch-stations.mjs --check
 
+      # And the gauge sites, for the same reason and one more: this file is what
+      # makes the search work with no signal. Its absence is not a smaller
+      # search, it is a search that finds Freeport on a good connection and
+      # nothing on a riverbank, which is the condition this app is for.
+      - name: The baked gauge sites
+        run: node tools/fetch-gauges.mjs --check
+
       # Doctrine 7d. Every release that ships has a note, and every note is
       # written for the person reading it rather than the person who wrote it.
       # The prose rule lost four releases in a row while it sat in a file.

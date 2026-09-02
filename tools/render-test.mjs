@@ -3678,6 +3678,184 @@ check('clearing it takes the line off the map as well as the drawing',
   await page.evaluate(() => document.getElementById('profile').hidden &&
     state.profLayer.getLayers().length === 0));
 
+/* --- FINDING A PLACE ------------------------------------------------------
+   The app could analyse a whole river and had no way to reach one stretch of
+   it. Every check here runs in the OFFLINE browser this suite uses, which is
+   the point: the search index used to be built from live gauge payloads, so it
+   knew Freeport only once the water level did.
+
+   AND THE TRAP UNDERNEATH IT. `isFinite(null)` is TRUE, because null coerces to
+   zero, and a gauge whose request failed carries a null lat and a null lon. The
+   first build put every unreachable gauge into the index at 0°N 0°E and offered
+   it as somewhere to go — while looking, from any live desktop run, exactly
+   like a search that worked. */
+/* NO TAB PRESS HERE. This suite runs at 1280, where the map is a COLUMN beside
+   the rail rather than one of its tabs — `#tab-map` is `display:none` above
+   900px, and `tabNames()` knows it. The search box lives on the map panel, so
+   it is already on screen. Pressing the tab by finger is the narrow shape and
+   is checked in the touch context of tools/a11y.mjs. */
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(1200);
+
+check('the search box is on screen without a tab press on a wide window',
+  await page.evaluate(() => {
+    const q = document.getElementById('findq');
+    const r = q.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && !!q.offsetParent;
+  }),
+  await page.evaluate(() => JSON.stringify(document.getElementById('findq').getBoundingClientRect())));
+
+check('the search finds a gauge with no network at all',
+  await page.evaluate(() => findPlaces('freeport', 8)
+    .some(p => p.kind === 'gauge' && /FREEPORT/i.test(p.name))),
+  await page.evaluate(() => JSON.stringify(findPlaces('freeport', 8).map(p => p.name))));
+
+check('and it finds one on the river with no USGS mainstem gauge',
+  await page.evaluate(() => findPlaces('gridley', 8)
+    .some(p => p.kind === 'gauge' && p.riverId === 'feather')),
+  await page.evaluate(() => JSON.stringify(findPlaces('gridley', 8).map(p => p.name + '/' + p.riverId))));
+
+check('every place in the index has a real position, not a coerced zero',
+  await page.evaluate(() => placeIndex().every(p =>
+    typeof p.lat === 'number' && typeof p.lon === 'number' &&
+    isFinite(p.lat) && isFinite(p.lon) && !(p.lat === 0 && p.lon === 0))),
+  await page.evaluate(() => JSON.stringify(placeIndex()
+    .filter(p => p.lat === 0 && p.lon === 0).map(p => p.name).slice(0, 5))));
+
+check('a name that starts with what was typed comes before one that contains it',
+  await page.evaluate(() => {
+    const hits = findPlaces('sacramento', 12);
+    const first = hits.findIndex(p => /^sacramento/i.test(p.name));
+    const later = hits.findIndex(p => !/^sacramento/i.test(p.name));
+    return first === 0 && (later === -1 || later > first);
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('sacramento', 12).map(p => p.name))));
+
+/* A POSITION TYPED IN is the only route to a place with no name on any map
+   that still needs nothing from the network, so it is the honest answer to
+   the address this app will not look up. */
+check('a decimal pair is understood, and west is west',
+  await page.evaluate(() => {
+    const p = findPlaces('38.1533, -121.6870', 5)[0];
+    return p && p.kind === 'coord' &&
+      Math.abs(p.lat - 38.1533) < 1e-6 && Math.abs(p.lon + 121.6870) < 1e-6;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('38.1533, -121.6870', 5)[0] || null)));
+
+check('degrees, minutes and seconds with hemisphere letters is understood too',
+  await page.evaluate(() => {
+    const p = findPlaces('38 09 12 N 121 41 13 W', 5)[0];
+    return p && p.kind === 'coord' &&
+      Math.abs(p.lat - 38.15333) < 1e-4 && Math.abs(p.lon + 121.68694) < 1e-4;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('38 09 12 N 121 41 13 W', 5)[0] || null)));
+
+check('a bare positive longitude in this basin is read as west',
+  await page.evaluate(() => {
+    const p = findPlaces('38.1533 121.6870', 5)[0];
+    return p && p.kind === 'coord' && p.lon < 0;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('38.1533 121.6870', 5)[0] || null)));
+
+check('a longitude that already says what it means is not flipped',
+  await page.evaluate(() => {
+    const p = findPlaces('38.1533 E 121.6870', 5)[0] || findPlaces('N 38.1533 E 121.6870', 5)[0];
+    return !p || p.lon > 0;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('N 38.1533 E 121.6870', 5)[0] || null)));
+
+check('and prose is not mistaken for a position',
+  await page.evaluate(() => findPlaces('walnut grove', 8).every(p => p.kind !== 'coord')),
+  await page.evaluate(() => JSON.stringify(findPlaces('walnut grove', 8).map(p => p.kind))));
+
+/* THE PRESS IS THE FEATURE. An index that answers correctly and a button that
+   goes nowhere is the same failure as no search at all. */
+await page.fill('#findq', 'marysville');
+await page.waitForTimeout(300);
+check('a result carries what it is and which river, not just its name',
+  /gauge/i.test(await page.getAttribute('#findlist button', 'aria-label') || ''),
+  await page.getAttribute('#findlist button', 'aria-label'));
+check('no result is smaller than a finger',
+  await page.evaluate(() => [...document.querySelectorAll('#findlist button')]
+    .every(b => b.getBoundingClientRect().height >= 44)),
+  await page.evaluate(() => JSON.stringify([...document.querySelectorAll('#findlist button')]
+    .map(b => Math.round(b.getBoundingClientRect().height)))));
+check('the list stays inside the window',
+  await page.evaluate(() => {
+    const r = document.getElementById('findlist').getBoundingClientRect();
+    return r.left >= 0 && r.right <= innerWidth + 0.5;
+  }),
+  await page.evaluate(() => JSON.stringify(document.getElementById('findlist').getBoundingClientRect())));
+
+await page.click('#findlist button');
+await page.waitForTimeout(900);
+check('pressing a result on another river switches to that river',
+  await page.evaluate(() => state.riverId) === 'feather',
+  await page.evaluate(() => state.riverId));
+check('and the map goes there rather than staying where it was',
+  await page.evaluate(() => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - 39.14) < 0.2 && Math.abs(c.lng + 121.59) < 0.2 &&
+      state.map.getZoom() >= 13;
+  }),
+  await page.evaluate(() => JSON.stringify({ c: state.map.getCenter(), z: state.map.getZoom() })));
+check('and the list closes behind it, with the box emptied',
+  await page.evaluate(() => document.getElementById('findlist').hidden &&
+    document.getElementById('findq').value === ''));
+
+/* NOT A BARE "NOTHING FOUND". The commonest thing to type into a box on a map
+   is an address, and this app will not look one up — so the empty answer says
+   which, and names the two things that DO work, rather than leaving somebody
+   trying three more spellings of their own street. */
+await page.fill('#findq', 'zzzznowhere');
+await page.waitForTimeout(300);
+const none = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
+check('an empty answer says it cannot look up a street address',
+  /street address/i.test(none), none.slice(0, 120));
+check('and names the position and the mark as the ways in',
+  /38\.1533/.test(none) && /mark/i.test(none), none.slice(0, 200));
+await page.fill('#findq', '');
+await page.waitForTimeout(200);
+
+/* ON ALL RIVERS TOO, which is the screen the app OPENS on. The box began
+   inside the map panel, and that panel does not exist on All rivers — so the
+   one view a newcomer sees had no way to look anything up, in the app whose
+   complaint was that you could analyse a river and not find a stretch of it.
+   And it is the view somebody is on precisely when they do not yet know which
+   river their spot belongs to. */
+await page.selectOption('#riverpick', '');
+await page.waitForTimeout(1200);
+check('the search is there on All rivers, where the app opens',
+  await page.evaluate(() => {
+    const q = document.getElementById('findq');
+    const r = q.getBoundingClientRect();
+    return !!q.offsetParent && r.height >= 44 && document.body.classList.contains('all-rivers');
+  }),
+  await page.evaluate(() => JSON.stringify({ cls: document.body.className,
+    r: document.getElementById('findq').getBoundingClientRect() })));
+await page.fill('#findq', 'freeport');
+await page.waitForTimeout(300);
+await page.click('#findlist button');
+await page.waitForTimeout(1200);
+check('and pressing a result from there picks the river it belongs to',
+  await page.evaluate(() => state.riverId) === 'sacramento',
+  await page.evaluate(() => state.riverId));
+/* THE VIEW THE READER ASKED FOR IS THE ONE THAT HOLDS. Switching the river
+   fits that river, so this is two view changes in one tick — and Leaflet
+   swallows the second while the first is still animating, silently, with both
+   calls correct. It read as a button that did nothing. */
+check('and the map is at the place, not at the river it had to switch to',
+  await page.evaluate(() => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - 38.4557) < 0.05 && Math.abs(c.lng + 121.5016) < 0.05 &&
+      state.map.getZoom() >= 13;
+  }),
+  await page.evaluate(() => JSON.stringify({ c: state.map.getCenter(), z: state.map.getZoom() })));
+await page.fill('#findq', '');
+await page.waitForTimeout(200);
+await page.selectOption('#riverpick', 'sacramento');
+await page.waitForTimeout(800);
+
 await page.screenshot({ path: '/tmp/thalweg-fixtures.png' });
 check('no page errors', errs.length === 0, errs.join(' | '));
 console.log(`\n${pass} passed, ${fail} failed.`);
