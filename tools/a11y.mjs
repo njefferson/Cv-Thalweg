@@ -1665,6 +1665,20 @@ for (const [label, width, height] of [
       }));
       return { have, b, table: PROF_VIEWS.length };
     });
+    /* THE PROFILE'S WAY OUT TO A BIGGER PICTURE. It is a header button rather
+       than a wrapper, because the drawing itself is a control here, so what
+       has to be checked is that it is named and big enough for a thumb. */
+    const bigBtn = await page.evaluate(() => {
+      const b = document.getElementById('profbig');
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      return { name: b.getAttribute('aria-label') || '',
+               w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    check('touch: the profile can be opened larger, and the way in says so',
+      bigBtn && /^Show .+ larger$/.test(bigBtn.name) && bigBtn.w >= 32 && bigBtn.h >= 32,
+      JSON.stringify(bigBtn));
+
     check('touch: the profile offers a view for each thing it can draw, or none',
       views.have ? views.b.length === views.table : views.b.length === 0,
       JSON.stringify(views));

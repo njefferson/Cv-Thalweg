@@ -13,7 +13,7 @@
  * how an app ends up running old markup against new code, and the reader
  * has no way to see it happen.
  */
-var VERSION = '2.13.0';
+var VERSION = '2.13.1';
 var SHELL = 'thalweg-shell-' + VERSION;
 var TILES = 'thalweg-tiles-' + VERSION;
 var TILE_CAP = 1200;

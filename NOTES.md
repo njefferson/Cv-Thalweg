@@ -14,8 +14,8 @@ session needs before it touches anything.
   verified by reading that address rather than the push output — the page and
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
-- Staged candidate: **2.13.0** — the tide has its own tab, the long prose
-  folds, and the pictures open.
+- **2.13.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02.
+- Staged candidate: **2.13.1** — the depth profile opens larger too.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1254,6 +1254,27 @@ was pressed.
 Tide tab, and the two checks after it measure buttons in Layers — which reported
 them as zero by zero, because every element in a hidden panel is. A check that
 changes which tab is showing has to put it back.
+
+
+## The fourth picture opens by a different door, and the reason is the gesture
+
+Three figures got a wrapper: the drawing sits inside a `<button class="figzoom">`
+and pressing anywhere on it opens the picture full width. **The depth profile
+could not have that**, because its drawing is ALREADY a control — a finger
+dragged across it traces the line and moves a mark on the map. A button wrapped
+round that would swallow the drag.
+
+So its way in is a button in the profile's own header, beside the two that
+stretch the distance axis. Those do a different job and it is worth naming: −
+and + widen the picture INSIDE a strip at the foot of the map, this one opens
+the whole thing at the size of the screen.
+
+**And the copy is a picture rather than a surface that pretends.** The profile's
+SVG carries a transparent rectangle that catches the trace; a clone has the
+shape of it and none of the listeners, so in the enlarged view it would be a
+region that looks interactive and does nothing. It is removed from the copy, and
+the check asserts both halves — no ghost in the copy, and the original still
+traceable behind the dialog.
 
 
 ## Scratch

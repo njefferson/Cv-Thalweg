@@ -710,6 +710,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
         <div id="profviews" role="group" aria-label="What the profile shows"></div>
         <button type="button" id="profout" aria-label="Show more of the line">&minus;</button>
         <button type="button" id="profin" aria-label="Stretch the line out">+</button>
+        <!-- AND THE WHOLE PICTURE BIGGER, which is a different thing from the
+             two buttons beside it: those stretch the DISTANCE axis and leave
+             the drawing the height of a strip at the foot of the map. This one
+             opens it at the size of the screen. It is a button in the header
+             rather than a wrapper round the drawing, because the drawing here
+             is already a control — a finger dragged across it traces the line
+             — and nesting a button inside that would take the gesture away. -->
+        <button type="button" id="profbig"
+                aria-label="Show the profile larger">&#8981;</button>
         <button type="button" id="profclear">Clear</button>
       </div>
       <div class="profwrap" id="profwrap"><svg id="profsvg" role="img"
@@ -871,7 +880,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.13.0';
+var VERSION = '2.13.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -5479,11 +5488,18 @@ function openFigure(fig, label){
      reader does in here changes what is behind it. */
   var big = fig.cloneNode(true);
   big.removeAttribute('style');
+  big.removeAttribute('id');
   big.setAttribute('width', '100%');
   big.setAttribute('height', 'auto');
   big.style.width = '100%';
   big.style.height = 'auto';
   big.style.display = 'block';
+  /* THE COPY IS A PICTURE, NOT A CONTROL. The profile's drawing carries a
+     transparent rectangle that traces the line under a finger, and the clone
+     has the shape of it and none of the listeners — so in here it would be a
+     surface that looks interactive and does nothing. It goes. */
+  var ghost = big.querySelector('rect[style*="touch-action"]');
+  if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
   body.appendChild(big);
   body.scrollTop = 0; body.scrollLeft = 0;
   dlg.showModal();
@@ -10206,6 +10222,12 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.13.1', date:'2026-09-02', changes:[
+      'The depth profile opens larger too, so all four pictures do. Its way in is a button in the profile\u2019s own header rather than a tap on the drawing, because the drawing there is already a control \u2014 dragging a finger across it traces the line and moves a mark on the map \u2014 and wrapping it would have taken that away.',
+      'It is a different thing from the \u2212 and + beside it. Those stretch the distance axis inside a strip at the foot of the map; this one opens the whole picture at the size of the screen.',
+  ], broken:[
+      'You cannot trace the enlarged copy. The tracing reads a depth at the point under your finger and moves a mark on the map, and the copy has the shape of that and none of the wiring \u2014 so rather than leave a surface that looks interactive and is not, it is taken out of the copy.',
+  ] },
   { v:'2.13.0', date:'2026-09-02', changes:[
       'The tide has its own tab. Water was carrying the tide, the moon, the tide along the river, the gauges, the weirs and a week of history \u2014 nearly four screens on a laptop and worse on a phone \u2014 so whatever you opened it for was several scrolls down. Water keeps what the water is doing now; Tide is what it is going to do.',
       'And the long paragraphs fold. Every section that explained itself at length now opens with the sentence carrying the fact and puts the rest behind a press. NOTHING WAS DELETED \u2014 saying what it does not know is the whole point of this app \u2014 so the qualifications are all still there, one tap away, and a check counts them to make sure a future tidy-up cannot quietly cut them.',
@@ -11069,6 +11091,11 @@ function boot(){
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
   $('#figclose').addEventListener('click', function(){ $('#figview').close(); });
+  $('#profbig').addEventListener('click', function(){
+    var svgEl = $('#profsvg');
+    if (!svgEl || !state.profile) return;
+    openFigure(svgEl, $('#proftitle').textContent.toLowerCase());
+  });
   $('#newclose').addEventListener('click', function(){ $('#whatsnew').close(); });
 
   $('#profclear').addEventListener('click', clearProfile);

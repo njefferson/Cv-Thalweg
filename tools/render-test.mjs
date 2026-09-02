@@ -3413,6 +3413,39 @@ check('and Depth and width still draws the width where there is no depth',
 await page.evaluate(() => { state.profShow = 'depth'; profileRiverLine(byId(state.riverId)); });
 await page.waitForTimeout(4000);
 
+/* THE PROFILE OPENS TOO, and by a different route on purpose. Its drawing is
+   already a control — a finger dragged across it traces the line and moves a
+   mark on the map — so wrapping it in a button would take that gesture away.
+   The way in is a button in its header beside the two that stretch the
+   distance axis, which do a different job: they widen the picture inside a
+   strip at the foot of the map, this one opens it at the size of the screen. */
+const profBig = await page.evaluate(() => {
+  const b = document.getElementById('profbig');
+  if (!b) return { missing: true };
+  b.click();
+  const dlg = document.getElementById('figview');
+  const big = document.querySelector('#figbody svg');
+  return {
+    open: dlg.open,
+    name: b.getAttribute('aria-label'),
+    copied: !!big,
+    /* The traced hit rect is a listener-less ghost in a copy, so it is taken
+       out rather than left as a surface that looks interactive and is not. */
+    noGhost: big ? !big.querySelector('rect[style*="touch-action"]') : false,
+    /* And the original is untouched — still traceable behind the dialog. */
+    originalTraceable: !!document.querySelector('#profsvg rect[style*="touch-action"]'),
+    title: document.getElementById('figtitle').textContent
+  };
+});
+check('the depth profile can be opened larger as well',
+  profBig.open && profBig.copied, JSON.stringify(profBig));
+check('and its way in is named, not just a symbol',
+  /^Show .+ larger$/.test(profBig.name || ''), String(profBig.name));
+check('the enlarged profile is a picture, not a surface that pretends to trace',
+  profBig.noGhost && profBig.originalTraceable, JSON.stringify(profBig));
+await page.click('#figclose');
+await page.waitForTimeout(200);
+
 /* --- THE DRAWING SURVIVES ITS OWN COMMENTARY -------------------------------
    Holding a point fills `#profheld` with four paragraphs and two buttons. The
    section has a fixed height, and with the drawing on `flex:1 1 auto;
