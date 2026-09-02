@@ -40,7 +40,14 @@ session needs before it touches anything.
   `geographies` path is refused 403 there. The stored preference reads false
   with nothing stored, and `lookUpAddress` has exactly one call site in the
   deployed file — the offer button.
-- Staged candidate: **2.17.0** — the species regulations are complete where they
+- Staged candidate: **2.18.0** — a plus code typed or pasted into the search box
+  is decoded on the device. Open Location Code is arithmetic rather than a
+  lookup, so it belongs with the pasted map link and not with the address
+  finder. Full codes only: recovering a short code's missing front against a
+  reference is well defined and is a second thing to be subtly wrong about at a
+  box edge, so the app says which half is missing instead.
+  2.17.0 is behind it.
+- 2.17.0 — the species regulations are complete where they
   were quietly not. The bake followed each section's DIRECT children only, over
   a source three levels deep: the Sierra and Valley District sturgeon closure
   arrived as a title plus a reach of the Sacramento with nothing forbidden in

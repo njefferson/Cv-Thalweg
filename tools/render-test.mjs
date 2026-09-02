@@ -3936,6 +3936,39 @@ for (const [what, url, lat, lon] of LINKS)
     }, [url, lat, lon]),
     await page.evaluate((u) => JSON.stringify(findPlaces(u, 3)[0] || null), url));
 
+/* --- A PLUS CODE, DECODED HERE ------------------------------------------
+   Open Location Code is arithmetic, not a lookup, so a code somebody texts you
+   resolves on the device with no network at all. `8FVC2222+22` is the
+   specification's own worked example. */
+check('the specification’s own plus code decodes to the point it names',
+  await page.evaluate(() => {
+    const p = findPlaces('8FVC2222+22', 3)[0];
+    return !!p && p.kind === 'coord' &&
+      Math.abs(p.lat - 47.0000625) < 1e-6 && Math.abs(p.lon - 8.0000625) < 1e-6;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('8FVC2222+22', 3)[0] || null)));
+/* AND ONE ON THIS WATER, which is the check that would catch the pair being
+   swapped or the base being wrong — both of which decode to somewhere. */
+check('and a plus code on the Sacramento lands on the Sacramento',
+  await page.evaluate(() => {
+    const p = findPlaces('84CW5837+856', 3)[0];
+    return !!p && Math.abs(p.lat - 38.1533) < 0.001 && Math.abs(p.lon + 121.6870) < 0.001;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('84CW5837+856', 3)[0] || null)));
+/* A SHORT CODE IS REFUSED BY NAME. Its first four characters say which part of
+   the world it is in; recovering them against a reference is well defined and
+   is a second thing to be subtly wrong about at a box edge, so the app asks for
+   the whole code and says which half is missing. */
+check('a plus code with its front removed is not guessed at',
+  await page.evaluate(() => findPlaces('HGJ4+J6X', 3).every(p => p.kind !== 'coord')),
+  await page.evaluate(() => JSON.stringify(findPlaces('HGJ4+J6X', 3).map(p => p.kind))));
+await page.fill('#findq', 'HGJ4+J6X');
+await page.waitForTimeout(300);
+const shortPlus = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
+check('and the empty answer says which half of it is missing',
+  /front removed/i.test(shortPlus) && /whole code/i.test(shortPlus),
+  shortPlus.slice(0, 200));
+
 /* THE SHORTENED LINK IS THE HONEST FAILURE. It carries no position at all —
    only a key to a row in somebody else's table — so it cannot be read here,
    and saying which saves somebody deciding the paste did not work. */
