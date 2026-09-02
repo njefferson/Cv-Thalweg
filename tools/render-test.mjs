@@ -283,6 +283,11 @@ await page.waitForTimeout(2000);
 
 /* --- gauges and the ribbon --- */
 const water = (await page.textContent('#panel-water')).replace(/\s+/g, ' ');
+/* THE TIDE MOVED TO ITS OWN PANEL in 2.13.0. Assertions about the tide read it
+   there; assertions about the gauges, the weirs and the week still read Water.
+   Both are captured so a check that names the wrong one fails loudly rather
+   than passing on the other's text. */
+const tideText = (await page.textContent('#panel-tide')).replace(/\s+/g, ' ');
 check('site name comes from the API', water.includes('SACRAMENTO R A RIO VISTA CA'), water.slice(0, 200));
 check('celsius is shown in fahrenheit', water.includes('70.5'), water.slice(0, 400));
 check('a -999999 temperature shows a dash, not a number',
@@ -497,7 +502,7 @@ check('every part of the key is inside the drawing',
 
 /* --- tide --- */
 check('tide curve drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
-check('high and low table populated', /High ·|Low ·/.test(water), water.slice(0, 300));
+check('high and low table populated', /High ·|Low ·/.test(tideText), tideText.slice(0, 300));
 /* The whole station index is two megabytes and NOAA ignores every filter, so
    it must not be fetched to read a station this app already names. It was
    being fetched once per tidal river on every cold open — four of the five
@@ -816,7 +821,7 @@ check('a real reversal is still counted',
   }));
 
 const along = await page.evaluate(() => {
-  const h = [...document.querySelectorAll('#panel-water h2')]
+  const h = [...document.querySelectorAll('#panel-tide h2')]
     .find(x => /along the river/i.test(x.textContent));
   if (!h) return null;
   let n = h.nextElementSibling, text = '', figs = 0, desc = null, btn = null;
@@ -828,7 +833,7 @@ const along = await page.evaluate(() => {
       .find(b => /Show the last day/.test(b.textContent));
     n = n.nextElementSibling;
   }
-  const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+  const fig = document.querySelector('#panel-tide svg[aria-label*="Which way the water"]');
   return { text: text, figs: figs, hasFigure: !!fig,
     describedBy: fig ? fig.getAttribute('aria-describedby') : null,
     descId: desc ? desc.id : null,
@@ -837,6 +842,100 @@ const along = await page.evaluate(() => {
     askedForDay: !!btn };
 });
 check('a tidal river gets a section for the tide along it', !!along, 'section missing');
+
+/* --- THE PICTURE IS AS WIDE AS WHAT IT DRAWS ------------------------------
+   The figure was 560 wide whether or not the last day had been asked for, and
+   the band of history is the only thing that right-hand column is for. So
+   before you press "Show the last day" the names and arrows sat in the left
+   230px of a 560px canvas, the canvas was scaled to the panel's width, and the
+   arrows came out at under half the size they should be with a screen of
+   nothing beside them. Reported from a device, on the Delta, where sixteen
+   rows made it plain.
+
+   And the key at the foot ran the two entries 250px apart, so IT set the width
+   on any picture narrower than about 350 — the legend sizing the data. */
+/* MEASURED ON THE VISIBLE PANEL. getBBox on content inside a hidden panel
+   returns zeros, which is how the first version of this check reported a
+   picture that was 238px of nothing. */
+await page.evaluate(() => { if (tabNames().indexOf('tide') !== -1) selectTab('tide'); });
+await page.waitForTimeout(500);
+const figGeom = await page.evaluate(() => {
+  const fig = document.querySelector('#panel-tide svg[aria-label*="Which way the water"]');
+  if (!fig) return null;
+  const vb = fig.getAttribute('viewBox').split(' ').map(Number);
+  const W = vb[2];
+  const b = fig.getBoundingClientRect();
+  /* The rightmost edge of anything actually drawn, in viewBox units. */
+  let far = 0;
+  fig.querySelectorAll('text, rect, line, path, polygon').forEach(n => {
+    let bb = null;
+    try { bb = n.getBBox(); } catch (e) { bb = null; }
+    if (bb && bb.width) far = Math.max(far, bb.x + bb.width);
+  });
+  return { W: W, used: Math.round(far), askedForDay: !!state.velHist,
+           waste: Math.round(W - far) };
+});
+/* Without the day asked for there is no band, so the picture is the names and
+   the arrows and nothing else — about 240 units, not 560. */
+/* --- A PICTURE YOU CAN OPEN ------------------------------------------------
+   These are drawn to fit a column on a phone, and the tide along the river
+   draws one row per gauge — sixteen of them on the Delta. At column width the
+   arrows are a few pixels of ink. Every data-dense figure opens at the width of
+   the screen.
+
+   THE WRAPPER HAS TO BE A CONTROL. A drawing that answers a tap and is not a
+   button is unreachable by keyboard and silent to anything reading the page,
+   which is the trap that made four river rows inert a few releases ago. */
+const zoom = await page.evaluate(() => {
+  const figs = [...document.querySelectorAll('#panel-tide svg[role=img]')];
+  const wrapped = figs.filter(f => f.parentElement &&
+    f.parentElement.classList.contains('figzoom'));
+  return {
+    figures: figs.length,
+    wrapped: wrapped.length,
+    /* Named for what it opens, not "button". */
+    names: wrapped.map(f => f.parentElement.getAttribute('aria-label')),
+    /* And a real button, so Enter and Space reach it. */
+    areButtons: wrapped.every(f => f.parentElement.tagName === 'BUTTON' &&
+      f.parentElement.type === 'button')
+  };
+});
+check('every data-dense figure on the tide panel can be opened',
+  zoom.figures > 1 && zoom.wrapped >= zoom.figures - 1, JSON.stringify(zoom));
+check('and each one is a real button, named for what it opens',
+  zoom.areButtons && zoom.names.every(n => /^Show .+ larger$/.test(n || '')),
+  JSON.stringify(zoom.names));
+/* IT OPENS, IT IS THE PICTURE YOU PRESSED, AND IT CLOSES. */
+const opened = await page.evaluate(() => {
+  const b = document.querySelector('#panel-tide .figzoom');
+  b.click();
+  const dlg = document.getElementById('figview');
+  const big = document.querySelector('#figbody svg');
+  return { open: dlg.open, title: document.getElementById('figtitle').textContent,
+           copied: !!big,
+           /* A COPY, so closing cannot take the drawing off the panel. */
+           originalStillThere: !!document.querySelector('#panel-tide .figzoom svg'),
+           sameFigure: big && b.querySelector('svg') &&
+             big.getAttribute('aria-label') === b.querySelector('svg').getAttribute('aria-label'),
+           focus: document.activeElement.id };
+});
+check('pressing a figure opens it larger', opened.open && opened.copied,
+  JSON.stringify(opened));
+check('and it is the picture that was pressed, copied rather than moved',
+  opened.sameFigure && opened.originalStillThere, JSON.stringify(opened));
+check('and the enlarged view takes focus so it can be left again',
+  opened.focus === 'figtitle', JSON.stringify(opened));
+await page.click('#figclose');
+await page.waitForTimeout(200);
+check('and it closes',
+  await page.evaluate(() => !document.getElementById('figview').open));
+
+check('the tide-along figure is no wider than the thing it draws',
+  figGeom && figGeom.W < 300, JSON.stringify(figGeom));
+/* THE KEY IS INSIDE THE PICTURE, not setting its size. Laid out side by side
+   these two entries run past 340 units, which is what used to stretch it. */
+check('and its key fits inside it rather than stretching it',
+  figGeom && figGeom.used <= figGeom.W + 2, JSON.stringify(figGeom));
 check('and it draws the figure', along.hasFigure, JSON.stringify(along && { figs: along.figs }));
 
 /* IT MUST NOT PREDICT. NOAA publishes tidal current predictions for 4,430
@@ -935,8 +1034,11 @@ check('nothing reversing is not the same as no reading', rev.noneIsNull,
 check('the topmost gauge reversing is reported as having no gauge above it',
   rev.topPicked === 'D' && rev.topIsTopmost === true, JSON.stringify(rev));
 /* A MARK NOBODY NAMED IS THE DEFECT THE COLOUR KEY ALREADY FIXED ONCE. */
+/* THE CLAIM, NOT THE WORDING. The sentence was shortened in 2.13.0 so it could
+   fit inside a picture that is no longer padded out to 560px; "at least this
+   far" is the claim and is what has to survive. */
 check('the figure names the mark in its own key',
-  /pushed back at least this far/.test(rev.key), rev.key.slice(0, 300));
+  /at least this far/.test(rev.key), rev.key.slice(0, 300));
 check('and the mark is drawn, not only described',
   rev.rules >= 1, String(rev.rules));
 /* IT IS A FLOOR AND NEVER A LIMIT, in the words as well as in the drawing —
@@ -956,7 +1058,7 @@ check('and the description says it is a floor rather than the limit',
    rows — reported as "what is this??", which is the right question. */
 check('the figure fills the height it takes up, with no letterbox',
   await page.evaluate(() => {
-    const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+    const fig = document.querySelector('#panel-tide svg[aria-label*="Which way the water"]');
     if (!fig) return false;
     const box = fig.getBoundingClientRect();
     const vb = (fig.getAttribute('viewBox') || '').split(/\s+/).map(Number);
@@ -966,7 +1068,7 @@ check('the figure fills the height it takes up, with no letterbox',
     return Math.abs(drawn - box.height) <= 2;
   }),
   await page.evaluate(() => {
-    const fig = document.querySelector('#panel-water svg[aria-label*="Which way the water"]');
+    const fig = document.querySelector('#panel-tide svg[aria-label*="Which way the water"]');
     if (!fig) return 'no figure';
     const b = fig.getBoundingClientRect();
     const vb = (fig.getAttribute('viewBox') || '').split(/\s+/).map(Number);
@@ -1054,7 +1156,7 @@ check('agreeing to the day is remembered, and the readings are not cached',
 const phase = await page.evaluate(() => {
   const river = byId('sacramento');
   const ph = tidePhase(river);
-  const panel = document.getElementById('panel-water');
+  const panel = document.getElementById('panel-tide');
   const strip = panel.querySelector('.tidephase');
   /* A tide whose "high" is lower than the lows either side of it is a broken
      prediction, not a tide, and an arrow drawn from it would be a guess. */
@@ -1078,7 +1180,7 @@ const phase = await page.evaluate(() => {
     incoherentIsNull: incoherent === null,
     oneSidedIsNull: oneSided === null,
     strip: strip ? strip.textContent : '',
-    card: (document.getElementById('panel-water').textContent || '')
+    card: (document.getElementById('panel-tide').textContent || '')
   };
 });
 check('the app works out whether the tide is rising or falling', phase.got,
@@ -1203,7 +1305,7 @@ check('and the light is classified from the same altitude',
    defect the tide key and the reversal mark have each already been. */
 const lightUi = await page.evaluate(() => {
   const chart = document.getElementById('tidechart');
-  const panel = document.getElementById('panel-water').textContent;
+  const panel = document.getElementById('panel-tide').textContent;
   return {
     shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
     said: /First light/.test(panel) && /last light/.test(panel),
@@ -1216,7 +1318,10 @@ const lightUi = await page.evaluate(() => {
     convention: /convention among anglers/.test(panel),
     denial: /nothing whatever about what the fish will do/.test(panel),
     noForecast: !/(better|best) (fishing|time to fish)|you should fish|worth fishing/i.test(panel),
-    computed: /arithmetic from the date and the position/.test(panel),
+    /* Case-insensitive: 2.13.0 split this sentence so the qualification could
+       fold, which capitalised its first word. The CLAIM is unchanged and that
+       is what this is for. */
+    computed: /arithmetic from the date and the position/i.test(panel),
     twilightSaid: /six degrees below the horizon/.test(panel)
   };
 });
@@ -1479,7 +1584,7 @@ const spring = await page.evaluate(() => {
   const river = byId('sacramento');
   const sn = springNeap(river);
   const days = tideDayRanges(river);
-  const panel = document.getElementById('panel-water').textContent;
+  const panel = document.getElementById('panel-tide').textContent;
 
   /* A CLIPPED DAY IS NOT A SMALL TIDE. A day holding one high and one low
      when it really had four reports a span the water never stopped at. */
@@ -1510,15 +1615,15 @@ const spring = await page.evaluate(() => {
     everyDayHasBoth: days.every(d => d.hi !== null && d.lo !== null && d.n >= 3),
     clippedDayDropped: !withClipped,
     flatIsNull: flat === null,
-    figure: !!document.querySelector('#panel-water svg[aria-label*="water covers"], #panel-water svg[aria-label*="biggest tide"], #panel-water svg[aria-label*="smallest tide"]'),
+    figure: !!document.querySelector('#panel-tide svg[aria-label*="water covers"], #panel-tide svg[aria-label*="biggest tide"], #panel-tide svg[aria-label*="smallest tide"]'),
     /* THE CLAIM, not the prose around it. Checking the whole panel for the
        words "biggest of the month" fails on the app's own sentence promising
        NOT to say it — the same trap this suite already carries a note about
        for the tide-turn check, and hub LESSONS 180: a gate keyed on copy pins
        the copy, and pins the disclaimer with it. The figure's accessible name
        IS the claim, so that is what gets read. */
-    claim: (document.querySelector('#panel-water svg[aria-label*="ft"]') || {})
-      .getAttribute ? document.querySelector('#panel-water svg[aria-label*="ft"]').getAttribute('aria-label') : '',
+    claim: (document.querySelector('#panel-tide svg[aria-label*="ft"]') || {})
+      .getAttribute ? document.querySelector('#panel-tide svg[aria-label*="ft"]').getAttribute('aria-label') : '',
     panel: panel
   };
 });
@@ -1782,7 +1887,7 @@ await page.waitForTimeout(2000);
 
 /* And asking for the others is a deliberate act that then works. */
 await page.evaluate(() => {
-  const b = [...document.querySelectorAll('#panel-water button')]
+  const b = [...document.querySelectorAll('#panel-tide button')]
     .find(x => /stations added since this build/.test(x.textContent));
   if (b) b.click();
 });
@@ -1800,10 +1905,15 @@ check('the button asks NOAA once and surfaces only what is new',
    nothing said what it had found, whether anything was added, or whether this
    was permanent or had to be done again every visit. */
 const disc = await page.evaluate(() => {
-  const fold = document.querySelector('#panel-water details.foldbox');
-  const btn = [...document.querySelectorAll('#panel-water button')]
+  /* NAMED, NOT FIRST. This looked for the first fold in the panel, which was
+     this one until 2.13.0 gave the station caveat a fold of its own above it.
+     "The first details element" is not a description of anything. */
+  const fold = [...document.querySelectorAll('#panel-tide details.foldbox')]
+    .find(d => /station/i.test(d.querySelector('summary').textContent) &&
+               /NOAA|added/i.test(d.textContent));
+  const btn = [...document.querySelectorAll('#panel-tide button')]
     .find(x => /Check NOAA/.test(x.textContent));
-  const panel = document.getElementById('panel-water').textContent;
+  const panel = document.getElementById('panel-tide').textContent;
   return { still: !!btn, label: btn ? btn.textContent.trim() : '',
            fold: !!fold, shut: fold ? !fold.open : null,
            summary: fold ? fold.querySelector('summary').textContent.trim() : '',
@@ -1848,8 +1958,8 @@ const foreign = await page.evaluate(() => {
   const o = JSON.parse(was); o.against = 'an-older-build'; o.list = new Array(44).fill(0)
     .map((_, i) => ({ id: 'x' + i, name: 'Baked ' + i, lat: 38.1, lon: -121.6 }));
   localStorage.setItem(k, JSON.stringify(o));
-  renderWater();
-  const txt = document.getElementById('panel-water').textContent;
+  renderWater(); renderTide();
+  const txt = document.getElementById('panel-tide').textContent;
   localStorage.setItem(k, was);
   return { claims44: /added 44 station/.test(txt), saysNotAsked: /not asked/i.test(txt) };
 });
@@ -2309,20 +2419,102 @@ check('nothing on that screen is written at the developer',
   news.items.join(' ').slice(0, 200));
 await page.evaluate(() => document.getElementById('whatsnew').close());
 
+/* --- THE PANELS HAVE A PROSE BUDGET, AND IT IS MEASURED ON THE SURFACE ------
+   Water carried the tide, the moon, the tide along the river, the gauges, the
+   weirs and a week of history: 3.9 screens on a LAPTOP, so the reading a person
+   opened it for was several scrolls down. The tide is its own panel now, and
+   the long qualifications are folded behind a sentence that carries the fact.
+
+   NOTHING WAS DELETED, which is the part this check has to protect. Cutting the
+   qualification would be the wrong fix — saying what it does not know is this
+   app's whole claim — so the budget is on VISIBLE prose, and a separate check
+   asserts the words are still in the document. Text inside a closed `details`
+   is present and not in the way, which is exactly what was wanted.
+
+   The Layers panel already carries a budget of this shape; these are its
+   siblings. */
+const budget = await page.evaluate(() => {
+  const one = id => {
+    const e = document.getElementById(id);
+    if (!e) return null;
+    const vis = [...e.querySelectorAll('p')].filter(x => !x.closest('details:not([open])'));
+    return {
+      visible: vis.reduce((n, x) => n + x.textContent.trim().length, 0),
+      longest: vis.reduce((n, x) => Math.max(n, x.textContent.trim().length), 0),
+      /* The offenders by name, because "longest: 345" sends you hunting and
+         the first hundred characters of it does not. */
+      walls: vis.map(x => x.textContent.trim()).filter(t => t.length > 160)
+        .map(t => t.length + ' :: ' + t.slice(0, 110)),
+      total: e.textContent.length,
+      folds: e.querySelectorAll('details').length,
+      shut: [...e.querySelectorAll('details')].every(d => !d.open),
+      named: [...e.querySelectorAll('details > summary')]
+        .every(x => x.textContent.trim().length > 6)
+    };
+  };
+  return { water: one('panel-water'), tide: one('panel-tide') };
+});
+/* THE NUMBERS ARE MEASURED, NOT CHOSEN. Water reads 755 characters of visible
+   prose here and Tide 1190, against 1,068 and 2,041 before the folds; the
+   limits sit a little above each so an honest sentence can be added without a
+   red run, and far enough below the old figures that the walls cannot come
+   back. Tide is allowed more because it carries four sections of readings and
+   Water three. */
+check('the Water panel does not open with a wall of prose',
+  budget.water.visible < 900, JSON.stringify(budget.water));
+check('and the Tide panel does not either',
+  budget.tide.visible < 1400, JSON.stringify(budget.tide));
+/* A SINGLE PARAGRAPH IS THE THING A READER ACTUALLY BOUNCES OFF. A panel can
+   be under budget in total and still put three hundred words in one block. */
+check('no paragraph on either panel is a wall by itself',
+  budget.water.longest < 190 && budget.tide.longest < 190,
+  JSON.stringify({ water: budget.water.longest, tide: budget.tide.longest }));
+/* THE QUALIFICATION IS FOLDED, NOT CUT. If a future edit shortens the panel by
+   deleting these, the budget above would go green and the app would have got
+   quieter about what it does not know. */
+check('and the detail is still there, behind a press',
+  budget.water.folds + budget.tide.folds >= 3 &&
+  budget.water.shut && budget.tide.shut &&
+  budget.water.named && budget.tide.named,
+  JSON.stringify({ water: budget.water, tide: budget.tide }));
+const kept = await page.evaluate(() => {
+  const t = document.getElementById('panel-water').textContent +
+            ' ' + document.getElementById('panel-tide').textContent;
+  const low = t.toLowerCase();
+  return [ 'not for the river',
+           'what the water does where you are standing',
+           'nothing whatever about what the fish will do',
+           'the water is the authority' ].filter(f => !low.includes(f));
+});
+check('every qualification that was on the surface is still in the document',
+  kept.length === 0, JSON.stringify(kept));
+
 /* --- the tide is predicted at ONE place ---------------------------------
    A reader who has not been told assumes a tide is a property of the river. On
    this water it is not: high water at Rio Vista and at Freeport are hours
    apart. The picker said "Station" and nothing else, so a chart could be read
    against the wrong place with nothing on screen to suggest it was a choice. */
 const tideCopy = await page.evaluate(() => {
-  const p = document.getElementById('panel-water').textContent;
-  const lab = [...document.querySelectorAll('#panel-water label')]
+  /* THE CLAIM, WHEREVER IT SITS. In 2.13.0 this moved to its own panel and the
+     sentence was split — a short line that stays on the surface and the reason
+     folded under it — so the assertions are on what is CLAIMED rather than on
+     the wording that carried it, and they read the fold's contents too, which
+     are in the document whether or not it is open. (Hub LESSONS §180.) */
+  const p = document.getElementById('panel-tide').textContent;
+  const lab = [...document.querySelectorAll('#panel-tide label')]
     .map(l => l.textContent.trim());
   return { saysOnePlace: /not for the river/.test(p),
-           saysDiffers: /turns at different times along it/.test(p),
-           saysPickNearest: /nearest where you will actually be/.test(p),
+           saysDiffers: /turns at different times along/.test(p),
+           saysPickNearest: /nearest where you will/.test(p),
+           /* And the short line is on the SURFACE, not only inside the fold —
+              a caveat nobody opens has not been made. */
+           onSurface: [...document.querySelectorAll('#panel-tide p')]
+             .filter(x => !x.closest('details:not([open])'))
+             .some(x => /not for the river/.test(x.textContent)),
            label: lab.find(l => /Predicted at|Station/.test(l)) || '' };
 });
+check('and the one-place caveat is on the surface, not only inside a fold',
+  tideCopy.onSurface, JSON.stringify(tideCopy));
 check('the tide says it is predicted at one place, not for the river',
   tideCopy.saysOnePlace, JSON.stringify(tideCopy));
 check('it says the tide turns at different times along the river',
@@ -2337,9 +2529,9 @@ check('the picker is labelled with what it does, not just "Station"',
    redrawing it when a position arrived, so a reader pressed Where I am and the
    tide panel went on saying nothing. */
 const nearest = await page.evaluate(() => {
-  const btn = [...document.querySelectorAll('#panel-water button')]
+  const btn = [...document.querySelectorAll('#panel-tide button')]
     .find(b => /^Use .+ from you$/.test(b.textContent.trim()));
-  const said = /nearest station to where you are/.test(document.getElementById('panel-water').textContent);
+  const said = /nearest station to where you are/.test(document.getElementById('panel-tide').textContent);
   return { offered: !!btn, label: btn ? btn.textContent.trim() : '', alreadyNearest: said,
            here: state.here || null,
            stations: (state.tides[state.riverId] || {}).stations

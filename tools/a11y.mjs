@@ -337,6 +337,49 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     });
     check('phone: the locate control is on the map and fully in view',
       here.there && here.inside, JSON.stringify(here));
+  /* THE KEY MUST FIT ON THE MAP IT EXPLAINS. Its rows were `white-space:nowrap`,
+     so a label longer than the box simply ran out of it and was cut off by the
+     map's own edge — two rows losing their last words, reported from a device.
+     Nothing caught it because the overflow checks measure the DOCUMENT, and a
+     box clipped inside a map does not make the page any wider. */
+  {
+    /* OPENED ON PURPOSE. On a phone it starts as a chip, so a check that reads
+       it wherever it happens to be measures nothing most of the time — which
+       is what the first version of this did: it ran zero times. */
+    const leg = await page.evaluate(() => {
+      /* And PUT BACK afterwards. Leaving it open changed what the phone walk
+         found two checks later, which expects the collapsed chip. */
+      let was = null;
+      try { was = localStorage.getItem('thalweg:_shared:legend');
+            localStorage.setItem('thalweg:_shared:legend', 'open'); } catch (e) {}
+      if (typeof updateLegend === 'function') updateLegend();
+      window.__legendWas = was;
+      const l = document.getElementById('maplegend');
+      const m = document.getElementById('map');
+      if (!l || !m) return null;
+      const mb = m.getBoundingClientRect();
+      const rows = [...l.querySelectorAll('.keyrow')];
+      return {
+        rows: rows.length,
+        clipped: rows.filter(r => r.getBoundingClientRect().right > mb.right + 0.5 ||
+                                  r.scrollWidth > r.clientWidth + 1)
+          .map(r => r.textContent.trim().slice(0, 44)),
+        past: Math.round(l.getBoundingClientRect().right - mb.right)
+      };
+    });
+    if (leg && leg.rows)
+      check(`${name}: no row of the map key is cut off by the edge of the map`,
+        leg.clipped.length === 0 && leg.past <= 0, JSON.stringify(leg));
+    await page.evaluate(() => {
+      try {
+        if (window.__legendWas === null) localStorage.removeItem('thalweg:_shared:legend');
+        else localStorage.setItem('thalweg:_shared:legend', window.__legendWas);
+      } catch (e) {}
+      if (typeof updateLegend === 'function') updateLegend();
+    });
+    await page.waitForTimeout(200);
+  }
+
     /* 44 by 44, because this app is read one-handed on a riverbank. Leaflet's
        own controls are 30px and that is the floor this must not inherit. */
     check('phone: a thumb can hit the locate control',
@@ -444,7 +487,10 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   await page.evaluate(() => { const d = document.getElementById('welcome'); if (d.open) d.querySelector('button').click(); });
   await page.waitForTimeout(300);
 
-  for (const tab of ['water', 'layers', 'marks', 'brief']) {
+  /* THE TIDE IS ITS OWN SURFACE NOW AND IT JOINS THIS LIST IN THE SAME COMMIT.
+     A panel that is not in here ships unmeasured — no axe pass, no overflow
+     check — and looks exactly like a panel that is. (Hub LESSONS §28.) */
+  for (const tab of ['water', 'tide', 'layers', 'marks', 'brief']) {
     await page.click('#tab-' + tab);
     await page.waitForTimeout(400);
     await audit(page, `${name}: ${tab} panel`);
@@ -708,14 +754,14 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
         return out;
       })()
     });
-    renderWater();
-    const strip = document.querySelector('#panel-water .tidephase');
-    const sn = document.querySelector('#panel-water svg[aria-label*="ft"]');
+    renderWater(); renderTide();
+    const strip = document.querySelector('#panel-tide .tidephase');
+    const sn = document.querySelector('#panel-tide svg[aria-label*="ft"]');
     return { drawn: !!strip, says: strip ? strip.textContent : '',
              springNeap: !!sn, snSays: sn ? sn.getAttribute('aria-label') : '',
              /* When it does not draw, what the panel said instead is the
                 whole diagnosis and a bare false is not. */
-             instead: strip ? '' : (document.getElementById('panel-water').textContent || '').slice(0, 140) };
+             instead: strip ? '' : (document.getElementById('panel-tide').textContent || '').slice(0, 140) };
   });
   check(`${name}: the tide strip draws when there is a tide to draw`,
     planted.drawn && /rising/i.test(planted.says), JSON.stringify(planted).slice(0, 200));
@@ -727,7 +773,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      driven with a tide present. */
   const light = await page.evaluate(() => {
     const chart = document.getElementById('tidechart');
-    const panel = document.getElementById('panel-water').textContent;
+    const panel = document.getElementById('panel-tide').textContent;
     return { shaded: chart ? chart.querySelectorAll('rect[fill="#04090A"]').length : 0,
              said: /First light/.test(panel) && /last light/.test(panel),
              denial: /nothing whatever about what the fish will do/.test(panel) };
@@ -745,7 +791,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      not be told it twice out loud. */
   check(`${name}: the tide arrow is hidden from anything that reads aloud`,
     await page.evaluate(() => {
-      const a = document.querySelector('#panel-water .tidephase svg');
+      const a = document.querySelector('#panel-tide .tidephase svg');
       return !!a && a.getAttribute('aria-hidden') === 'true';
     }));
   await page.selectOption('#riverpick', '');
@@ -914,7 +960,7 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   await page.click('#tab-water');
   await page.waitForTimeout(600);
   const trend = await page.evaluate(() => {
-    const heads = [...document.querySelectorAll('#panel-water .sec')].map(n => n.textContent);
+    const heads = [...document.querySelectorAll('#panel-water .sec, #panel-tide .sec')].map(n => n.textContent);
     const i = heads.indexOf('The last seven days');
     const sec = document.querySelector('#panel-water .sec + div');
     const txt = [...document.querySelectorAll('#panel-water p')]
@@ -1072,6 +1118,49 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     await page.evaluate(() => [...document.querySelectorAll('#panel-layers button')]
       .some(b => /Read the depth at the map centre/.test(b.textContent))));
 
+  /* THE ENLARGED FIGURE IS A NEW SURFACE and it joins this walk in the commit
+     that builds it. It is a modal, so what matters is the same as for the
+     others: it is audited, it takes focus, the way out is reachable, and it
+     gives focus back. */
+  await page.evaluate(() => { if (tabNames().indexOf('tide') !== -1) selectTab('tide'); });
+  await page.waitForTimeout(400);
+  const canZoom = await page.evaluate(() => !!document.querySelector('#panel-tide .figzoom'));
+  if (canZoom) {
+    const opener = await page.evaluate(() => {
+      const b = document.querySelector('#panel-tide .figzoom');
+      b.id = b.id || 'zoomprobe';
+      b.click();
+      return b.id;
+    });
+    await page.waitForTimeout(400);
+    await audit(page, `${name}: a figure opened larger`);
+    await dialogFits(page, 'figview', `${name}: the enlarged figure`);
+    const z = await page.evaluate(() => {
+      const dlg = document.getElementById('figview');
+      const close = document.getElementById('figclose');
+      const r = close.getBoundingClientRect();
+      return { open: dlg.open, focus: document.activeElement.id,
+               closeH: Math.round(r.height), closeW: Math.round(r.width),
+               named: (document.getElementById('figtitle').textContent || '').trim() };
+    });
+    check(`${name}: the enlarged figure takes focus and is named`,
+      z.open && z.focus === 'figtitle' && z.named.length > 3, JSON.stringify(z));
+    check(`${name}: and the way out of it is big enough to press`,
+      z.closeH >= 40 && z.closeW >= 40, JSON.stringify(z));
+    await page.click('#figclose');
+    await page.waitForTimeout(300);
+    check(`${name}: closing it gives focus back to the picture`,
+      await page.evaluate(id => document.activeElement === document.getElementById(id) ||
+        document.getElementById(id).contains(document.activeElement), opener),
+      await page.evaluate(() => document.activeElement.className || document.activeElement.id));
+  }
+  /* BACK TO THE PANEL THE REST OF THIS BLOCK MEASURES. A check that leaves the
+     app on a different tab hands the next one a hidden panel, where every
+     element is zero by zero — which is exactly what the two toggle checks
+     below reported the first time this probe was inserted above them. */
+  await page.click('#tab-layers');
+  await page.waitForTimeout(400);
+
   /* THE TWO LAYER TOGGLES ARE DIFFERENT CONTROLS AND MUST SOUND DIFFERENT.
      When the launch section landed in 2.10.0 both read "Show them on the map",
      which to anybody tabbing through this panel is one control offered twice —
@@ -1107,8 +1196,8 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      being deleted by its own re-render. The name has to carry the phase and
      the lit fraction, which is everything the picture shows. */
   const moonPic = await page.evaluate(() => {
-    const t = document.getElementById('panel-water').innerText;
-    const svgs = [...document.querySelectorAll('#panel-water svg[role=img]')]
+    const t = document.getElementById('panel-tide').innerText;
+    const svgs = [...document.querySelectorAll('#panel-tide svg[role=img]')]
       .map(s => (s.getAttribute('aria-label') || '').trim())
       .filter(l => /moon/i.test(l));
     return { section: /The moon/.test(t),
