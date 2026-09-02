@@ -14,8 +14,9 @@ session needs before it touches anything.
   verified by reading that address rather than the push output — the page and
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
-- Staged candidate: **2.13.0** — the tide has its own tab, the long prose
-  folds, and the pictures open.
+- **2.13.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02.
+- Staged candidate: **2.14.1** — the Tide tab actually opens the Tide panel.
+  2.13.1 and 2.14.0 are behind it.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1254,6 +1255,97 @@ was pressed.
 Tide tab, and the two checks after it measure buttons in Layers — which reported
 them as zero by zero, because every element in a hidden panel is. A check that
 changes which tab is showing has to put it back.
+
+
+## The fourth picture opens by a different door, and the reason is the gesture
+
+Three figures got a wrapper: the drawing sits inside a `<button class="figzoom">`
+and pressing anywhere on it opens the picture full width. **The depth profile
+could not have that**, because its drawing is ALREADY a control — a finger
+dragged across it traces the line and moves a mark on the map. A button wrapped
+round that would swallow the drag.
+
+So its way in is a button in the profile's own header, beside the two that
+stretch the distance axis. Those do a different job and it is worth naming: −
+and + widen the picture INSIDE a strip at the foot of the map, this one opens
+the whole thing at the size of the screen.
+
+**And the copy is a picture rather than a surface that pretends.** The profile's
+SVG carries a transparent rectangle that catches the trace; a clone has the
+shape of it and none of the listeners, so in the enlarged view it would be a
+region that looks interactive and does nothing. It is removed from the copy, and
+the check asserts both halves — no ghost in the copy, and the original still
+traceable behind the dialog.
+
+
+## All-or-nothing was the right default and the wrong law
+
+2.9.0 made the landing band all rows or none, keyed on whether they fit. That
+was right, and it went one step too far: it took a decision that is a matter of
+TASTE — would you rather scroll a small band than not have one — and made it for
+everybody. Reported from a phone, and the report had two halves, both fair.
+
+**The offer was at the bottom of the panel**, under every river card. "Below
+pages of data", which it was: the order was heading, five cards, stale warning,
+two notes, and then the sentence explaining why the band was missing. A thing
+that explains an absence has to sit where the absence is. It is the first thing
+on the panel now, in a box rather than a run of prose, for the same reason the
+install offer is a box: in a column of paragraphs it reads as more paragraphs
+and is scrolled past.
+
+**And "See all five sideways" said nothing about what it would reveal.** The
+sentence above it did — it named the three things only the stacked view gives —
+but the sentence was at the bottom too, and a reader who never got there had a
+button promising a rotation and nothing else.
+
+**So it is a choice.** Turn them sideways at full size, or show them here small
+and scroll. `ribbonForced` is stored, `drawRibbon` honours it, and "Put them
+away" is beside it — a choice you cannot undo is a trap.
+
+**NOT WHERE THE BAND IS SHORTER THAN ONE ROW.** That is `tooTight`, a phone held
+sideways, and what "show them here" would produce is a sliver of a bar past a
+scrollbar. The second button is only offered where it is a real option, which is
+the same rule as the sideways button not appearing on a screen where the rows
+are already at full height.
+
+**The three states, measured on real geometries.** iPhone 13 and SE: band
+replaced, both buttons, and taking the small one shows five rows scrolling.
+iPad mini: band shown but squeezed at rowH 41 against a natural 51, so the
+sideways button is offered and the inline one is not — there is nothing to
+reveal, only a better size. Desktop at rowH 62: the whole box is absent, because
+a control that changes nothing is clutter.
+
+
+## The Tide tab lit up and showed nothing, and every suite was green
+
+`tabNames()` decides which tabs EXIST. A hardcoded array inside `selectTab`
+decided which panels get shown and hidden. **Two statements of one fact in two
+places**, and Tide went into the first and not the second — so pressing it hid
+Water, unhid nothing, and left a blank screen under a highlighted tab.
+Reported from a device.
+
+**THE PART THAT MATTERS IS WHY NOTHING CAUGHT IT.** Every suite passed:
+
+- The accessibility walk clicks `#tab-tide` and then audits — and `audit` looks
+  at whatever is on the screen. A blank panel has no violations.
+- Every check that reads the tide panel queries the DOM directly:
+  `document.querySelector('#panel-tide …')`. **A hidden element answers exactly
+  as well as a shown one**, so all of them passed against a panel nobody could
+  see.
+- The prose budget, the moon, the figure geometry, the tide-along picture — all
+  measured content that was correct, present, and invisible.
+
+**Nothing anywhere asserted that pressing a tab shows the panel it names.** That
+is the whole defect: not a missing entry in an array, which is a typo, but a
+class of failure the suites had no instrument for. The next tab added would have
+gone the same way.
+
+So there are two fixes and the second is the real one. `ALL_TABS` is the single
+list and `selectTab` derives from it. And the rendering suite now walks whatever
+`tabNames()` offers, pressing each tab and asserting the panel is shown, has
+something in it, reports itself selected, and is the only one showing — so it
+covers the tabs that exist today and the ones that do not exist yet. Planted
+back, it reads `pressing tide shows the tide panel — {"shown":false}`.
 
 
 ## Scratch

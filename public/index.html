@@ -418,6 +418,15 @@ textarea{width:100%; min-height:6rem; background:var(--panel-2); color:var(--ink
 /* The button that opens it only earns its place where the upright band cannot
    show everything, which is exactly where the reader is short of height. */
 #swopen{ margin:.4rem 0 }
+/* THE CHOICE ABOUT THE BAND, in a box, at the top of the landing view. It is a
+   box rather than a run of prose for the same reason the install offer is: in
+   a column of paragraphs it reads as more paragraphs and is scrolled past —
+   which is what happened to it when it was a sentence and a button at the
+   bottom of the panel. */
+.ribbonoffer{border:1px solid var(--teal-line); background:var(--panel-2);
+  border-radius:3px; padding:.55rem .65rem; margin:0 0 .6rem}
+.ribbonoffer p{margin:0 0 .35rem}
+.ribbonoffer .rowline{margin:0}
 
 /* ---------- dialogs / strips ---------- */
 .strip{background:var(--teal); color:var(--ink); padding:.5rem .7rem; display:flex;
@@ -710,6 +719,15 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
         <div id="profviews" role="group" aria-label="What the profile shows"></div>
         <button type="button" id="profout" aria-label="Show more of the line">&minus;</button>
         <button type="button" id="profin" aria-label="Stretch the line out">+</button>
+        <!-- AND THE WHOLE PICTURE BIGGER, which is a different thing from the
+             two buttons beside it: those stretch the DISTANCE axis and leave
+             the drawing the height of a strip at the foot of the map. This one
+             opens it at the size of the screen. It is a button in the header
+             rather than a wrapper round the drawing, because the drawing here
+             is already a control — a finger dragged across it traces the line
+             — and nesting a button inside that would take the gesture away. -->
+        <button type="button" id="profbig"
+                aria-label="Show the profile larger">&#8981;</button>
         <button type="button" id="profclear">Clear</button>
       </div>
       <div class="profwrap" id="profwrap"><svg id="profsvg" role="img"
@@ -871,7 +889,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.13.0';
+var VERSION = '2.14.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -2947,8 +2965,19 @@ function drawRibbon(again, opts){
      portrait may hold five rows honestly and a short one will not, and the
      app already measures which. Reaching for a device rule here is what put
      the height budget on a width test earlier today. */
-  var replaced = !sideways && list.length > 1 && (RIB.scrolls || RIB.tooTight);
-  if (!sideways) wrap.hidden = !!RIB.tooTight || replaced;
+  /* AND THE READER CAN OVERRULE IT. All-or-nothing was the right DEFAULT and
+     the wrong law: it took a decision that is a matter of taste — would you
+     rather scroll a small band than not have one — and made it for everybody.
+     Reported from a phone, where the offer to see them sideways sat below the
+     cards with nothing saying what it would reveal. The choice is at the top
+     now, and this is the half of it that shows the band anyway.
+
+     NOT WHEN THE BAND IS SHORTER THAN ONE ROW. That is `tooTight`, and what it
+     would show is a sliver of a bar and a scrollbar, which is not the thing
+     being asked for. */
+  var forced = !sideways && ribbonForced() && !RIB.tooTight;
+  var replaced = !sideways && list.length > 1 && (RIB.scrolls || RIB.tooTight) && !forced;
+  if (!sideways) wrap.hidden = (!!RIB.tooTight || replaced);
   if (!sideways && (RIB.tooTight || replaced)){
     /* AND THE OVERLAY GOES WITH IT. Returning here without clearing it leaves
        buttons for rows that are no longer drawn — invisible inside a hidden
@@ -2959,11 +2988,10 @@ function drawRibbon(again, opts){
     if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
     /* AND IT SAYS SO. A view that vanishes without a word is
        indistinguishable from one that failed to load. */
-    syncRibbonDropNote();
-    syncSidewaysOffer();
+    syncRibbonOffer();
     return;
   }
-  if (!sideways){ wrap.hidden = false; syncRibbonDropNote(); syncSidewaysOffer(); }
+  if (!sideways){ wrap.hidden = false; syncRibbonOffer(); }
   var rowH = RIB.rowH, top = RIB.top;
   var H = top + list.length * rowH + RIB.foot;
   host.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -4230,62 +4258,100 @@ function markRibbonScrollEnd(){
   wrap.classList.toggle('atend', more <= 4);
 }
 
-function syncRibbonDropNote(){
-  var slot = document.getElementById('ribbondropped');
-  if (!slot) return;
-  var wrap = document.getElementById('ribbonwrap');
-  var dropped = !!(wrap && wrap.hidden);
-  slot.hidden = !dropped;
-  /* AND WHEN IT IS DROPPED, THE ADVICE HAS TO MATCH THE SCREEN IT IS ON.
+/* =====================================================================
+   THE CHOICE, AT THE TOP, SAYING WHAT IS BEHIND IT.
 
-     The band is bounded by HEIGHT, and a phone held sideways has about two
-     hundred pixels of it — less than the same phone upright, not more. A
-     reader who turns the phone to get more room is reaching for the wrong
-     axis, and the note used to tell them only that the screen was short,
-     which is exactly the thing rotating feels like it should fix. */
-  /* WHAT IS BEHIND IT, NOT THAT SOMETHING IS MISSING.
+   The band gives way on a short screen, and what replaced it was a sentence
+   and a button reading "See all five sideways" — at the BOTTOM of the landing
+   panel, under every river card. Reported from a phone: it is below pages of
+   data and gives no indication it will reveal anything.
 
-     The old sentence said the rows would not fit and told the reader to pick a
-     single river — an apology and a detour. It never said what the band is
-     FOR, so a reader who had never seen it on a big screen had no idea there
-     was anything to want. Content you cannot see and cannot know to look for
-     is content that is not there, and that was true of the whole comparison,
-     not just the rows below a fold.
-
-     So this names the three things only the stacked view gives, and says they
-     are one press away at full size. The button sits directly under it. */
-  var n = ribbonRowCount();
-  slot.textContent = dropped
-    ? countWord(n).charAt(0).toUpperCase() + countWord(n).slice(1) +
-      ' rivers side by side — the water temperature along each one, how far up ' +
-      'the tide reaches, and where every gauge sits. There is not the height for ' +
-      'them here at a size worth reading. Turned sideways they fit at full size, ' +
-      'all of them at once.'
-    : '';
+   Both halves of that are fair. It sits where the band would have been now,
+   above the cards, because that is where a reader looks for the thing that is
+   missing. And it is a CHOICE rather than an escape hatch: the app's judgement
+   that a scrolled band is worse than no band is a matter of taste, and taking
+   it away from the reader was the overreach. Turn them sideways at full size,
+   or show them here small and scroll — both named for what they do.
+   ===================================================================== */
+function ribbonForced(){
+  if (state.ribbonForce === undefined){
+    var v = null;
+    try { v = Store.s.getItem('thalweg:_shared:ribbonforce'); } catch (e) {}
+    state.ribbonForce = v === 'yes';
+  }
+  return !!state.ribbonForce;
+}
+function setRibbonForce(on){
+  state.ribbonForce = !!on;
+  try { Store.s.setItem('thalweg:_shared:ribbonforce', on ? 'yes' : 'no'); } catch (e) {}
+  drawRibbon();
+  renderWater(); renderTide();
+  announce(on ? 'The river bars are showing, small, and scroll.'
+              : 'The river bars are put away.');
 }
 
-/* =====================================================================
-   THE SIDEWAYS VIEW — the picture turns, because the phone cannot be turned.
+function syncRibbonOffer(){
+  var host = document.getElementById('ribbonoffer');
+  if (!host) return;
+  var wrap = document.getElementById('ribbonwrap');
+  var dropped = !!(wrap && wrap.hidden);
+  var showing = !dropped && ribbonForced() && RIB && RIB.scrolls;
+  /* Nothing to offer where the band is whole and at its natural height: a
+     control that changes nothing is clutter. */
+  if (!dropped && !showing && !sidewaysFits()){ host.innerHTML = ''; host.hidden = true; return; }
+  host.innerHTML = '';
+  host.hidden = false;
 
-   Asked for as "a button that rotates the screen without the user having to
-   turn on landscape". A web page cannot do that on this hardware and the check
-   is not a memory: Safari's engine reports no `screen.orientation.lock` at all,
-   and Chromium's throws NotSupportedError. A button calling it would be a
-   control that does nothing, which is the defect this app has a rule about.
+  var n = ribbonRowCount();
+  if (showing){
+    host.appendChild(el('p', { class:'note',
+      text: initialCap(countWord(n)) + ' rivers, small enough to scroll through. ' +
+        'Sideways they fit at full size, all at once.' }));
+  } else if (dropped){
+    /* WHAT IS BEHIND IT, NOT THAT SOMETHING IS MISSING. The old sentence said
+       the rows would not fit and told the reader to pick a single river — an
+       apology and a detour. It never said what the band is FOR, so a reader
+       who had never seen it on a big screen had no idea there was anything to
+       want. */
+    host.appendChild(el('p', { class:'note',
+      text: initialCap(countWord(n)) +
+        ' rivers side by side \u2014 the water temperature along each one, how far up ' +
+        'the tide reaches, and where every gauge sits. There is not the height for ' +
+        'them here at a size worth reading; turned sideways they fit at full size, ' +
+        'all of them at once.' }));
+  } else {
+    host.appendChild(el('p', { class:'note',
+      text: 'The bars above are squeezed. Sideways they get the long side of the ' +
+        'screen and every river is at full height.' }));
+  }
 
-   Rotating the drawing instead is not a consolation prize. A portrait phone
-   turned this way gives the bars the whole long side of the screen — 844 by
-   390 on an iPhone 13 — where physically rotating the same phone gives them
-   844 by 242, because the browser keeps its chrome and portrait has more
-   screen left to spare. Five rows at full height need about 350 of those 390.
-   ===================================================================== */
-/* The offer follows the DRAW, not the render, for the same reason the note
-   explaining a dropped band does: these two run in no fixed order, and a test
-   made at render time reads whatever the last draw happened to leave. */
-function syncSidewaysOffer(){
-  var row = document.getElementById('swopen');
-  if (!row) return;
-  row.hidden = !sidewaysFits();
+  var row = el('div', { class:'rowline', id:'swopen' });
+  if (sidewaysFits()){
+    var swb = el('button', { type:'button',
+      text:'\u21bb  Turn them sideways',
+      'aria-label':'Turn the ' + countWord(n) + ' river bars sideways, at full size' });
+    swb.addEventListener('click', openSideways);
+    row.appendChild(swb);
+  }
+  /* THE SECOND WAY, and only where it is a real one. A band shorter than a
+     single row would scroll a sliver of a bar past a scrollbar, which is not
+     what anybody is asking for when they ask to see it anyway. */
+  if (dropped && RIB && RIB.scrolls && !RIB.tooTight){
+    var inb = el('button', { type:'button',
+      text:'Show them here, small',
+      'aria-label':'Show the ' + countWord(n) +
+        ' river bars here at a smaller size, scrolling' });
+    inb.addEventListener('click', function(){ setRibbonForce(true); });
+    row.appendChild(inb);
+  }
+  if (showing){
+    var off = el('button', { type:'button', text:'Put them away',
+      'aria-label':'Hide the river bars and give the readings the room back' });
+    off.addEventListener('click', function(){ setRibbonForce(false); });
+    row.appendChild(off);
+  }
+  if (row.childNodes.length) host.appendChild(row);
+  else { host.innerHTML = ''; host.hidden = true; }
 }
 
 function sidewaysFits(){
@@ -4449,6 +4515,15 @@ function renderWater(){
   var p = $('#panel-water'); p.innerHTML = '';
 
   if (!state.riverId){
+    /* THE CHOICE ABOUT THE BAND GOES FIRST, WHERE THE BAND WOULD HAVE BEEN.
+       It used to be the last thing on this panel, under every river card —
+       "below pages of data", reported from a phone, "and doesn't give any
+       indication it will reveal more". A thing that explains an absence has to
+       sit where the absence is. `syncRibbonOffer` fills or empties this from
+       whichever of the render and the draw ran last, for the same reason the
+       note it replaces did: the two run in no fixed order. */
+    p.appendChild(el('div',{id:'ribbonoffer',class:'ribbonoffer',hidden:'hidden'}));
+    syncRibbonOffer();
     p.appendChild(el('h2',{class:'sec',text:'Which river'}));
     /* A container so the four can sit side by side on a wide screen. On a
        phone it is a plain block and the cards stack exactly as before. */
@@ -4495,20 +4570,6 @@ function renderWater(){
        moment the band stopped being hidden on its very first pass.
        So the slot is always here and `syncRibbonDropNote` fills or empties it
        from whichever of the two ran last. */
-    p.appendChild(el('p',{class:'note',id:'ribbondropped',hidden:'hidden'}));
-    syncRibbonDropNote();
-    /* AND THE WAY TO SEE THEM ALL ANYWAY. Where the upright band cannot show
-       every row — scrolled, or dropped altogether on a screen with no height
-       to give — the picture can be turned instead of the phone. The button
-       exists only in that case: on a tall screen every row is already there
-       and a control that changes nothing is clutter. */
-    var swrow = el('div',{class:'rowline',id:'swopen'});
-    var swb = el('button',{type:'button',
-      text:'\u21bb  See all ' + countWord(ribbonRowCount()) + ' sideways'});
-    swb.addEventListener('click', openSideways);
-    swrow.appendChild(swb);
-    p.appendChild(swrow);
-    syncSidewaysOffer();
     return;
   }
 
@@ -5479,11 +5540,18 @@ function openFigure(fig, label){
      reader does in here changes what is behind it. */
   var big = fig.cloneNode(true);
   big.removeAttribute('style');
+  big.removeAttribute('id');
   big.setAttribute('width', '100%');
   big.setAttribute('height', 'auto');
   big.style.width = '100%';
   big.style.height = 'auto';
   big.style.display = 'block';
+  /* THE COPY IS A PICTURE, NOT A CONTROL. The profile's drawing carries a
+     transparent rectangle that traces the line under a finger, and the clone
+     has the shape of it and none of the listeners — so in here it would be a
+     surface that looks interactive and does nothing. It goes. */
+  var ghost = big.querySelector('rect[style*="touch-action"]');
+  if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
   body.appendChild(big);
   body.scrollTop = 0; body.scrollLeft = 0;
   dlg.showModal();
@@ -6697,6 +6765,11 @@ function announce(msg){
  */
 var narrowMQ = window.matchMedia('(max-width:900px)');
 
+/* THE PANELS THAT EXIST. `tabNames()` picks which of them are offered on this
+   screen and for this river; this is the full set, and everything that has to
+   walk all of them reads it rather than restating it. */
+var ALL_TABS = ['water','map','tide','layers','marks','brief'];
+
 function tabNames(){
   var names = ['water','layers','marks','brief'];
   /* The tide only exists where there is one, and only once a river is chosen.
@@ -6710,7 +6783,7 @@ function tabEl(name){ return document.getElementById('tab-' + name); }
 function panelEl(name){ return document.getElementById('panel-' + name); }
 
 function initTabs(){
-  ['water','map','tide','layers','marks','brief'].forEach(function(name){
+  ALL_TABS.forEach(function(name){
     var tab = tabEl(name);
     tab.addEventListener('click', function(){ selectTab(name); });
     tab.addEventListener('keydown', function(e){
@@ -6740,7 +6813,20 @@ function selectTab(name){
   var names = tabNames();
   if (names.indexOf(name) === -1) name = 'water';
   state.tab = name;
-  ['water','map','layers','marks','brief'].forEach(function(n){
+  /* EVERY PANEL THIS APP HAS, AND THE LIST IS THE DEFECT WAITING TO HAPPEN.
+
+     `tabNames()` decides which tabs EXIST; this list decides which panels get
+     shown and hidden. They are two statements of the same fact in two places,
+     and when Tide was added to the first and not the second, pressing Tide hid
+     Water and showed nothing — the tab lit up and the screen went blank.
+     Reported from a device, and every suite was green: the walk clicked the
+     tab and audited whatever was visible, and the checks that read the tide
+     panel query the DOM directly, where a hidden element answers just as well
+     as a shown one. NOTHING ASSERTED THAT PRESSING A TAB SHOWS THE PANEL IT
+     NAMES, so nothing could have caught it.
+
+     It is derived now rather than typed, so the two cannot disagree again. */
+  ALL_TABS.forEach(function(n){
     var tab = tabEl(n), panel = panelEl(n);
     var live = names.indexOf(n) !== -1;
     var on = live && n === name;
@@ -6771,6 +6857,7 @@ function selectTab(name){
     setTimeout(mapBecameVisible, 60);
   }
   if (name === 'water')  drawTrendLines();
+  if (name === 'tide')   renderTide();
   if (name === 'layers') renderLayers();
   if (name === 'marks')  renderMarks();
   if (name === 'brief')  renderBrief();
@@ -10206,6 +10293,24 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.14.1', date:'2026-09-02', changes:[
+      'The Tide tab works. It was added to the list that decides which tabs EXIST and not to the one that shows and hides the panels, so pressing it hid Water and showed nothing \u2014 the tab lit up and the screen went blank. There is one list now, so the two cannot disagree again.',
+      'And nothing anywhere was checking that pressing a tab shows the panel it names, which is why every test was green while the tab was dead. That check exists now, and it walks whatever tabs the app offers rather than a list written beside it, so the next tab added is covered before it is built.',
+  ], broken:[] },
+  { v:'2.14.0', date:'2026-09-02', changes:[
+      'The choice about the river bars is at the top of the page now, where the bars would have been. It was at the BOTTOM, under every river card \u2014 below pages of data, with a button reading \u201cSee all five sideways\u201d that said nothing about what it would reveal. A thing that explains an absence has to sit where the absence is.',
+      'And it is a choice rather than one way out. You can turn them sideways at full size, or show them here small and scroll \u2014 which the app used to decide for you. Whether a scrolled band beats no band is a matter of taste and it was not the app\u2019s to settle; all-or-nothing was the right default and the wrong law.',
+      'Both buttons say what they do, and the sentence above them names what is behind the bars: the water temperature along each river, how far up the tide reaches, and where every gauge sits. Taking the small view remembers itself, and there is a Put them away beside it.',
+  ], broken:[
+      'Where the band is shorter than one whole row \u2014 a phone held sideways \u2014 showing them here is not offered, because it would be a sliver of a bar past a scrollbar. Sideways is the only way in there, and it is the better one anyway.',
+      'The small view is small. Five rivers scrolling in a band a phone can spare is legible and it is not comfortable; sideways gives every row its full height.',
+  ] },
+  { v:'2.13.1', date:'2026-09-02', changes:[
+      'The depth profile opens larger too, so all four pictures do. Its way in is a button in the profile\u2019s own header rather than a tap on the drawing, because the drawing there is already a control \u2014 dragging a finger across it traces the line and moves a mark on the map \u2014 and wrapping it would have taken that away.',
+      'It is a different thing from the \u2212 and + beside it. Those stretch the distance axis inside a strip at the foot of the map; this one opens the whole picture at the size of the screen.',
+  ], broken:[
+      'You cannot trace the enlarged copy. The tracing reads a depth at the point under your finger and moves a mark on the map, and the copy has the shape of that and none of the wiring \u2014 so rather than leave a surface that looks interactive and is not, it is taken out of the copy.',
+  ] },
   { v:'2.13.0', date:'2026-09-02', changes:[
       'The tide has its own tab. Water was carrying the tide, the moon, the tide along the river, the gauges, the weirs and a week of history \u2014 nearly four screens on a laptop and worse on a phone \u2014 so whatever you opened it for was several scrolls down. Water keeps what the water is doing now; Tide is what it is going to do.',
       'And the long paragraphs fold. Every section that explained itself at length now opens with the sentence carrying the fact and puts the rest behind a press. NOTHING WAS DELETED \u2014 saying what it does not know is the whole point of this app \u2014 so the qualifications are all still there, one tap away, and a check counts them to make sure a future tidy-up cannot quietly cut them.',
@@ -11069,6 +11174,11 @@ function boot(){
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
   $('#figclose').addEventListener('click', function(){ $('#figview').close(); });
+  $('#profbig').addEventListener('click', function(){
+    var svgEl = $('#profsvg');
+    if (!svgEl || !state.profile) return;
+    openFigure(svgEl, $('#proftitle').textContent.toLowerCase());
+  });
   $('#newclose').addEventListener('click', function(){ $('#whatsnew').close(); });
 
   $('#profclear').addEventListener('click', clearProfile);

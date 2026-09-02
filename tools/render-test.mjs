@@ -1448,9 +1448,11 @@ const sw = await page.evaluate(async () => {
   /* A band with no room, the state a phone is really in. */
   ribbonMetrics(360, RIVERS.length, 150, true);
   const crampedRowH = RIB.rowH, cramped = RIB.scrolls || RIB.rowH < RIB.natural;
-  syncSidewaysOffer();
+  /* One builder now, and the row lives inside the offer box at the top of the
+     panel rather than at the bottom of it. */
+  syncRibbonOffer();
   const row = document.getElementById('swopen');
-  const offered = row && !row.hidden;
+  const offered = !!row && !document.getElementById('ribbonoffer').hidden;
   if (!offered) { drawRibbon(); return { cramped, offered: false, crampedRowH }; }
   /* FOCUS IT FIRST, because that is what pressing it does. A modal returns
      focus to whatever held it when it opened, so a synthetic click that never
@@ -1510,8 +1512,8 @@ check('it closes', sw.closed, JSON.stringify(sw));
 check('a band already showing every row at full height does not offer it',
   await page.evaluate(() => {
     ribbonMetrics(900, RIVERS.length, 900, true);
-    syncSidewaysOffer();
-    const hidden = document.getElementById('swopen').hidden;
+    syncRibbonOffer();
+    const hidden = document.getElementById('ribbonoffer').hidden;
     drawRibbon();
     return hidden;
   }));
@@ -2418,6 +2420,51 @@ check('nothing on that screen is written at the developer',
     .test(news.items.join(' ')),
   news.items.join(' ').slice(0, 200));
 await page.evaluate(() => document.getElementById('whatsnew').close());
+
+/* --- A TAB IS NOT A PANEL --------------------------------------------------
+   The Tide tab was added to `tabNames()`, which decides which tabs EXIST, and
+   not to the list inside `selectTab` that shows and hides the panels. Two
+   statements of one fact in two places. Pressing Tide hid Water and showed
+   nothing: the tab lit up and the screen went blank.
+
+   EVERY SUITE WAS GREEN. The walk clicked the tab and audited whatever was
+   visible; the checks that read the tide panel query the DOM directly, where a
+   hidden element answers exactly as well as a shown one. Nothing anywhere
+   asserted that pressing a tab SHOWS THE PANEL IT NAMES — so nothing could
+   have caught it, and the next tab added would have gone the same way.
+
+   This walks whatever `tabNames()` offers, so it covers the tabs that exist
+   today and the ones that do not exist yet. */
+const tabs = await page.evaluate(async () => {
+  const out = [];
+  for (const n of tabNames()) {
+    document.getElementById('tab-' + n).click();
+    await new Promise(r => setTimeout(r, 120));
+    const panel = document.getElementById('panel-' + n);
+    const others = tabNames().filter(x => x !== n && x !== 'map')
+      .filter(x => !document.getElementById('panel-' + x).hidden);
+    out.push({
+      tab: n,
+      shown: panel ? !panel.hidden : false,
+      /* And it has something in it. A panel that is shown and empty is the
+         same blank screen from the reader's side. */
+      filled: panel ? panel.textContent.trim().length > 20 : false,
+      selected: document.getElementById('tab-' + n).getAttribute('aria-selected') === 'true',
+      othersShowing: others
+    });
+  }
+  return out;
+});
+tabs.forEach(t => {
+  check('pressing ' + t.tab + ' shows the ' + t.tab + ' panel', t.shown, JSON.stringify(t));
+  check('and it has something in it', t.filled, JSON.stringify(t));
+  check('and the tab says it is the one selected', t.selected, JSON.stringify(t));
+});
+/* Exactly one at a time. The map is exempt: above the breakpoint it is a
+   column of the layout rather than a panel behind a tab. */
+check('only one panel is showing at a time',
+  tabs.every(t => t.othersShowing.length === 0),
+  JSON.stringify(tabs.filter(t => t.othersShowing.length)));
 
 /* --- THE PANELS HAVE A PROSE BUDGET, AND IT IS MEASURED ON THE SURFACE ------
    Water carried the tide, the moon, the tide along the river, the gauges, the
@@ -3412,6 +3459,39 @@ check('and Depth and width still draws the width where there is no depth',
    the rest of this suite built. */
 await page.evaluate(() => { state.profShow = 'depth'; profileRiverLine(byId(state.riverId)); });
 await page.waitForTimeout(4000);
+
+/* THE PROFILE OPENS TOO, and by a different route on purpose. Its drawing is
+   already a control — a finger dragged across it traces the line and moves a
+   mark on the map — so wrapping it in a button would take that gesture away.
+   The way in is a button in its header beside the two that stretch the
+   distance axis, which do a different job: they widen the picture inside a
+   strip at the foot of the map, this one opens it at the size of the screen. */
+const profBig = await page.evaluate(() => {
+  const b = document.getElementById('profbig');
+  if (!b) return { missing: true };
+  b.click();
+  const dlg = document.getElementById('figview');
+  const big = document.querySelector('#figbody svg');
+  return {
+    open: dlg.open,
+    name: b.getAttribute('aria-label'),
+    copied: !!big,
+    /* The traced hit rect is a listener-less ghost in a copy, so it is taken
+       out rather than left as a surface that looks interactive and is not. */
+    noGhost: big ? !big.querySelector('rect[style*="touch-action"]') : false,
+    /* And the original is untouched — still traceable behind the dialog. */
+    originalTraceable: !!document.querySelector('#profsvg rect[style*="touch-action"]'),
+    title: document.getElementById('figtitle').textContent
+  };
+});
+check('the depth profile can be opened larger as well',
+  profBig.open && profBig.copied, JSON.stringify(profBig));
+check('and its way in is named, not just a symbol',
+  /^Show .+ larger$/.test(profBig.name || ''), String(profBig.name));
+check('the enlarged profile is a picture, not a surface that pretends to trace',
+  profBig.noGhost && profBig.originalTraceable, JSON.stringify(profBig));
+await page.click('#figclose');
+await page.waitForTimeout(200);
 
 /* --- THE DRAWING SURVIVES ITS OWN COMMENTARY -------------------------------
    Holding a point fills `#profheld` with four paragraphs and two buttons. The

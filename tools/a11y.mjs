@@ -578,15 +578,24 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
   const landing = await page.evaluate(() => {
     drawRibbon(); drawRibbon();
     const wrap = document.getElementById('ribbonwrap');
-    const note = document.getElementById('ribbondropped');
+    /* ONE BOX NOW, at the TOP of the panel rather than under every card —
+       reported from a phone as being "below pages of data" with nothing saying
+       what it would reveal. */
+    const offer = document.getElementById('ribbonoffer');
     const row = document.getElementById('swopen');
+    const panel = document.getElementById('panel-water');
     return {
       bandShown: !wrap.hidden,
       /* Every row present, at or above the legibility floor, or not at all. */
       rowH: RIB.rowH, floor: RIB.floor, scrolls: RIB.scrolls,
       overflow: Math.round(wrap.scrollHeight - wrap.clientHeight),
-      offered: !!(row && !row.hidden),
-      says: note && !note.hidden ? note.textContent : ''
+      offered: !!(row && offer && !offer.hidden),
+      /* AND IT IS THE FIRST THING ON THE PANEL. A thing that explains an
+         absence has to sit where the absence is. */
+      first: panel.firstElementChild === offer,
+      buttons: offer && !offer.hidden
+        ? [...offer.querySelectorAll('button')].map(b => b.textContent.trim()) : [],
+      says: offer && !offer.hidden ? offer.textContent : ''
     };
   });
   /* Whichever way it went, the comparison is never shown half-finished. */
@@ -607,9 +616,48 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
       landing.says.slice(0, 200));
     check(`${name}: and says it is reachable sideways at full size`,
       /sideways/.test(landing.says) && /full size/.test(landing.says),
-      landing.says.slice(-120));
+      landing.says.slice(-140));
     check(`${name}: with the way to get there beside it`, landing.offered,
-      JSON.stringify(landing).slice(0, 160));
+      JSON.stringify(landing).slice(0, 200));
+    /* WHERE THE ABSENCE IS, NOT AT THE BOTTOM OF THE PANEL. */
+    check(`${name}: and it is the first thing on the panel, where the band was`,
+      landing.first, JSON.stringify({ first: landing.first }));
+    /* A CHOICE, NOT AN ESCAPE HATCH. The app's judgement that a scrolled band
+       is worse than no band is a matter of taste, and taking it away from the
+       reader was the overreach. Both ways are named for what they do — "See
+       all five sideways" said neither what it would show nor that there was
+       another option. */
+    if (!landing.scrolls || landing.rowH < landing.floor) {
+      check(`${name}: the way in names what it does`,
+        landing.buttons.some(b => /sideways/i.test(b)), JSON.stringify(landing.buttons));
+    } else {
+      check(`${name}: the reader is offered both ways, each named for what it does`,
+        landing.buttons.some(b => /sideways/i.test(b)) &&
+        landing.buttons.some(b => /here, small/i.test(b)),
+        JSON.stringify(landing.buttons));
+      /* And taking the second one actually shows the band. */
+      const forced = await page.evaluate(async () => {
+        const b = [...document.querySelectorAll('#ribbonoffer button')]
+          .find(x => /here, small/i.test(x.textContent));
+        b.click();
+        await new Promise(r => setTimeout(r, 500));
+        const wrap2 = document.getElementById('ribbonwrap');
+        const offer2 = document.getElementById('ribbonoffer');
+        const out = { shown: !wrap2.hidden,
+          buttons: [...offer2.querySelectorAll('button')].map(x => x.textContent.trim()) };
+        const away = [...offer2.querySelectorAll('button')]
+          .find(x => /put them away/i.test(x.textContent));
+        if (away) { away.click(); await new Promise(r => setTimeout(r, 500)); }
+        out.hiddenAgain = document.getElementById('ribbonwrap').hidden;
+        return out;
+      });
+      check(`${name}: showing them here small actually shows them`,
+        forced.shown, JSON.stringify(forced));
+      /* AND THE WAY BACK. A choice you cannot undo is a trap. */
+      check(`${name}: and there is a way to put them away again`,
+        forced.buttons.some(b => /put them away/i.test(b)) && forced.hiddenAgain,
+        JSON.stringify(forced));
+    }
   }
 
   /* THE PICTURE TURNS, BECAUSE THE PHONE CANNOT BE TURNED. Safari's engine has
@@ -618,7 +666,8 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
      screen that really is short rather than on a driven state. */
   const swRow = await page.evaluate(() => {
     const r = document.getElementById('swopen');
-    return r ? { there: true, hidden: r.hidden } : { there: false };
+    const o = document.getElementById('ribbonoffer');
+    return r ? { there: true, hidden: !!(o && o.hidden) } : { there: false };
   });
   if (swRow.there && !swRow.hidden) {
     const rot = await page.evaluate(async () => {
@@ -1665,6 +1714,20 @@ for (const [label, width, height] of [
       }));
       return { have, b, table: PROF_VIEWS.length };
     });
+    /* THE PROFILE'S WAY OUT TO A BIGGER PICTURE. It is a header button rather
+       than a wrapper, because the drawing itself is a control here, so what
+       has to be checked is that it is named and big enough for a thumb. */
+    const bigBtn = await page.evaluate(() => {
+      const b = document.getElementById('profbig');
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      return { name: b.getAttribute('aria-label') || '',
+               w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    check('touch: the profile can be opened larger, and the way in says so',
+      bigBtn && /^Show .+ larger$/.test(bigBtn.name) && bigBtn.w >= 32 && bigBtn.h >= 32,
+      JSON.stringify(bigBtn));
+
     check('touch: the profile offers a view for each thing it can draw, or none',
       views.have ? views.b.length === views.table : views.b.length === 0,
       JSON.stringify(views));
