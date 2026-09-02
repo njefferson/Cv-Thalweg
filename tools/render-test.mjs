@@ -648,8 +648,15 @@ check('the bake itself carries the date it was read',
 const species = await page.evaluate(() => {
   const p = document.getElementById('panel-brief');
   const h = [...p.querySelectorAll('h2')].find(x => /What else is legal/.test(x.textContent));
+  /* EVERY SPECIES FOLD, taken from the panel rather than from a list of names
+     written beside it. The first version named three species; the app grew to
+     six and this quietly went on measuring three, so the checks below passed
+     against a subset while reporting on all of them. A second list of what
+     exists is a list that goes stale on the next addition (hub LESSONS §215,
+     §22) — so this asks the DOM which folds are there. */
   const folds = [...p.querySelectorAll('details.foldbox')]
-    .filter(d => /Striped bass|Sturgeon|Black bass/.test(d.querySelector('summary').textContent));
+    .filter(d => d.querySelector('summary .rdg-id') &&
+                 /sections? of Title 14/.test(d.querySelector('summary').textContent));
   /* SHUT BY DEFAULT: three species of Title 14 unfolded above the tide would
      push the thing this app is for off the screen, which is what the fold
      pattern here exists to stop. Measured before opening them. */
@@ -661,8 +668,23 @@ const species = await page.evaluate(() => {
 });
 check('the other species have a section of their own', species.heading,
   JSON.stringify({ heading: species.heading }));
-check('and one fold each for striped bass, sturgeon and black bass',
-  species.folds === 3, JSON.stringify(species.summaries));
+/* THE SPECIES LIST IS READ OFF THE APP'S OWN TABLE, never counted here — a
+   number typed into a test goes stale the moment a species is added, and the
+   thing worth asserting is that every declared species reached the screen. */
+check('every species the app declares has a fold, and none is empty',
+  species.folds === (await page.evaluate(() =>
+    [...new Set(REGULATIONS.map(r => r.topic))]
+      .filter(t => !['delta', 'salmon'].includes(t)).length)),
+  JSON.stringify(species.summaries));
+/* CATFISH IS ABSENT ON PURPOSE. Its limit is published as eleven tables and a
+   table loses its columns on the screen this is read on, so the choice was
+   between a limit nobody can read and no catfish; §5.15 is recorded as
+   refused in the generator with the reason. This asserts the DECISION, so
+   somebody adding it back has to come past this line. */
+check('catfish is not offered, because its limit is a table',
+  await page.evaluate(() => !REGULATIONS.some(r => /^5\.15/.test(r.code))) &&
+  !/catfish/i.test(species.text),
+  await page.evaluate(() => JSON.stringify(REGULATIONS.map(r => r.code).filter(c => /^5\.1/.test(c)))));
 /* A SHUT FOLD WITH A BARE NOUN ON IT GIVES NOBODY A REASON TO OPEN IT. */
 check('and they arrive shut, so they do not push the fishery off the screen',
   species.wereShut, JSON.stringify({ wereShut: species.wereShut }));
@@ -678,6 +700,32 @@ check('the sturgeon season carries the sub-sections that hold the dates',
 check('and the closure that names water this app actually draws',
   /Keswick Dam/.test(species.text) && /Highway 162/.test(species.text),
   species.text.slice(0, 400));
+/* THE STATEWIDE TROUT SEASON IS NOT THIS WATER'S, and the sections say so
+   three screens apart — §5.85(a)(2) excepts the §7.40(b) waters and
+   §5.85(a)(3)(A) explains it. The reaches this app draws ARE §7.40(b)
+   subsections, so the caution goes above the sections rather than under. */
+check('the trout fold warns that the statewide season is not for these rivers',
+  await page.evaluate(() => {
+    const d = [...document.querySelectorAll('#panel-brief details.foldbox')]
+      .find(x => /Steelhead/.test(x.querySelector('summary').textContent));
+    if (!d) return false;
+    const w = d.querySelector('.warnbox');
+    const rule = d.querySelector('.rdg');
+    return !!w && /7\.40\(b\)/.test(w.textContent) &&
+      w.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING;
+  }),
+  await page.evaluate(() => {
+    const d = [...document.querySelectorAll('#panel-brief details.foldbox')]
+      .find(x => /Steelhead/.test(x.querySelector('summary').textContent));
+    return d ? (d.querySelector('.warnbox') || {}).textContent : 'no trout fold';
+  }));
+check('and steelhead carries the card the rules require, not only a season',
+  /Steelhead Fishing Report and Restoration Card/i.test(species.text),
+  species.text.slice(0, 300));
+check('shad is there with its limit, and it is the one that runs up these rivers',
+  /Shad may be taken only by angling/i.test(species.text) &&
+  /Limit: Twenty-five/i.test(species.text),
+  species.text.slice(0, 300));
 check('the zero limits are there, which is the part worth knowing before driving out',
   /Daily limit: Zero fish/.test(species.text) &&
   /zero fish per calendar year/.test(species.text),
@@ -688,6 +736,63 @@ check('the zero limits are there, which is the part worth knowing before driving
 check('no table markup reached the reader',
   !/\[row\]/.test(species.text) && !/\|[^|]+\|/.test(species.text),
   species.text.slice(0, 200));
+/* --- WHO IS RESPONSIBLE FOR WHAT ------------------------------------------
+   The one thing on this panel that is not about fish. A section number on
+   screen reads as authority, so the panel that quotes the law has to say, at
+   the top and before any of it, that what follows is a COPY read on a date —
+   and the (i) has to carry the whole statement: no warranty, the printed
+   regulations win, fishing legally is the reader's, and whoever wrote this is
+   not answerable for what anybody does with it.
+
+   GATED because it is the first thing a tidy-up removes: it is long, it is
+   not a feature, and nothing breaks when it goes. */
+const standing = await page.evaluate(() => {
+  const w = document.querySelector('#panel-brief .warnbox');
+  return w ? w.textContent.replace(/\s+/g, ' ') : '';
+});
+check('the panel that quotes the law opens by saying it is a copy',
+  /printed regulations/i.test(standing) && /authority/i.test(standing) &&
+  /\d{4}-\d{2}-\d{2}/.test(standing),
+  standing.slice(0, 200));
+check('and that checking before you go is the reader’s to do',
+  /before you go/i.test(standing) && /yours to do/i.test(standing),
+  standing.slice(0, 240));
+check('and it is the FIRST thing in the panel, not a footnote under the rules',
+  await page.evaluate(() => {
+    const p = document.getElementById('panel-brief');
+    const w = p.querySelector('.warnbox');
+    return !!w && p.firstElementChild === w;
+  }),
+  await page.evaluate(() => (document.getElementById('panel-brief').firstElementChild || {}).tagName));
+
+await page.click('#aboutbtn');
+await page.waitForTimeout(500);
+const responsibility = await page.evaluate(() => {
+  const body = document.getElementById('aboutbody');
+  const heads = [...body.querySelectorAll('h2,h3')].map(h => h.textContent);
+  return { heads: heads, text: body.textContent.replace(/\s+/g, ' ') };
+});
+check('the information panel has a section on who is responsible for what',
+  responsibility.heads.some(h => /responsible/i.test(h)),
+  JSON.stringify(responsibility.heads.slice(0, 12)));
+check('it says there is no warranty of any kind',
+  /no warranty of any kind/i.test(responsibility.text),
+  responsibility.text.slice(0, 120));
+check('it says the published sources are the authority over anything on screen',
+  /are the authority/i.test(responsibility.text) &&
+  /over anything on this screen/i.test(responsibility.text));
+check('it says checking, and fishing legally, are the reader’s own',
+  /checking them before you go is yours to do/i.test(responsibility.text) &&
+  /for fishing legally/i.test(responsibility.text));
+check('it says whoever wrote it is not answerable for what anybody does with it',
+  /not responsible for what anybody does with it/i.test(responsibility.text));
+/* AND IN THE LICENCE'S OWN WORDS, quoted rather than paraphrased — a
+   paraphrase of a liability clause is a new liability clause. */
+check('and it quotes the licence rather than paraphrasing it',
+  /will not be liable to you for any damages/i.test(responsibility.text));
+await page.evaluate(() => document.getElementById('about').close());
+await page.waitForTimeout(300);
+
 /* Every section on the screen carries its number, so a reader can check it. */
 check('every species rule shows its section number',
   await page.evaluate(() => [...document.querySelectorAll('#panel-brief details.foldbox .rdg')]

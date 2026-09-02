@@ -970,7 +970,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.18.0';
+var VERSION = '2.19.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -7272,6 +7272,19 @@ function renderBrief(){
   var p = $('#panel-brief'); p.innerHTML = '';
   var rivers = state.riverId ? [byId(state.riverId)] : RIVERS;
 
+  /* AT THE TOP OF THE PANEL THAT QUOTES THE LAW, not only in the (i). A
+     section number on screen reads as authority, and the one thing a reader
+     has to carry away from this panel is that it is a copy: read on a date,
+     amendable the week after, and never the thing they are held to. The
+     fuller statement of who is responsible for what lives in the (i) beside
+     the licence; this is the half that has to be where the rules are. */
+  var stand = el('div',{class:'warnbox'});
+  stand.appendChild(el('b',{text:'Check this against the printed regulations before you go.'}));
+  stand.appendChild(document.createTextNode(' What follows is CDFW\u2019s own wording, copied on ' +
+    ((typeof REGULATIONS_META === 'object' && REGULATIONS_META && REGULATIONS_META.fetchedAt) || 'the date in the (i)') +
+    ' and shipped with the app. Regulations are amended between copies, this app carries only the sections about the water it draws, and the printed regulations are the authority over anything on this screen. Fishing legally is yours to do, and Thalweg is a hobby project with no warranty \u2014 the \u24d8 says what that means.'));
+  p.appendChild(stand);
+
   p.appendChild(el('h2',{class:'sec',text:'Bag and possession'}));
   var lim = el('p',{});
   lim.appendChild(el('span',{class:'v',text:String(SEASON_ADOPTION.daily)}));
@@ -7356,10 +7369,28 @@ function renderBrief(){
      annual limits are both zero, which is a thing a person needs to know
      before they drive out, not after.
      ===================================================================== */
+  /* ORDER IS BY WHAT IS LIKELIEST TO BE IN THIS WATER when the salmon season
+     is shut, not alphabetical: shad and striper run up every river this app
+     draws, steelhead is the other anadromous fish in it, sturgeon is the Delta
+     and the lower river, and the warm-water fish come last.
+     CATFISH IS ABSENT ON PURPOSE and the reason is in tools/fetch-regs.mjs:
+     its limit is published as eleven tables, and a table loses its columns on
+     the screen this is read on. */
   var SPECIES = [
     { topic:'striper',  name:'Striped bass' },
+    { topic:'shad',     name:'American shad' },
+    { topic:'trout',    name:'Steelhead and trout',
+      /* SAID BEFORE THE SECTIONS, NOT AFTER. §5.85(a)(2) gives a statewide
+         stream season and excepts the waters listed in §7.40(b) — and the
+         reaches this app draws ARE §7.40(b) subsections, which is where its
+         own season comes from. A reader who takes the statewide dates for
+         these rivers has read the wrong line, and CDFW's own (a)(3)(A) says
+         so a screen further down. This is a fact about which sections the app
+         is built from, not a reading of the law. */
+      note:'The statewide stream season below is not the one for these rivers. Section 5.85(a)(2) excepts the waters listed in section 7.40(b), and the reaches this app draws are 7.40(b) waters \u2014 their seasons are the ones at the top of this panel. Section 5.85(a)(3)(A) is where the regulation says that itself.' },
     { topic:'sturgeon', name:'Sturgeon' },
-    { topic:'bass',     name:'Black bass' }
+    { topic:'bass',     name:'Black bass' },
+    { topic:'panfish',  name:'Sunfish and crappie' }
   ];
   var anySpecies = SPECIES.filter(function(sp){ return regsFor(sp.topic).length; });
   p.appendChild(el('h2',{class:'sec',text:'What else is legal in this water'}));
@@ -7380,6 +7411,9 @@ function renderBrief(){
         text:got.length + (got.length === 1 ? ' section' : ' sections') + ' of Title 14'}));
       d.appendChild(sum);
       var body = el('div',{class:'foldbody'});
+      /* A caution about the sections goes ABOVE them. Underneath, it is a
+         footnote to something already read as authority. */
+      if (sp.note) body.appendChild(el('div',{class:'warnbox', text:sp.note}));
       got.forEach(function(rl){ body.appendChild(ruleBox(rl)); });
       d.appendChild(body);
       p.appendChild(d);
@@ -11010,6 +11044,16 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.19.0', date:'2026-09-02', changes:[
+      'The \u24d8 now says who is responsible for what, in a section of its own. Thalweg is a hobby project, given away for nothing, with no warranty of any kind. Everything in it is a copy of somebody else\u2019s published data taken on a date. The printed regulations, the official charts and the agencies\u2019 own pages are the authority over anything on this screen, checking them before you go is yours to do, and whoever wrote this is not answerable for what anybody does with it.',
+      'And the panel that quotes the law opens with the short version, above the rules rather than under them, with the date the wording was copied.',
+      'Three more fish, chosen because they are what is in this water when the salmon season is shut. American shad, which runs up all four rivers. Steelhead and trout, with the report card the rules require and the definition that makes steelhead a trout in the first place. Sunfish and crappie for the Delta.',
+      'The steelhead section opens with a warning rather than a rule. The statewide stream season it quotes is NOT the season for these rivers: the regulation excepts the waters listed in section 7.40(b), and the reaches this app draws are those waters. Their seasons are the ones at the top of the same panel.',
+  ], broken:[
+      'No catfish. Its limit is published as eleven tables of county and water against a number, and a table loses its columns on a phone without saying so \u2014 the choice was between a limit nobody can read and no catfish, and none of the eleven names water this app draws anyway. Read it in the printed regulations.',
+      'These are the sections about the water this app draws, not all of Title 14. Somewhere it does not draw, the sections here may not be the ones that govern you.',
+      'A regulation can be amended the week after the copy was taken. The date it was read is at the top of the panel and in the \u24d8, and it is checked against the clock rather than trusted.',
+  ] },
   { v:'2.18.0', date:'2026-09-02', changes:[
       'A plus code works in the search box. Paste 84CW5837+856 and the app goes there, with nothing sent to anybody \u2014 a plus code is arithmetic rather than a lookup, so it resolves on your own phone the same way a pasted map link does.',
       'A plus code with its front removed says so instead of finding nothing. The first four characters are the ones that say which part of the world it is in; without them the rest could be any of thousands of places, so the app asks for the whole code rather than guessing at them.',
@@ -11617,6 +11661,27 @@ function renderAbout(){
     text:'or via Venmo' }));
   b.appendChild(tipRow);
   para('Those links go to PayPal and Venmo, and this app is not involved in either: nothing about a payment comes back here, and Thalweg does not know and cannot know whether anybody used them.', 'note');
+
+  /* =====================================================================
+     WHO IS RESPONSIBLE FOR WHAT.
+
+     Everything else in this panel says what the app knows and how well. This
+     says what it is NOT, in the sense that matters when somebody acts on it:
+     it is a hobby project, given away, copying other people's published data,
+     and the person who wrote it is not on the hook for what anybody does with
+     it. The licence already says so — PolyForm Noncommercial's No Liability
+     clause is quoted below in its own words — and a licence file is not where
+     somebody standing on a bank is going to read it.
+
+     It is its own section rather than a line in the footer because a
+     disclaimer nobody reads is a disclaimer that does not exist, and it sits
+     beside the licence because that is where a reader looking for it will go.
+     ===================================================================== */
+  h('Who is responsible for what');
+  para('Thalweg is a hobby project, given away for nothing. It comes with no warranty of any kind \u2014 no promise that it is accurate, that it is current, that it works, or that it is fit for any particular purpose. It is used at your own risk.');
+  para('Everything in it is a COPY of somebody else\u2019s published data, taken at a moment and shipped with the app. Gauges fail and report nothing. Surveys age, and the river moves after them. A tide prediction is a prediction. A regulation quoted here with its section number can be amended the week after it was read. The printed regulations, the official charts and the agencies\u2019 own pages are the authority \u2014 always, and over anything on this screen \u2014 and checking them before you go is yours to do.');
+  para('You are responsible for what you do on the water: for fishing legally, for holding the licence and the report cards the rules require, for your own safety and for everyone with you, and for navigating by something built and maintained for navigating. Whoever wrote this app is not responsible for what anybody does with it, or for any loss, injury, penalty or damage arising from using it \u2014 or from it being wrong, out of date, or not working when you needed it.');
+  para('The licence says the same thing in its own words: \u201cAs far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.\u201d');
 
   h('Licence');
   para('PolyForm Noncommercial 1.0.0 — free to use, study and change for anything that is not commercial. The map library is Leaflet 1.9.4, included under its own BSD-2-Clause licence.');
