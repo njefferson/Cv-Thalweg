@@ -1448,9 +1448,11 @@ const sw = await page.evaluate(async () => {
   /* A band with no room, the state a phone is really in. */
   ribbonMetrics(360, RIVERS.length, 150, true);
   const crampedRowH = RIB.rowH, cramped = RIB.scrolls || RIB.rowH < RIB.natural;
-  syncSidewaysOffer();
+  /* One builder now, and the row lives inside the offer box at the top of the
+     panel rather than at the bottom of it. */
+  syncRibbonOffer();
   const row = document.getElementById('swopen');
-  const offered = row && !row.hidden;
+  const offered = !!row && !document.getElementById('ribbonoffer').hidden;
   if (!offered) { drawRibbon(); return { cramped, offered: false, crampedRowH }; }
   /* FOCUS IT FIRST, because that is what pressing it does. A modal returns
      focus to whatever held it when it opened, so a synthetic click that never
@@ -1510,8 +1512,8 @@ check('it closes', sw.closed, JSON.stringify(sw));
 check('a band already showing every row at full height does not offer it',
   await page.evaluate(() => {
     ribbonMetrics(900, RIVERS.length, 900, true);
-    syncSidewaysOffer();
-    const hidden = document.getElementById('swopen').hidden;
+    syncRibbonOffer();
+    const hidden = document.getElementById('ribbonoffer').hidden;
     drawRibbon();
     return hidden;
   }));

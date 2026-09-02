@@ -15,7 +15,8 @@ session needs before it touches anything.
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
 - **2.13.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02.
-- Staged candidate: **2.13.1** — the depth profile opens larger too.
+- Staged candidate: **2.14.0** — the choice about the river bars, at the top,
+  saying what it reveals. 2.13.1 is behind it.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1275,6 +1276,44 @@ shape of it and none of the listeners, so in the enlarged view it would be a
 region that looks interactive and does nothing. It is removed from the copy, and
 the check asserts both halves — no ghost in the copy, and the original still
 traceable behind the dialog.
+
+
+## All-or-nothing was the right default and the wrong law
+
+2.9.0 made the landing band all rows or none, keyed on whether they fit. That
+was right, and it went one step too far: it took a decision that is a matter of
+TASTE — would you rather scroll a small band than not have one — and made it for
+everybody. Reported from a phone, and the report had two halves, both fair.
+
+**The offer was at the bottom of the panel**, under every river card. "Below
+pages of data", which it was: the order was heading, five cards, stale warning,
+two notes, and then the sentence explaining why the band was missing. A thing
+that explains an absence has to sit where the absence is. It is the first thing
+on the panel now, in a box rather than a run of prose, for the same reason the
+install offer is a box: in a column of paragraphs it reads as more paragraphs
+and is scrolled past.
+
+**And "See all five sideways" said nothing about what it would reveal.** The
+sentence above it did — it named the three things only the stacked view gives —
+but the sentence was at the bottom too, and a reader who never got there had a
+button promising a rotation and nothing else.
+
+**So it is a choice.** Turn them sideways at full size, or show them here small
+and scroll. `ribbonForced` is stored, `drawRibbon` honours it, and "Put them
+away" is beside it — a choice you cannot undo is a trap.
+
+**NOT WHERE THE BAND IS SHORTER THAN ONE ROW.** That is `tooTight`, a phone held
+sideways, and what "show them here" would produce is a sliver of a bar past a
+scrollbar. The second button is only offered where it is a real option, which is
+the same rule as the sideways button not appearing on a screen where the rows
+are already at full height.
+
+**The three states, measured on real geometries.** iPhone 13 and SE: band
+replaced, both buttons, and taking the small one shows five rows scrolling.
+iPad mini: band shown but squeezed at rowH 41 against a natural 51, so the
+sideways button is offered and the inline one is not — there is nothing to
+reveal, only a better size. Desktop at rowH 62: the whole box is absent, because
+a control that changes nothing is clutter.
 
 
 ## Scratch
