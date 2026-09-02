@@ -171,6 +171,45 @@ for (const m of ['POST', 'PUT', 'DELETE']) {
     cross.upstream[0]);
 }
 
+/* --- the address lookup: one endpoint, never cached, never widened --- */
+{
+  const q = '/geocode/geocoder/locations/onelineaddress?address=3600+Freeport+Blvd&benchmark=Public_AR_Current&format=json';
+  const ok = await call(q);
+  check('forwards an address lookup', ok.res.status === 200 && ok.upstream.length === 1,
+    'status ' + ok.res.status + ', upstream ' + ok.upstream.length);
+  check('strips the /geocode namespace and switches host',
+    ok.upstream[0] === 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=3600+Freeport+Blvd&benchmark=Public_AR_Current&format=json',
+    ok.upstream[0]);
+  /* THIS ONE IS NOT ABOUT FRESHNESS. Everything else here forwards a question
+     about a river; this forwards what somebody typed, which is usually where
+     they live. no-store is what keeps that out of an edge cache. */
+  check('a typed address is never cached', /no-store/.test(ok.res.headers.get('cache-control') || ''),
+    ok.res.headers.get('cache-control'));
+  const again = await call(q);
+  check('and it goes upstream every time', again.upstream.length === 1,
+    'upstream ' + again.upstream.length);
+
+  /* The geocoder publishes more than one endpoint and this must reach exactly
+     one of them. `geographies` answers with the census tract and block a point
+     falls in, which is a different question about a person and not one this
+     app has any business asking on their behalf. */
+  for (const p of [
+    '/geocode/geocoder/geographies/onelineaddress?address=x&format=json',
+    '/geocode/geocoder/benchmarks?format=json',
+    '/geocode/',
+    '/geocoder/locations/onelineaddress?address=x',
+    '/geocode/geocoder/locations/../../geographies/onelineaddress?address=x'
+  ]) {
+    const bad = await call(p);
+    check('refuses ' + p.slice(0, 58), bad.res.status === 403 && bad.upstream.length === 0,
+      'status ' + bad.res.status + ', upstream ' + bad.upstream.length);
+  }
+  const cross = await call('/cdec/dynamicapp/req/JSONDataServlet?Stations=GRL');
+  check('a gauge path still goes to CDEC, not the geocoder',
+    cross.upstream[0] && cross.upstream[0].startsWith('https://cdec.water.ca.gov/'),
+    cross.upstream[0]);
+}
+
 /* --- a cache hit must be readable more than once --- */
 {
   const path = '/arcgisimg/rest/services/Bathymetry/ReadTwice/ImageServer?f=json';
@@ -222,6 +261,23 @@ async function viaPages(path, init) {
   }
 
   const tile = await viaPages('/bathy/arcgisimg/rest/services/Bathymetry/L/ImageServer/exportImage?bbox=1,2,3,4&f=image');
+  /* AND THE ADDRESS LOOKUP RIDES THE SAME MOUNT. There is no second Pages
+     function and no second route in the dev server: /bathy already strips its
+     own prefix before the allow-list sees anything, so a namespace under it
+     needs no new wiring and cannot widen what the mount forwards. */
+  {
+    const g = await viaPages('/bathy/geocode/geocoder/locations/onelineaddress?address=x&format=json');
+    check('pages mount forwards an address lookup under its own namespace',
+      g.res.status === 200 &&
+      g.upstream[0] === 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=x&format=json',
+      'status ' + g.res.status + ', ' + g.upstream[0]);
+    check('and it is still never cached through the mount',
+      /no-store/.test(g.res.headers.get('cache-control') || ''),
+      g.res.headers.get('cache-control'));
+    const bad = await viaPages('/bathy/geocode/geocoder/geographies/onelineaddress?address=x');
+    check('the mount refuses the geographies endpoint too',
+      bad.res.status === 403 && bad.upstream.length === 0, 'status ' + bad.res.status);
+  }
   check('pages mount keeps the year-long tile lifetime',
     /max-age=31536000/.test(tile.res.headers.get('cache-control') || ''),
     tile.res.headers.get('cache-control'));

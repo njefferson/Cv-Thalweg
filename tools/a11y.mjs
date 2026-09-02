@@ -913,6 +913,28 @@ for (const [name, width, height] of [['desktop', 1280, 900], ['phone', 390, 664]
     }),
     await page.evaluate(() => [...document.querySelectorAll('#aboutbody a')]
       .map(a => a.getAttribute('href')).filter(h => /noahjefferson/.test(h)).join(' | ')));
+  /* THE SWITCH THAT CHANGES WHAT LEAVES THE DEVICE lives beside the sentence
+     that says what leaves the device. A control like that put in a settings
+     list somebody has to go looking for is a control nobody reads the terms
+     of; it has to be reachable, named for its state, and next to the promise
+     it changes. */
+  const addr = await page.evaluate(() => {
+    const bs = [...document.querySelectorAll('#aboutbody button')]
+      .filter(b => /address lookup/i.test(b.textContent));
+    if (!bs.length) return { there: false };
+    const b = bs[0], r = b.getBoundingClientRect();
+    const body = document.getElementById('aboutbody').textContent;
+    return { there: true, n: bs.length, h: Math.round(r.height),
+             name: b.getAttribute('aria-label') || '',
+             says: /off to begin with/i.test(body) && /Census/i.test(body) };
+  });
+  check(`${name}: the address-lookup switch is in the (i), once, and thumb-sized`,
+    addr.there && addr.n === 1 && addr.h >= 44, JSON.stringify(addr));
+  check(`${name}: it is named for the state it is in, not just "address lookup"`,
+    addr.there && /it is off|it is on/i.test(addr.name), JSON.stringify(addr));
+  check(`${name}: and the panel says it starts off and who would be asked`,
+    addr.says, JSON.stringify(addr));
+
   /* THE TIP LINK LIVES IN THE (i) AND NOWHERE ELSE. A prompt for money has no
      business competing with reading the water, so it must be here and must not
      be on the working surface — and it must be a real target for a thumb. */
@@ -1835,6 +1857,35 @@ for (const [label, width, height] of [
   /* THE OPEN RESULT LIST IS ITS OWN STATE and is audited as one — the update
      strip shipped unmeasured for a day for exactly this reason. */
   await audit(page, 'touch: the search results');
+  /* THE ADDRESS OFFER IS A CONTROL LIKE ANY OTHER, and it is the one that
+     sends something, so it is measured rather than assumed reachable. It sits
+     inside the empty answer, which is a place a control is easy to draw and
+     easy to make untappable. */
+  await page.evaluate(() => { setAddressOn(true); });
+  await page.fill('#findq', '');
+  await page.waitForTimeout(200);
+  await page.fill('#findq', '1234 Nowhere Street');
+  await page.waitForTimeout(400);
+  const offer = await page.evaluate(() => {
+    const b = document.querySelector('#findlist .findask');
+    if (!b) return { there: false };
+    const r = b.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { there: true, h: Math.round(r.height),
+             inView: r.left >= 0 && r.right <= innerWidth + 0.5,
+             reachable: !!(hit && b.contains(hit)),
+             name: b.getAttribute('aria-label') || '' };
+  });
+  check('touch: the offer to send an address is reachable and thumb-sized',
+    offer.there && offer.h >= 44 && offer.inView && offer.reachable,
+    JSON.stringify(offer));
+  check('touch: and it says what it will send, and to whom, in its own name',
+    /Nowhere Street/.test(offer.name) && /Census/i.test(offer.name),
+    JSON.stringify(offer));
+  await audit(page, 'touch: the address offer');
+  await page.evaluate(() => { setAddressOn(false); });
+  await page.fill('#findq', '');
+  await page.waitForTimeout(200);
   /* NOT noOverflow HERE. That helper measures every element on the page, and
      with the map open Leaflet's own tile container and SVG panes extend well
      past the window BY DESIGN — that is how a map larger than the screen is

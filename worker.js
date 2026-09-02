@@ -24,6 +24,7 @@
 
 const DWR  = 'https://gis.water.ca.gov';
 const CDEC = 'https://cdec.water.ca.gov';
+const CENSUS = 'https://geocoding.geo.census.gov';
 
 const YEAR = 31536000;   /* multibeam surveys are static */
 const DAY  = 86400;      /* feature queries follow the map, not the survey */
@@ -48,7 +49,20 @@ const ALLOWED = [
   { prefix: '/cdec/dynamicapp/req/jsondataservlet',
     kind: 'gauge',   origin: CDEC, strip: '/cdec', ttl: LIVE },
   { prefix: '/cdec/dynamicapp/querycsv',
-    kind: 'gauge',   origin: CDEC, strip: '/cdec', ttl: LIVE }
+    kind: 'gauge',   origin: CDEC, strip: '/cdec', ttl: LIVE },
+  /* THE ADDRESS LOOKUP, and it is here for two separate reasons.
+     The Census geocoder sends no Access-Control-Allow-Origin at all, so a
+     page cannot call it: that is the same reason CDEC is here.
+     AND BECAUSE OF WHAT IT CARRIES. Every other thing this forwards is a
+     question about a river. This one carries what somebody typed, which is
+     usually where they live — so `ttl: LIVE` is not a freshness decision
+     here, it is the rule that keeps a typed address out of an edge cache.
+     One path, not the whole geocoder: the locations endpoints answer with a
+     coordinate, and the `geographies` ones answer with the census tract and
+     block a point falls in, which this app has no use for and no business
+     asking. */
+  { prefix: '/geocode/geocoder/locations',
+    kind: 'address', origin: CENSUS, strip: '/geocode', ttl: LIVE }
 ];
 
 const CORS = {

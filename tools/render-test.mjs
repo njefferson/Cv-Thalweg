@@ -208,6 +208,18 @@ const WEIR_CSV = [
   '2026-08-27,76.10,,,60.80,,,44.00,,,16.70,,',
   'Notes:'
 ].join('\n');
+/* EVERY REQUEST TO THE GEOCODER IS COUNTED, so "nothing was sent" can be
+   ASSERTED rather than assumed. A check whose passing branch is "the thing
+   is absent" passes hardest when the feature is broken (hub LESSONS §100),
+   and that is exactly the shape "no send happened" takes if nobody counts. */
+const geocodeCalls = [];
+await ctx.route('**/geocode/geocoder/**', r => {
+  geocodeCalls.push(r.request().url());
+  return json(r, { result: { addressMatches: [
+    { matchedAddress: '1234 NOWHERE ST, SACRAMENTO, CA, 95818',
+      coordinates: { x: -121.5016, y: 38.4557 } }
+  ] } });
+});
 await ctx.route('**/alertsovertop.csv', r => r.fulfill({ status: 200,
   headers: { 'content-type': 'text/csv', 'access-control-allow-origin': '*' },
   body: WEIR_CSV }));
@@ -3772,6 +3784,18 @@ check('and prose is not mistaken for a position',
    goes nowhere is the same failure as no search at all. */
 await page.fill('#findq', 'marysville');
 await page.waitForTimeout(300);
+/* A LIST OF RESULTS IS NOT A LISTBOX, and calling it one was a critical
+   violation that no audit could see while the only state anybody measured was
+   the one where every child happens to be a result. The empty answer holds a
+   sentence and an offer button, and a listbox may hold neither. */
+check('the results are a named group of buttons, not a half-built listbox',
+  await page.evaluate(() => {
+    const l = document.getElementById('findlist');
+    return l.getAttribute('role') === 'group' &&
+      !![...l.querySelectorAll('button')].length &&
+      ![...l.querySelectorAll('[role=option]')].length;
+  }),
+  await page.evaluate(() => document.getElementById('findlist').getAttribute('role')));
 check('a result carries what it is and which river, not just its name',
   /gauge/i.test(await page.getAttribute('#findlist button', 'aria-label') || ''),
   await page.getAttribute('#findlist button', 'aria-label'));
@@ -3810,10 +3834,123 @@ check('and the list closes behind it, with the box emptied',
 await page.fill('#findq', 'zzzznowhere');
 await page.waitForTimeout(300);
 const none = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
-check('an empty answer says it cannot look up a street address',
-  /street address/i.test(none), none.slice(0, 120));
-check('and names the position and the mark as the ways in',
-  /38\.1533/.test(none) && /mark/i.test(none), none.slice(0, 200));
+check('an empty answer names the two things that work with no signal',
+  /38\.1533/.test(none) && /map link/i.test(none) && /mark/i.test(none),
+  none.slice(0, 240));
+check('and it says address lookup is off rather than leaving somebody guessing',
+  /switched off/i.test(none), none.slice(-200));
+/* --- A PASTED MAP LINK, READ WITH NO NETWORK ------------------------------
+   This is how a spot actually gets sent between two people on a phone, and
+   the numbers are already in the text — so reading them costs nothing and
+   sends nothing. Google writes the point three ways depending on how the link
+   was made; the !3d!4d pair is the exact one and must beat the @, which is
+   only the centre of the picture that was on screen. */
+const LINKS = [
+  ['google @', 'https://www.google.com/maps/@38.1533,-121.6870,15z', 38.1533, -121.6870],
+  ['google place, the exact pair beats the view centre',
+   'https://www.google.com/maps/place/X/@38.1533,-121.687,17z/data=!3m1!4b1!4m5!3m4!1s0x0:0x0!8m2!3d38.4557!4d-121.5016',
+   38.4557, -121.5016],
+  ['google ?q', 'https://maps.google.com/?q=38.1533,-121.687', 38.1533, -121.687],
+  ['apple ?ll', 'https://maps.apple.com/?ll=38.1533,-121.687', 38.1533, -121.687],
+  ['openstreetmap #map', 'https://www.openstreetmap.org/#map=15/38.1533/-121.6870', 38.1533, -121.6870],
+  ['a geo: link', 'geo:38.1533,-121.687', 38.1533, -121.687]
+];
+for (const [what, url, lat, lon] of LINKS)
+  check(`a pasted link is read offline — ${what}`,
+    await page.evaluate(([u, la, lo]) => {
+      const p = findPlaces(u, 3)[0];
+      return !!p && p.kind === 'coord' &&
+        Math.abs(p.lat - la) < 1e-6 && Math.abs(p.lon - lo) < 1e-6;
+    }, [url, lat, lon]),
+    await page.evaluate((u) => JSON.stringify(findPlaces(u, 3)[0] || null), url));
+
+/* THE SHORTENED LINK IS THE HONEST FAILURE. It carries no position at all —
+   only a key to a row in somebody else's table — so it cannot be read here,
+   and saying which saves somebody deciding the paste did not work. */
+await page.fill('#findq', 'https://maps.app.goo.gl/abc123');
+await page.waitForTimeout(300);
+const shortNote = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
+check('a shortened map link is refused by name, not by silence',
+  /shortened map link/i.test(shortNote) && /no position inside it/i.test(shortNote),
+  shortNote.slice(0, 140));
+
+/* --- ADDRESS LOOKUP IS OFF UNTIL IT IS SWITCHED ON ------------------------
+   This is the one thing in the app that sends what somebody TYPED to a third
+   party, so it has three gates and each is checked: off by default, no send
+   without a press even when on, and it goes through this site's own proxy.
+   The lookup itself needs the network and is checked in tools/live-test.mjs;
+   what is asserted here is that nothing can be sent from this state. */
+check('address lookup is off on a fresh device',
+  (await page.evaluate(() => addressOn())) === false);
+await page.fill('#findq', '1234 Nowhere Street');
+await page.waitForTimeout(300);
+const offNote = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
+check('with it off, nothing offers to send anything',
+  await page.evaluate(() => !document.querySelector('#findlist .findask')));
+check('and the empty answer says so, and where the switch is',
+  /switched off/i.test(offNote) && /would send what you typed/i.test(offNote),
+  offNote.slice(-200));
+
+await page.evaluate(() => setAddressOn(true));
+await page.fill('#findq', '');
+await page.waitForTimeout(200);
+await page.fill('#findq', '1234 Nowhere Street');
+await page.waitForTimeout(300);
+const ask = await page.evaluate(() => {
+  const b = document.querySelector('#findlist .findask');
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { label: b.getAttribute('aria-label'), h: Math.round(r.height),
+           sub: b.textContent };
+});
+check('switched on, the offer appears and names what it will send',
+  ask && /1234 Nowhere Street/.test(ask.label) && /Census/i.test(ask.label),
+  JSON.stringify(ask));
+check('and it is a thumb target like every other result',
+  ask && ask.h >= 44, JSON.stringify(ask));
+check('and it says the send happens through this site, not from the page',
+  ask && /through this site/i.test(ask.sub), ask && ask.sub);
+/* THE SWITCH BEING ON IS NOT A SEND. Nothing goes out until the button is
+   pressed — no lookup on a keystroke, no lookup on an empty result — and the
+   requests are counted so this is a measurement and not an assumption. */
+check('switching it on sends nothing by itself',
+  geocodeCalls.length === 0, JSON.stringify(geocodeCalls));
+await page.fill('#findq', 'still typing an address');
+await page.waitForTimeout(600);
+check('and typing more sends nothing either',
+  geocodeCalls.length === 0, JSON.stringify(geocodeCalls));
+
+await page.fill('#findq', '1234 Nowhere Street');
+await page.waitForTimeout(400);
+await page.click('#findlist .findask');
+await page.waitForTimeout(900);
+check('pressing the offer sends exactly one request',
+  geocodeCalls.length === 1, JSON.stringify(geocodeCalls));
+/* IT GOES THROUGH THIS SITE, not straight from the page — forced anyway, since
+   the geocoder sends no CORS header, but it is the reason the copy can say the
+   address is not handed to a third party by the browser itself. */
+check('and it goes through this site rather than to the geocoder directly',
+  /^http:\/\/127\.0\.0\.1:\d+\/bathy\/geocode\/geocoder\/locations\//.test(geocodeCalls[0] || ''),
+  geocodeCalls[0]);
+check('and it asks the locations endpoint, never geographies',
+  !/geographies/.test(geocodeCalls[0] || ''), geocodeCalls[0]);
+const hit = await page.evaluate(() =>
+  [...document.querySelectorAll('#findlist button')].map(b => b.getAttribute('aria-label')));
+check('a matched address comes back as a place you can press',
+  hit.length === 1 && /NOWHERE ST/.test(hit[0]) && /street address/i.test(hit[0]),
+  JSON.stringify(hit));
+check('and it says who matched it',
+  /Census/i.test(hit[0] || ''), JSON.stringify(hit));
+await page.click('#findlist button');
+await page.waitForTimeout(900);
+check('and pressing it moves the map to the address',
+  await page.evaluate(() => {
+    const c = state.map.getCenter();
+    return Math.abs(c.lat - 38.4557) < 0.02 && Math.abs(c.lng + 121.5016) < 0.02;
+  }),
+  await page.evaluate(() => JSON.stringify(state.map.getCenter())));
+
+await page.evaluate(() => setAddressOn(false));
 await page.fill('#findq', '');
 await page.waitForTimeout(200);
 
