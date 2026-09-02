@@ -66,6 +66,11 @@ const WANTED = [
   { code: '5.75(a)',     topic: 'striper',  about: 'Striped bass: open season' },
   { code: '5.75(b)',     topic: 'striper',  about: 'Striped bass: limit' },
   { code: '5.75(c)',     topic: 'striper',  about: 'Striped bass: minimum size' },
+  /* (b) and (c) BOTH say "except in waters listed in (d) below", and (d) was
+     not asked for — so the app quoted a limit and a size with a pointer to an
+     exception a reader had no way to read. It is a heading over a place list
+     over two rules, which is why the pull above had to learn to go deeper. */
+  { code: '5.75(d)',     topic: 'striper',  about: 'Striped bass: where the limit and the size are different', children: true },
   { code: '5.75(e)',     topic: 'striper',  about: 'Striped bass: hybrids' },
 
   { code: '5.80(a)',     topic: 'sturgeon', about: 'White sturgeon: open season', children: true },
@@ -152,20 +157,55 @@ async function main() {
   }
 
   await pull(`Code IN (${WANTED.map(w => quote(w.code)).join(',')})`);
-  const parents = WANTED.filter(w => w.children).map(w => w.code);
-  if (parents.length) await pull(`ParentCode IN (${parents.map(quote).join(',')})`);
+
+  /* PULL THE WHOLE SUBTREE, NOT THE FIRST GENERATION.
+   *
+   * This asked for direct children once and stopped, and the regulations are
+   * three levels deep in places. 5.80(i) is the Sierra and Valley District
+   * sturgeon closure; its only child is 5.80(i)(1), "Sacramento River from
+   * Keswick Dam to the Highway 162 Bridge." — a PLACE — and the three things
+   * that are unlawful there live one level further down, in (A), (B) and (C).
+   * So the app shipped that closure as a title and a river reach with nothing
+   * forbidden in it. Every gate was green: the section had a part, the part had
+   * words, and nothing anywhere asked whether the part had children of its own.
+   *
+   * Keep asking until a round returns nothing new. It is a handful of requests
+   * against a service that pages at hundreds, and the alternative is a depth
+   * number somebody has to remember to raise the next time CDFW nests one
+   * deeper. */
+  let frontier = WANTED.filter(w => w.children).map(w => w.code);
+  const asked = new Set();
+  while (frontier.length) {
+    const ask = frontier.filter(c => !asked.has(c));
+    ask.forEach(c => asked.add(c));
+    if (!ask.length) break;
+    const before = new Set(byCode.keys());
+    await pull(`ParentCode IN (${ask.map(quote).join(',')})`);
+    frontier = [...byCode.keys()].filter(c => !before.has(c));
+  }
 
   const rules = [], missing = [], refused = [];
   for (const w of WANTED) {
     const r = byCode.get(w.code);
     if (!r) { missing.push(w.code); continue; }
 
-    const parts = w.children
-      ? [...byCode.values()]
-          .filter(x => x.parent === w.code)
-          .sort((x, y) => x.code.localeCompare(y.code, 'en', { numeric: true }))
-          .map(x => ({ code: x.code, text: x.text }))
-      : [];
+    /* Every descendant, in reading order — a subsection's own subsections are
+       the rule when the subsection itself is a heading or a place name. */
+    const kidsOf = (code) => [...byCode.values()]
+      .filter(x => x.parent === code)
+      .sort((x, y) => x.code.localeCompare(y.code, 'en', { numeric: true }));
+    /* `kids` IS THE SOURCE'S OWN COUNT, written down so the file can be checked
+       against it later without asking CDFW again. A truncated subtree is
+       otherwise invisible: the part that got cut short was "Sacramento River
+       from Keswick Dam to the Highway 162 Bridge." — a place name, which reads
+       as a perfectly good sentence and is not a heading, while the three things
+       that are unlawful there had been dropped. Planting exactly that defect
+       is how this field came to exist: the first version of the gate caught a
+       heading with nothing under it and sailed past the bug that shipped. */
+    const descend = (code) => kidsOf(code)
+      .flatMap(x => [{ code: x.code, text: x.text, kids: kidsOf(x.code).length },
+                     ...descend(x.code)]);
+    const parts = w.children ? descend(w.code) : [];
 
     /* A TABLE IS REFUSED, NOT FLATTENED. Losing its columns into prose would
        be this bake inventing a sentence CDFW never wrote. */
@@ -181,7 +221,13 @@ async function main() {
 
     rules.push({ code: r.code, topic: w.topic, about: w.about,
                  title: r.title, text: r.text,
-                 parts: parts, source: r.source });
+                 parts: parts,
+                 /* Says HOW the parts were gathered, not merely that there are
+                    some. A bake that went one generation deep cannot write
+                    this, so a file made that way goes red rather than looking
+                    like a section that simply has fewer subsections. */
+                 deep: !!w.children,
+                 source: r.source });
   }
   if (!rules.length) throw new Error('no regulation came back at all');
 
@@ -226,7 +272,12 @@ function check() {
   for (const r of rules) {
     topics[r.topic] = (topics[r.topic] || 0) + 1;
     if (!r.code) fails.push('a rule with no section number');
-    if (!r.text || r.text.length < 12) fails.push(`${r.code}: no text worth quoting`);
+    /* A short text is fine when the rule is a heading WITH its subsections
+       under it — "Exceptions:" over a place list over two rules is exactly the
+       shape §5.75(d) has. The heading-with-nothing-under-it case is caught
+       below, where it belongs. */
+    if (!r.text || (!(r.parts || []).length && r.text.length < 12))
+      fails.push(`${r.code}: no text worth quoting`);
     if (/\[start_|\[end_/.test(r.text || '')) fails.push(`${r.code}: the service's own markers are still in the text`);
     if (!r.topic) fails.push(`${r.code}: no topic, so no surface can ask for it`);
     if (!r.about) fails.push(`${r.code}: nothing says why this section is here`);
@@ -243,6 +294,40 @@ function check() {
       fails.push(`${r.code}: "${r.text}" is a heading, not a rule — it needs its sub-sections or it should not be here`);
     for (const x of parts)
       if (!x.code || !x.text) fails.push(`${r.code}: a sub-section with no number or no words`);
+    /* THE TRUNCATED TREE, which is what shipped. A part that is itself a
+       heading — "Exceptions:", "Open season:" — is a number in front of
+       nothing unless one of the parts after it is ITS subsection. The bake
+       used to ask for direct children only, so a rule three levels deep
+       arrived as a title and a place name with every prohibition missing, and
+       every check here passed: the section had a part, and the part had
+       words. */
+    for (const x of parts) {
+      /* ENDING IN A COLON, and nothing else. A length threshold was tried and
+         it flagged "Limit: Ten." — a complete rule in eleven characters. A
+         leaf regulation can be very short; a heading announces itself. */
+      if (!/:$/.test(x.text || '')) continue;
+      if (parts.some(y => y.code !== x.code && y.code.indexOf(x.code) === 0)) continue;
+      fails.push(`${r.code}: sub-section ${x.code} is "${x.text}" — a heading with nothing under it, so the subtree was cut short`);
+    }
+    /* THE CUT SUBTREE, counted rather than guessed at. Each part records how
+       many children the SOURCE reported for it, so a part whose children are
+       missing from the file fails here — however ordinary its own sentence
+       reads. This is the check that catches what actually shipped. */
+    for (const x of parts) {
+      const want = Number(x.kids || 0);
+      if (!want) continue;
+      const got = parts.filter(y => y.code !== x.code && y.code.indexOf(x.code) === 0).length;
+      if (got < want)
+        fails.push(`${r.code}: ${x.code} has ${want} sub-section(s) in the regulations and ${got} here — the subtree was cut short`);
+    }
+    /* And the mechanism, not only the shape: a rule that carries subsections
+       must say they were gathered to closure, and each part must carry the
+       count that makes the check above possible. */
+    if (parts.length && !r.deep)
+      fails.push(`${r.code}: carries subsections but does not record that the subtree was followed to the bottom — re-run the bake`);
+    for (const x of parts)
+      if (x.kids === undefined)
+        fails.push(`${r.code}: ${x.code} does not say how many sub-sections the regulations give it, so nothing can tell a complete subtree from a cut one — re-run the bake`);
   }
   Object.keys(topics).sort().forEach(t => console.log(`  ${String(topics[t]).padStart(3)}  ${t}`));
   /* STALENESS IS THE WHOLE POINT OF THIS FILE. A regulation quoted with a

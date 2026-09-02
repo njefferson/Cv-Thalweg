@@ -970,7 +970,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.16.0';
+var VERSION = '2.18.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -5789,7 +5789,60 @@ function linkCoord(text){
 function shortMapLink(text){
   return /(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.apple\.com\/p\/|bit\.ly|tinyurl)/i.test(String(text || ''));
 }
+/* A PLUS CODE, decoded here with no network at all.
+ *
+ * Open Location Code is arithmetic, not a lookup: twenty symbols, five pairs
+ * of them narrowing a box by a factor of twenty each time, then optional
+ * characters splitting the last box into a 4-by-5 grid. So a code somebody
+ * texts you resolves on the device, which puts it with the pasted map link
+ * rather than with the address lookup.
+ *
+ * `8FVC2222+22` is the specification's own worked example and decodes to
+ * 47.0000625, 8.0000625 — checked, along with a round trip through an encoder
+ * written only to check it, which puts Sacramento in 84CW where it belongs.
+ *
+ * FULL CODES ONLY, and the refusal says why. A short code — `HGJ4+J6X` — has
+ * had its first four characters removed and means nothing without a place to
+ * recover them against; the recovery is well defined and it is a second thing
+ * to be subtly wrong about near a box edge, so this app asks for the whole code
+ * instead of guessing at the front of it. */
+var OLC = '23456789CFGHJMPQRVWX';
+function plusCode(text){
+  var t = String(text || '').toUpperCase().trim();
+  /* A code may be padded with zeros before the plus; they carry no position. */
+  var m = /(^|[\s,])([23456789CFGHJMPQRVWX]{8})\+([23456789CFGHJMPQRVWX]{0,8})(?![0-9A-Z])/
+    .exec(t.replace(/0+\+/, '+'));
+  if (!m) return null;
+  var digits = m[2] + m[3], lat = -90, lon = -180, res = 20;
+  var pairs = Math.min(10, digits.length - (digits.length % 2));
+  for (var i = 0; i < pairs; i += 2){
+    lat += OLC.indexOf(digits.charAt(i)) * res;
+    lon += OLC.indexOf(digits.charAt(i + 1)) * res;
+    res /= 20;
+  }
+  var latRes = res * 20, lonRes = res * 20;
+  for (var j = 10; j < digits.length; j++){
+    var d = OLC.indexOf(digits.charAt(j));
+    latRes /= 4; lonRes /= 5;
+    lat += Math.floor(d / 5) * latRes;
+    lon += (d % 5) * lonRes;
+  }
+  lat += latRes / 2; lon += lonRes / 2;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return [lat, lon];
+}
+/* A code with the front taken off it. Recognised so the app can say WHICH
+   thing it cannot do, rather than answering a plus code with "nothing found". */
+function shortPlusCode(text){
+  var t = String(text || '').toUpperCase().trim();
+  return !plusCode(t) &&
+    /(^|[\s,])[23456789CFGHJMPQRVWX]{2,7}\+[23456789CFGHJMPQRVWX]{2,3}(?![0-9A-Z])/.test(t);
+}
 function coordPlace(q){
+  var fromPlus = plusCode(q);
+  if (fromPlus) return { name: coordText(fromPlus[0], fromPlus[1]), kind:'coord',
+    lat:fromPlus[0], lon:fromPlus[1], riverId: riverAt(fromPlus[0], fromPlus[1]),
+    extra:'from the plus code you typed', key:'' };
   var fromLink = linkCoord(q);
   if (fromLink) return { name: coordText(fromLink[0], fromLink[1]), kind:'coord',
     lat:fromLink[0], lon:fromLink[1], riverId: riverAt(fromLink[0], fromLink[1]),
@@ -5999,6 +6052,20 @@ function lookUpAddress(q){
       announce('The address lookup did not answer.');
     });
 }
+/* THE OFFER, in one place. It was built out of the empty-answer branch to be
+   used in two, and measuring showed the second could never run (see below) —
+   so what it is now is the duplicate removed, which is worth keeping on its
+   own: the button's words, its name and what it sends are stated once. */
+function addressOffer(text){
+  if (!addressOn()) return null;
+  var b = el('button',{type:'button', class:'findask',
+    'aria-label':'Look up \u201c' + text + '\u201d as a street address with ' + GEOCODER});
+  b.appendChild(el('div',{text:'Look this up as a street address'}));
+  b.appendChild(el('div',{class:'fkind',
+    text:'sends \u201c' + text + '\u201d to ' + GEOCODER + ', through this site'}));
+  b.addEventListener('click', function(){ lookUpAddress(text); });
+  return b;
+}
 /* One place builds a result row, so an address and a gauge cannot drift into
    looking like two different kinds of thing. */
 function findRow(p){
@@ -6052,19 +6119,20 @@ function renderFind(){
     /* A SHORT MAP LINK IS A DIFFERENT FAILURE and saying so saves somebody
        deciding the paste did not work. It carries no numbers at all — it is a
        key to a row in somebody else's table — so reading it means asking them. */
+    if (shortPlusCode(text))
+      none.appendChild(el('div',{style:'margin-top:.3rem',
+        text:'That looks like a plus code with its front removed. The first ' +
+          'four characters say which part of the world it is in, and without ' +
+          'them it could be any of thousands of places \u2014 so this app asks ' +
+          'for the whole code rather than guessing at them. In a maps app, the ' +
+          'full code is the longer one.'}));
     if (shortMapLink(text))
       none.appendChild(el('div',{style:'margin-top:.3rem',
         text:'That is a shortened map link, and there is no position inside it ' +
           '\u2014 only a code that Google can look up. Open it in your map app ' +
           'and share the full link, or read the numbers off it and type them here.'}));
-    if (addressOn()){
-      var ask = el('button',{type:'button', class:'findask',
-        'aria-label':'Look up \u201c' + text + '\u201d as a street address with ' +
-          GEOCODER});
-      ask.appendChild(el('div',{text:'Look this up as a street address'}));
-      ask.appendChild(el('div',{class:'fkind',
-        text:'sends \u201c' + text + '\u201d to ' + GEOCODER + ', through this site'}));
-      ask.addEventListener('click', function(){ lookUpAddress(text); });
+    var ask = addressOffer(text);
+    if (ask){
       none.appendChild(ask);
     } else {
       none.appendChild(el('div',{style:'margin-top:.3rem',
@@ -6077,6 +6145,13 @@ function renderFind(){
     return;
   }
   hits.forEach(function(p){ list.appendChild(findRow(p)); });
+  /* NO ADDRESS OFFER UNDER A LIST OF HITS, and it was written before it was
+     measured. The idea was that "1234 Grove St" would match Walnut Grove and
+     look answered, leaving the address with no way in — but the search matches
+     the WHOLE typed string as one substring, not word by word, and no place in
+     the index has a digit followed by a space in its name. So a query with a
+     house number in it cannot produce a hit, and it lands in the empty answer
+     where the offer already is. The branch could never have run. */
   announce(countWord(hits.length) + ' place' + (hits.length === 1 ? '' : 's') + ' found.');
 }
 
@@ -7175,8 +7250,17 @@ function ruleBox(rl){
   box.appendChild(el('div',{class:'rdg-id',
     text:'Title 14, section ' + rl.code + ' — in its own words'}));
   box.appendChild(el('p',{class:'note',text:rl.text}));
+  /* INDENTED BY HOW DEEP THE SECTION NUMBER IS, not by a fixed step.
+     These arrive flat and they are not flat: §5.75(d) is "Exceptions:" over a
+     list of waters over a limit and a size, and §5.80(i) is a closure over a
+     reach of river over three things that are unlawful there. Drawn at one
+     indent, "Limit: Ten." sits beside the waters it belongs to instead of
+     under them — which on a legal surface is not untidiness, it is a rule
+     that reads as though it applies here. */
+  var base = (rl.code.match(/\(/g) || []).length;
   (rl.parts || []).forEach(function(pt){
-    var sub = el('p',{class:'note',style:'margin-left:12px'});
+    var depth = Math.max(1, (pt.code.match(/\(/g) || []).length - base);
+    var sub = el('p',{class:'note',style:'margin-left:' + (depth * 12) + 'px'});
     sub.appendChild(el('span',{class:'rdg-id',text:pt.code + ' '}));
     sub.appendChild(document.createTextNode(pt.text));
     box.appendChild(sub);
@@ -10926,6 +11010,21 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.18.0', date:'2026-09-02', changes:[
+      'A plus code works in the search box. Paste 84CW5837+856 and the app goes there, with nothing sent to anybody \u2014 a plus code is arithmetic rather than a lookup, so it resolves on your own phone the same way a pasted map link does.',
+      'A plus code with its front removed says so instead of finding nothing. The first four characters are the ones that say which part of the world it is in; without them the rest could be any of thousands of places, so the app asks for the whole code rather than guessing at them.',
+  ], broken:[
+      'Only the whole code. Recovering the missing front from where the map happens to be sitting is a well-defined thing to do and a second thing to get subtly wrong at the edge of a box, and a position quietly off by a box is worse here than a refusal that says what it needs.',
+  ] },
+  { v:'2.17.0', date:'2026-09-02', changes:[
+      'Striped bass is complete. The limit and the minimum size both read \u201cexcept in waters listed in (d) below\u201d, and (d) was not in the app \u2014 so two rules pointed at an exception you had no way to read. It is here now: the waters it names, and the different limit and size that apply in them.',
+      'And a sturgeon closure was missing the part that matters. The Sierra and Valley District closure showed its name and the reach of the Sacramento it covers \u2014 Keswick Dam to the Highway 162 bridge \u2014 and nothing whatever about what is forbidden there. Taking any sturgeon, using wire leaders, and using lamprey or any type of shrimp as bait all are. Every one of those was in the regulation and none of them reached the screen.',
+      'Sub-sections now sit underneath the ones they belong to instead of all at one step. On a phone, \u201cLimit: Ten.\u201d beside a list of waters reads as a rule about the water you are on; under that list, it reads as what it is.',
+  ], broken:[
+      'The app carries the sections about the water it draws \u2014 the seasons, the limits, the closures on these rivers and the Delta \u2014 and not the ones about the ocean or the North Coast. Somewhere it does not draw, the sections here may not be the ones that govern you.',
+      'A section CDFW publishes as a table is still left out rather than shown. A table loses its columns on a phone without saying so, and a regulation with its columns lost would be worse than one you had to go and look up.',
+      'None of this replaces the printed regulations, and every section says so beside its number. What is here is CDFW\u2019s own wording, so you can check it against theirs.',
+  ] },
   { v:'2.16.0', date:'2026-09-02', changes:[
       'A map link somebody sent you works in the search box. Paste it and the app goes there \u2014 Google, Apple, OpenStreetMap, or a plain geo: link, whichever way it was made. Nothing is sent to anybody to do it: the position is already sitting inside the link, so this reads it on your own phone.',
       'And it can look up a street address, if you switch that on. It is off to begin with \u2014 the \u24d8 button, under What it will not do. Switched on it still sends nothing while you type: when a search finds nothing, a button appears saying exactly what it would send and to whom, and only pressing that sends it. One press, one search, every time.',

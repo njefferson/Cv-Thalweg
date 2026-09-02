@@ -693,6 +693,78 @@ check('every species rule shows its section number',
   await page.evaluate(() => [...document.querySelectorAll('#panel-brief details.foldbox .rdg')]
     .every(b => /Title 14, section \S+/.test(b.textContent))));
 
+/* --- A CROSS-REFERENCE MUST REACH SOMETHING -------------------------------
+   The general check, and the one that would have caught what shipped. Striped
+   bass §5.75(b) reads "Limit: Two, except in waters listed in (d) below" and
+   (c) says the same about the size — and (d) was never asked for, so the app
+   quoted a limit and a minimum size each pointing at an exception a reader had
+   no way to read. Nothing was wrong with either sentence; what was missing was
+   the one they both pointed at.
+
+   So: any rule whose words point at a lettered subsection must have that
+   subsection somewhere in the same section. This is asked of the DATA rather
+   than of the panel, because it holds for every species the app ever adds. */
+const dangling = await page.evaluate(() => {
+  const out = [];
+  (typeof REGULATIONS === 'object' ? REGULATIONS : []).forEach(r => {
+    const here = [r.code].concat((r.parts || []).map(p => p.code));
+    const family = REGULATIONS
+      .filter(x => x.code.split('(')[0] === r.code.split('(')[0])
+      .flatMap(x => [x.code].concat((x.parts || []).map(p => p.code)));
+    [r.text].concat((r.parts || []).map(p => p.text)).forEach(t => {
+      const m = String(t || '').match(/\blisted in \(([a-z0-9]+)\)/gi) || [];
+      m.forEach(hit => {
+        const letter = hit.match(/\(([a-z0-9]+)\)/i)[1];
+        const want = r.code.split('(')[0] + '(' + letter + ')';
+        if (!family.some(c => c === want || c.indexOf(want + '(') === 0))
+          out.push(r.code + ' points at ' + want + ' and nothing carries it');
+      });
+    });
+    void here;
+  });
+  return out;
+});
+check('no rule points at a subsection the app does not carry',
+  dangling.length === 0, JSON.stringify(dangling));
+
+/* AND THE EXCEPTION ITSELF, all the way down. It is a heading over a list of
+   waters over a limit and a size, three levels deep — the shape the bake used
+   to cut off after the first generation. */
+check('striped bass carries the exception its limit and size point at',
+  /5\.75\(d\)/.test(species.text) && /Colorado River District/.test(species.text) &&
+  /Limit: Ten/.test(species.text) && /No size limit/.test(species.text),
+  species.text.slice(0, 400));
+
+/* THE DEFECT THAT SHIPPED. The Sierra and Valley District sturgeon closure
+   arrived as a title and a reach of the Sacramento with NOTHING forbidden in
+   it: its only child names the water, and the three prohibitions live one
+   level further down. Every gate was green — the section had a part and the
+   part had words — because nothing asked whether the part had children. */
+check('the sturgeon closure says what is actually unlawful there',
+  /It is unlawful to take any sturgeon/.test(species.text) &&
+  /wire leaders/.test(species.text) &&
+  /lamprey or any type of shrimp/.test(species.text),
+  species.text.slice(0, 600));
+
+/* AND IT IS DRAWN AS THE TREE IT IS. Flat, "Limit: Ten." sits beside the
+   waters it belongs to rather than under them, which on a legal surface is
+   not untidiness — it reads as a rule that applies here. */
+const nesting = await page.evaluate(() => {
+  const box = [...document.querySelectorAll('#panel-brief details.foldbox .rdg')]
+    .find(b => /5\.75\(d\)/.test(b.textContent));
+  if (!box) return null;
+  const rows = [...box.querySelectorAll('p.note')]
+    .map(n => ({ code: (n.textContent.match(/^(5\.\S+)/) || [])[1] || '',
+                 pad: parseInt(n.style.marginLeft || '0', 10) }));
+  return rows;
+});
+check('a sub-section is drawn deeper than the one it sits under',
+  nesting && nesting.some(r => /\(d\)\(1\)$/.test(r.code)) &&
+  nesting.some(r => /\(d\)\(1\)\(A\)$/.test(r.code)) &&
+  nesting.find(r => /\(d\)\(1\)\(A\)$/.test(r.code)).pad >
+  nesting.find(r => /\(d\)\(1\)$/.test(r.code)).pad,
+  JSON.stringify(nesting));
+
 /* A COURSE IT DOES NOT HAVE IS NOT OFFERED. Read the panel only once it has
    actually drawn its profile section — the first version of this asserted
    against a panel still saying "reading the service directory", where the
@@ -3863,6 +3935,39 @@ for (const [what, url, lat, lon] of LINKS)
         Math.abs(p.lat - la) < 1e-6 && Math.abs(p.lon - lo) < 1e-6;
     }, [url, lat, lon]),
     await page.evaluate((u) => JSON.stringify(findPlaces(u, 3)[0] || null), url));
+
+/* --- A PLUS CODE, DECODED HERE ------------------------------------------
+   Open Location Code is arithmetic, not a lookup, so a code somebody texts you
+   resolves on the device with no network at all. `8FVC2222+22` is the
+   specification's own worked example. */
+check('the specification’s own plus code decodes to the point it names',
+  await page.evaluate(() => {
+    const p = findPlaces('8FVC2222+22', 3)[0];
+    return !!p && p.kind === 'coord' &&
+      Math.abs(p.lat - 47.0000625) < 1e-6 && Math.abs(p.lon - 8.0000625) < 1e-6;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('8FVC2222+22', 3)[0] || null)));
+/* AND ONE ON THIS WATER, which is the check that would catch the pair being
+   swapped or the base being wrong — both of which decode to somewhere. */
+check('and a plus code on the Sacramento lands on the Sacramento',
+  await page.evaluate(() => {
+    const p = findPlaces('84CW5837+856', 3)[0];
+    return !!p && Math.abs(p.lat - 38.1533) < 0.001 && Math.abs(p.lon + 121.6870) < 0.001;
+  }),
+  await page.evaluate(() => JSON.stringify(findPlaces('84CW5837+856', 3)[0] || null)));
+/* A SHORT CODE IS REFUSED BY NAME. Its first four characters say which part of
+   the world it is in; recovering them against a reference is well defined and
+   is a second thing to be subtly wrong about at a box edge, so the app asks for
+   the whole code and says which half is missing. */
+check('a plus code with its front removed is not guessed at',
+  await page.evaluate(() => findPlaces('HGJ4+J6X', 3).every(p => p.kind !== 'coord')),
+  await page.evaluate(() => JSON.stringify(findPlaces('HGJ4+J6X', 3).map(p => p.kind))));
+await page.fill('#findq', 'HGJ4+J6X');
+await page.waitForTimeout(300);
+const shortPlus = (await page.textContent('#findlist .fnone') || '').replace(/\s+/g, ' ');
+check('and the empty answer says which half of it is missing',
+  /front removed/i.test(shortPlus) && /whole code/i.test(shortPlus),
+  shortPlus.slice(0, 200));
 
 /* THE SHORTENED LINK IS THE HONEST FAILURE. It carries no position at all —
    only a key to a row in somebody else's table — so it cannot be read here,
