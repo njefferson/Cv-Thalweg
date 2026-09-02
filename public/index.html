@@ -504,6 +504,37 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    picture. It gets a focus ring, a pointer, and nothing else — except a hint
    in the corner, because a thing that can be tapped and gives no sign of it is
    a feature nobody finds. */
+/* THE SEARCH SITS ABOVE EVERYTHING, at every width and on every view. It began
+   inside the map panel, which is the thing it moves — and the app OPENS on All
+   rivers, where that panel does not exist. So the one screen a newcomer sees
+   first had no way to look anything up, in an app whose whole complaint was
+   that you could analyse a river and not find a stretch of it. It costs a row
+   of height everywhere; being findable is worth more than the row. */
+#findwrap{position:relative; flex:0 0 auto}
+#findbar{display:flex; gap:.4rem; align-items:center; padding:.4rem .5rem;
+  border-bottom:1px solid var(--teal); background:var(--panel-2); flex:0 0 auto}
+#findq{flex:1 1 auto; min-width:0; min-height:44px; font-family:inherit;
+  font-size:.9rem; color:var(--ink); background:var(--panel); padding:.3rem .5rem;
+  border:1px solid var(--teal-line); border-radius:3px}
+/* THE BROWSER DRAWS ITS OWN CLEAR CROSS on `type=search`, so the bar shipped
+   with TWO crosses side by side — the native one and this one — which no test
+   could see and one look showed immediately. The native cross is smaller than
+   a finger and carries no name, so it is the one that goes. */
+#findq::-webkit-search-cancel-button, #findq::-webkit-search-decoration{
+  -webkit-appearance:none; appearance:none; display:none}
+#findclear{min-height:44px; min-width:44px; font-size:1.1rem; line-height:1}
+/* The results sit over the map rather than pushing it down: a list that moves
+   the thing you are looking at is a list that fights you. */
+#findlist{position:absolute; z-index:600; left:.5rem; right:.5rem;
+  max-height:min(60vh,26rem); overflow:auto; background:rgba(13,26,25,.97);
+  border:1px solid var(--teal); border-radius:3px; box-shadow:0 6px 18px rgba(0,0,0,.5)}
+#findlist button{display:block; width:100%; text-align:left; border:0;
+  border-bottom:1px solid #16302e; border-radius:0; min-height:44px;
+  padding:.4rem .55rem}
+#findlist button:last-child{border-bottom:0}
+#findlist button:hover, #findlist button:focus{background:#16302e}
+#findlist .fkind{color:var(--mute); font-size:.72rem}
+#findlist .fnone{padding:.5rem .55rem; color:var(--mute); font-size:.78rem}
 .figzoom{display:block; width:100%; padding:0; border:0; background:none;
   text-align:left; position:relative; cursor:zoom-in}
 .figzoom::after{content:'\2315'; position:absolute; right:.15rem; top:.15rem;
@@ -701,6 +732,36 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   <p class="ribbon-note" id="ribbonnote"></p>
 </div>
 
+<!-- IT IS NOT ON THE MAP PANEL. It was, and the app OPENS on All rivers,
+     where there is no map panel and so there was no way to look anything up
+     from the first screen a reader sees — which is the state somebody is in
+     precisely when they do not yet know which river their spot is on. A
+     feature that cannot be found reads as missing. It costs one row of
+     height on every view, and that is the trade. -->
+<!-- role="search" is a LANDMARK, and it is here because moving this out of the
+     map panel put it outside every landmark on the page: three elements of
+     page content belonging to nothing, on every screen and every state.
+     Nothing about the search looked different; the accessibility walk said
+     so, sixteen times, in one run. -->
+<div id="findwrap" role="search" aria-label="Find a place">
+  <!-- FINDING A PLACE. The app could analyse a whole river and had no way
+       to reach one stretch of it: every route in was a river, a tab and a
+       pan. This searches what the app already carries — the gauges, the
+       tide stations, the launches, CDFW's lands, the Delta's named channels
+       and the reader's own marks — plus a position typed in. It works with
+       no signal, and nothing typed here leaves the device. -->
+  <div id="findbar">
+    <label class="vh" for="findq">Find a place on this water</label>
+    <input type="search" id="findq" autocomplete="off" spellcheck="false"
+           placeholder="Find a gauge, a launch, a channel, your marks…"
+           aria-describedby="findhelp" aria-controls="findlist">
+    <button type="button" id="findclear" aria-label="Clear the search" hidden>&times;</button>
+  </div>
+  <p class="note vh" id="findhelp">Searches the places this app already
+    carries, on this device. It cannot look up a street address.</p>
+  <div id="findlist" role="listbox" aria-label="Places found" hidden></div>
+</div>
+
 <main>
   <div id="panel-map">
     <div id="map" tabindex="0" role="application"
@@ -840,6 +901,11 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      NOAA's two-megabyte index on a phone. Its absence is survivable: the app
      falls back to the declared stations and the button still works. -->
 <script src="tide-stations.js"></script>
+<!-- USGS's own name and position for every gauge the app declares, baked by
+     tools/fetch-gauges.mjs. Both used to arrive only with a LIVE reading, so
+     searching for Freeport worked on a good connection and found nothing on a
+     bank with no bars. A live reading still wins when it comes. -->
+<script src="gauge-sites.js"></script>
 <!-- CDFW's own lands within 12 km of each river's course, baked by
      tools/fetch-access.mjs. Places the department says the public may go —
      NOT boat ramps, and nothing in this app calls them that. -->
@@ -889,7 +955,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.14.1';
+var VERSION = '2.15.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -1890,6 +1956,15 @@ function stationMeta(id){
    the file baked into the app, then anything the button has found SINCE that
    file was made. The baked list needs no network and no permission; the stored
    one only ever holds what NOAA has added since the last bake. */
+/* USGS's own name and position for a declared gauge, baked by
+   tools/fetch-gauges.mjs. Absent is survivable everywhere it is read: the app
+   falls back to whatever the live payload says, which is where both used to
+   come from. */
+function bakedGauge(id){
+  var t = (typeof GAUGE_SITES === 'object' && GAUGE_SITES) || {};
+  var s = t[String(id)];
+  return (s && isNum(s.lat) && isNum(s.lon)) ? s : null;
+}
 function bakedStations(river){
   var t = (typeof TIDE_STATIONS === 'object' && TIDE_STATIONS) || {};
   return (t[river.id] || []).map(function(s){
@@ -5524,6 +5599,338 @@ function briefNote(short, more, label){
    river rows inert a few releases ago. It carries its own name, and the figure
    inside keeps the name it already had.
    ===================================================================== */
+/* =====================================================================
+   FINDING A PLACE.
+
+   The app could analyse a whole river and had no way to reach one stretch of
+   it. Every route in was a river, a tab and a pan: three hundred kilometres of
+   map and no way to look anything up on it.
+
+   WHAT IT SEARCHES IS WHAT THE APP ALREADY CARRIES, so it works with no signal
+   and nothing typed here leaves the device. That is not a limitation dressed
+   up: between the gauges, the tide stations, the launches, CDFW's lands, the
+   Delta's ninety-seven named channels and the reader's own marks, there are
+   several hundred named places on this water, and "Freeport", "Rio Vista",
+   "Georgiana Slough" and "Garcia Bend" are all among them.
+
+   AND A POSITION TYPED IN, which is the one route to a place with no name on
+   any map that still needs nothing from the network.
+
+   WHAT IT CANNOT DO IS AN ADDRESS, and it says so rather than leaving somebody
+   typing a street name into a box that will never answer. Looking one up means
+   sending what you typed to a geocoder, which is a different promise from the
+   one this app makes everywhere else, and it is not made quietly.
+   ===================================================================== */
+function normal(t){
+  return String(t || '').toLowerCase()
+    .replace(/[\u2019']/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+/* Every named place this build knows, with what it is and where. Built on
+   demand rather than kept, because the reader's own marks change under it. */
+function placeIndex(){
+  var out = [];
+  function add(name, kind, lat, lon, riverId, extra){
+    /* isNum, NOT isFinite. `isFinite(null)` is TRUE — null coerces to 0 — and a
+       gauge whose request failed carries a null lat and a null lon. The first
+       build of this put every unreachable gauge in the index at 0°N 0°E, in the
+       Gulf of Guinea, and offered it as a place to go. */
+    if (!name || !isNum(lat) || !isNum(lon)) return;
+    out.push({ name:String(name), kind:kind, lat:lat, lon:lon,
+               riverId:riverId || null, extra:extra || '', key:normal(name) });
+  }
+  RIVERS.forEach(function(r){
+    /* The river itself, so typing its name goes somewhere. */
+    if (r.center) add(r.name, 'river', r.center[0], r.center[1], r.id, '');
+    /* Gauges: the live rows carry the service's own names, which is what a
+       reader would type — "Freeport", not an eight-digit number.
+
+       AND THE STORED COPY WHERE THERE IS NO LIVE ONE. This app is offline-first
+       everywhere else and the search must be too: the payload is kept the
+       moment it first arrives, so the names and positions are on the device
+       whether or not there is a signal now, and whether or not the reader has
+       opened that river's panel this session. Without this, searching for a
+       gauge worked on a good connection and silently found nothing on a bank
+       with no bars — which is the condition this app is built for. */
+    var g = state.gauges[r.id] || sget(r.id, 'gauges');
+    var live = {};
+    ((g && g.rows) || []).forEach(function(row){
+      /* A row is only LIVE if it came back with a position. A failed request
+         still produces a row — declared, named nothing, positioned nowhere —
+         and treating that as live is what suppressed the baked name underneath
+         it, so the search went dark exactly when the network did. */
+      if (row.id && isNum(row.lat) && isNum(row.lon)) live[String(row.id)] = 1;
+      add(row.name || row.id, 'gauge', row.lat, row.lon, r.id, r.short);
+      if (row.id) add(String(row.id), 'gauge', row.lat, row.lon, r.id, row.name || '');
+    });
+    /* AND THE BAKED ONE WHERE NO READING HAS ARRIVED. A live payload carries the
+       name and the position, so before this the search knew Freeport only after
+       the water level did — which is a search that works on a good connection
+       and silently finds nothing on a bank with no bars. */
+    (r.gauges || []).concat(r.contextGauges || []).forEach(function(dec){
+      if (live[String(dec.id)]) return;
+      var site = bakedGauge(dec.id);
+      if (!site) return;
+      add(site.name, 'gauge', site.lat, site.lon, r.id, r.short);
+      add(String(dec.id), 'gauge', site.lat, site.lon, r.id, site.name);
+    });
+    /* CDEC's gauges carry their name and position IN THE SOURCE — read from each
+       station's own metadata page, because the servlet does not return them —
+       so they need no baking and were missed for exactly that reason: the first
+       build of this read one shape of gauge and the Feather has the other, so
+       the only river with no USGS mainstem gauge had no searchable gauge either. */
+    (r.cdecGauges || []).forEach(function(g){
+      if (live[String(g.id)]) return;
+      add(g.name, 'gauge', g.lat, g.lon, r.id, r.short);
+      add(String(g.id), 'gauge', g.lat, g.lon, r.id, g.name);
+    });
+    (bakedStations(r) || []).forEach(function(st){
+      add(st.name || st.id, 'tide', st.lat, st.lon, r.id, r.short);
+    });
+    accessSites(r).forEach(function(site){
+      add(site.name, 'land', site.lat, site.lon, r.id, site.type || '');
+    });
+    rampsFor(r).forEach(function(ramp){
+      add(ramp.name, 'launch', ramp.lat, ramp.lon, r.id,
+        ramp.county ? ramp.county + ' County' : '');
+    });
+    /* THE READER'S OWN MARKS, which are the places somebody actually fishes and
+       the whole reason this was asked for. They are stored per river, so they
+       are read per river rather than only for the one on screen. */
+    (sget(r.id, 'marks') || []).forEach(function(m){
+      if (!m || !m.note) return;
+      add(m.note, 'mark', m.lat, m.lon, r.id, markTypeLabel(m.type));
+    });
+  });
+  /* The Delta's channels, which are named water rather than a point on it —
+     the middle of each line is where the app can honestly send you. */
+  var D = (typeof DELTA === 'object' && DELTA) || null;
+  ((D && D.channels) || []).forEach(function(c){
+    if (!c.pts || !c.pts.length) return;
+    var mid = c.pts[Math.floor(c.pts.length / 2)];
+    add(c.name, 'channel', mid[0], mid[1], 'delta', 'Delta channel');
+  });
+  return out;
+}
+function markTypeLabel(id){
+  var t = (typeof MARK_TYPES !== 'undefined' ? MARK_TYPES : [])
+    .filter(function(x){ return x.id === id; })[0];
+  return t ? 'your ' + t.label.toLowerCase() + ' mark' : 'your mark';
+}
+var PLACE_KINDS = {
+  river:'river', gauge:'gauge', tide:'tide station', land:'public land',
+  launch:'launch', channel:'channel', mark:'your mark',
+  coord:'the position you typed'
+};
+/* Matches, best first: a name that STARTS with what was typed beats one that
+   merely contains it, because somebody typing "free" means Freeport and not
+   "Sherman Island Free Access". */
+/* A POSITION TYPED IN, which is the one route to a place with no name on any
+   map that needs nothing from the network. It is what the app can honestly
+   offer instead of an address: read a pair off another map, or off a chartplotter,
+   and this goes there. Decimal or degrees-minutes-seconds, either order of
+   hemisphere letter, comma optional.
+
+   Longitude here is WEST, and a reader in the Central Valley typing "121.5"
+   means -121.5. That is a guess, so it is only made when the sign is absent AND
+   the letter is absent AND the bare value cannot be anywhere this app covers —
+   never silently over a number that already says what it means. */
+function coordPlace(q){
+  var t = String(q || '').trim()
+    .replace(/[°′″’”"']/g, ' ')
+    .replace(/[−–—]/g, '-')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  var m = /^([NS])\s*(.+?)\s*([EW])\s*(.+)$/i.exec(t);
+  var latHemi = '', lonHemi = '', latText, lonText;
+  if (m){ latHemi = m[1]; latText = m[2]; lonHemi = m[3]; lonText = m[4]; }
+  else {
+    m = /^(.+?)\s*([NS])\s+(.+?)\s*([EW])$/i.exec(t);
+    if (m){ latText = m[1]; latHemi = m[2]; lonText = m[3]; lonHemi = m[4]; }
+    else {
+      var parts = t.split(' ');
+      if (parts.length === 2){ latText = parts[0]; lonText = parts[1]; }
+      else if (parts.length === 4){ latText = parts.slice(0,2).join(' '); lonText = parts.slice(2).join(' '); }
+      else if (parts.length === 6){ latText = parts.slice(0,3).join(' '); lonText = parts.slice(3).join(' '); }
+      else return null;
+    }
+  }
+  var lat = degrees(latText), lon = degrees(lonText);
+  if (lat === null || lon === null) return null;
+  if (/S/i.test(latHemi)) lat = -Math.abs(lat);
+  if (/W/i.test(lonHemi)) lon = -Math.abs(lon);
+  if (!lonHemi && lon > 0 && lon >= 114 && lon <= 126) lon = -lon;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { name: coordText(lat, lon), kind:'coord', lat:lat, lon:lon,
+           riverId: riverAt(lat, lon), extra:'', key:'' };
+
+  function degrees(text){
+    var f = String(text).trim().split(' ').map(Number);
+    if (!f.length || f.length > 3 || f.some(function(x){ return !isFinite(x); })) return null;
+    if (f.length === 1) return f[0];
+    /* Only the FIRST field carries the sign in degrees-minutes-seconds; the
+       rest are magnitudes, so 38 -9 11 is not a position and is refused. */
+    if (f.slice(1).some(function(x){ return x < 0; })) return null;
+    var sign = f[0] < 0 || /^-/.test(String(text).trim()) ? -1 : 1;
+    var v = Math.abs(f[0]) + (f[1] || 0) / 60 + (f[2] || 0) / 3600;
+    return sign * v;
+  }
+}
+/* The app's own reading of a pair, printed back so the reader can see what was
+   understood before pressing it. Minus signs are spelled as the letter, because
+   a lone hyphen on a phone is easy to misread and easy to lose. */
+function coordText(lat, lon){
+  return Math.abs(lat).toFixed(5) + '° ' + (lat < 0 ? 'S' : 'N') + ', ' +
+         Math.abs(lon).toFixed(5) + '° ' + (lon < 0 ? 'W' : 'E');
+}
+/* Which river's box a position falls in, so going there also switches the app
+   to the river whose readings would mean anything there. Null is a real answer
+   and the map still goes. */
+function riverAt(lat, lon){
+  var hit = RIVERS.filter(function(r){
+    var b = r.bbox;
+    return b && lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3];
+  });
+  return hit.length ? hit[0].id : null;
+}
+
+function findPlaces(q, limit){
+  var n = normal(q);
+  var coord = coordPlace(q);
+  if (n.length < 2) return coord ? [coord] : [];
+  var hits = [];
+  placeIndex().forEach(function(p){
+    var i = p.key.indexOf(n);
+    if (i === -1) return;
+    /* A word boundary counts as a start: "grove" should find "Walnut Grove". */
+    var starts = i === 0 || p.key.charAt(i - 1) === ' ';
+    hits.push({ p:p, rank: (i === 0 ? 0 : starts ? 1 : 2), at:i });
+  });
+  hits.sort(function(a, b){
+    return a.rank - b.rank || a.at - b.at || a.p.name.localeCompare(b.p.name);
+  });
+  var seen = {}, out = [];
+  hits.forEach(function(h){
+    var k = h.p.kind + '|' + h.p.key;
+    if (seen[k]) return;
+    seen[k] = 1;
+    out.push(h.p);
+  });
+  /* THE TYPED POSITION GOES FIRST. Nothing else can have been meant: a pair of
+     numbers is not a name, and it beat nothing to the top by accident. */
+  if (coord) out.unshift(coord);
+  return out.slice(0, limit || 12);
+}
+
+function renderFind(){
+  var list = $('#findlist'), q = $('#findq');
+  if (!list || !q) return;
+  var text = q.value || '';
+  $('#findclear').hidden = !text;
+  if (normal(text).length < 2){ list.hidden = true; list.innerHTML = ''; return; }
+  var hits = findPlaces(text, 12);
+  list.innerHTML = '';
+  list.hidden = false;
+  if (!hits.length){
+    /* NOT A BARE "NOTHING FOUND". The commonest thing to type into a box on a
+       map is an address, and this cannot answer one — so it says which, rather
+       than letting somebody try three more spellings of their own street. */
+    var none = el('div',{class:'fnone'});
+    none.appendChild(el('div',{text:'Nothing here by that name.'}));
+    none.appendChild(el('div',{style:'margin-top:.3rem',
+      text:'This searches the gauges, tide stations, launches, public land, ' +
+        'Delta channels and your own marks that this app carries. It cannot ' +
+        'look up a street address \u2014 that would mean sending what you typed ' +
+        'to somebody else, and this app does not do that. Two things work ' +
+        'instead. Type a position and it will go there: 38.1533, -121.6870, or ' +
+        '38 09 12 N 121 41 13 W. Or put the map on the spot and keep it as a ' +
+        'mark \u2014 tap the map, or use Add at map centre on the Marks tab. ' +
+        'A named mark is findable here afterwards, and it is the only thing ' +
+        'in this list that is yours.'}));
+    list.appendChild(none);
+    announce('Nothing found by that name.');
+    return;
+  }
+  hits.forEach(function(p){
+    var b = el('button',{type:'button', role:'option',
+      'aria-label':p.name + ', ' + PLACE_KINDS[p.kind] +
+        (p.extra ? ', ' + p.extra : '')});
+    b.appendChild(el('div',{text:p.name}));
+    var river = p.riverId ? byId(p.riverId) : null;
+    b.appendChild(el('div',{class:'fkind',
+      text:PLACE_KINDS[p.kind] + (river ? ' \u00b7 ' + river.short : '') +
+        (p.extra ? ' \u00b7 ' + p.extra : '')}));
+    b.addEventListener('click', function(){ goToPlace(p); });
+    list.appendChild(b);
+  });
+  announce(countWord(hits.length) + ' place' + (hits.length === 1 ? '' : 's') + ' found.');
+}
+
+/* Going there means going to the RIVER as well, where the place belongs to
+   one — a launch on the Feather shown while the app is set to the Sacramento
+   would be a pin with no readings behind it and no way to ask for any. */
+function goToPlace(p){
+  var list = $('#findlist');
+  if (list){ list.hidden = true; list.innerHTML = ''; }
+  var q = $('#findq');
+  if (q) q.value = '';
+  $('#findclear').hidden = true;
+  if (p.riverId && state.riverId !== p.riverId) selectRiver(p.riverId, true);
+  /* The search is offered on All rivers, where there is no map — and a typed
+     position outside all four reaches belongs to no river to switch to. Rather
+     than move a map nobody can see and report success, say what happened. */
+  if (!state.riverId){
+    announce(coordText(p.lat, p.lon) + ' is outside every river Thalweg ' +
+      'covers, so there is no map here to show it on.');
+    return;
+  }
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  var zoom = p.kind === 'river' ? 10 : p.kind === 'channel' ? 13 : 15;
+  mapView([[p.lat, p.lon], zoom], { animate:!reduceMotion });
+  announce('Map centred on ' + p.name + '.');
+}
+
+function initFind(){
+  var q = $('#findq');
+  if (!q) return;
+  var t = null;
+  q.addEventListener('input', function(){
+    /* A LIST THAT REDRAWS ON EVERY KEYSTROKE IS A LIST THAT FLICKERS UNDER A
+       THUMB. The index is rebuilt each time because the reader's marks change
+       under it, so this is also the thing that keeps a long type cheap. */
+    if (t) clearTimeout(t);
+    t = setTimeout(renderFind, 120);
+  });
+  q.addEventListener('keydown', function(e){
+    if (e.key === 'Escape'){ q.value = ''; renderFind(); }
+    /* Down from the field goes into the results, which is what a reader
+       expects and the only way to reach them without a pointer. */
+    if (e.key === 'ArrowDown'){
+      var first = document.querySelector('#findlist button');
+      if (first){ e.preventDefault(); first.focus(); }
+    }
+    if (e.key === 'Enter'){
+      var one = document.querySelector('#findlist button');
+      if (one){ e.preventDefault(); one.click(); }
+    }
+  });
+  $('#findclear').addEventListener('click', function(){
+    q.value = ''; renderFind(); q.focus();
+  });
+  /* Arrow keys walk the list, and Escape from anywhere in it comes back. */
+  $('#findlist').addEventListener('keydown', function(e){
+    var items = [].slice.call(document.querySelectorAll('#findlist button'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' && i > -1 && items[i + 1]){ e.preventDefault(); items[i + 1].focus(); }
+    else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      if (i > 0) items[i - 1].focus(); else q.focus();
+    } else if (e.key === 'Escape'){ q.focus(); q.value = ''; renderFind(); }
+  });
+}
+
 function zoomable(fig, label){
   var b = el('button', { type:'button', class:'figzoom',
     'aria-label': 'Show ' + label + ' larger' });
@@ -6380,9 +6787,11 @@ function renderMarks(){
         var go = el('button',{type:'button',text:'Go',
           'aria-label':'Show ' + river.name + ' and centre on this mark'});
         go.addEventListener('click',function(){
-          selectRiver(river.id);
+          /* keepView, or the river's own fit swallows the move to the mark —
+             this button had that defect from the day it was written. */
+          selectRiver(river.id, true);
+          if (tabNames().indexOf('map') !== -1) selectTab('map');
           mapView([[m.lat, m.lon], 15]);
-          selectTab('map');
         });
         r.appendChild(go);
         p.appendChild(r);
@@ -6878,7 +7287,19 @@ function initPicker(){
   sel.addEventListener('change', function(){ selectRiver(sel.value); });
 }
 
-function selectRiver(id){
+/* `keepView` — DO NOT FIT THIS RIVER, the caller is about to say where to go.
+   Two view changes in one tick lose the second one: Leaflet is mid
+   zoom-animation from the first, and `_tryAnimatedZoom` returns "handled"
+   without doing anything when a zoom is already running, so the `setView` that
+   arrives then is absorbed rather than queued. "Go to this place on another
+   river" is exactly that pair, and it read as a button that did nothing — while
+   both calls ran, in the right order, with the right numbers, and no claim in
+   the view mechanism could see anything wrong. Not animating does not help:
+   that test comes AFTER the one that swallows it.
+
+   Not moving the map twice is also the better behaviour. The reader asked for
+   one place, not for a glimpse of the whole river on the way to it. */
+function selectRiver(id, keepView){
   state.riverId = id || null;
   try { Store.s.setItem('thalweg:_shared:river', id || ''); } catch(e){}
   $('#riverpick').value = id || '';
@@ -6902,7 +7323,7 @@ function selectRiver(id){
 
   var river = state.riverId ? byId(state.riverId) : null;
   if (river){
-    mapView([river.center, river.zoom]);
+    if (!keepView) mapView([river.center, river.zoom]);
     /* The centreline is what lets a tap be understood as a question about the
        river, so it is fetched when a river is chosen rather than on the first
        tap — the landing still never pays for it. */
@@ -10293,6 +10714,16 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.15.0', date:'2026-09-02', changes:[
+      'You can look a place up. There is a box above everything now: type Freeport, Garcia Bend, Georgiana Slough, or the name you gave one of your own marks, and press the answer to go there. It knows the gauges, the tide stations, the launches, the public land, the Delta\u2019s named channels and your marks \u2014 several hundred named places on this water \u2014 and pressing one switches to the river it belongs to as well as moving the map.',
+      'It works with no signal. A gauge\u2019s name and where it sits used to arrive only with a live reading, so searching for Freeport worked on a good connection and found nothing on a riverbank \u2014 which is the condition this app is built for. Both now travel with the app, taken once from USGS and not typed by hand.',
+      'Type a position and it goes there. 38.1533, -121.6870, or 38 09 12 N 121 41 13 W; either way round, comma optional. It is the honest answer for a spot with no name on any map, and it asks nothing of the network.',
+      'Pressing a result on another river used to leave the map on that river\u2019s opening view rather than at the place you asked for. Switching rivers moves the map once and your place moved it again in the same instant, and the second move was quietly lost. The Go button beside a mark on another river had the same fault from the day it was written, and it is fixed too.',
+  ], broken:[
+      'It will not look up a street address, and it says so rather than letting you try three more spellings of your own street. Looking one up means sending what you typed to somebody else, and this app sends nothing anywhere. For a spot with no name, put the map on it and keep it as a mark \u2014 a named mark is findable here afterwards, and it is the only thing in the list that is yours.',
+      'Only what the app already carries is in it. A bend everyone local calls something is not there unless the state or the survey calls it that too.',
+      'It costs a row of height on every screen. The box sits above the tabs so it is on the first view the app opens on \u2014 which is exactly where you are when you do not yet know which river your spot is on \u2014 but it is a row you do not get back.',
+  ] },
   { v:'2.14.1', date:'2026-09-02', changes:[
       'The Tide tab works. It was added to the list that decides which tabs EXIST and not to the one that shows and hides the panels, so pressing it hid Water and showed nothing \u2014 the tab lit up and the screen went blank. There is one list now, so the two cannot disagree again.',
       'And nothing anywhere was checking that pressing a tab shows the panel it names, which is why every test was green while the tab was dead. That check exists now, and it walks whatever tabs the app offers rather than a list written beside it, so the next tab added is covered before it is built.',
@@ -10729,6 +11160,7 @@ function renderAbout(){
   h('What it will not do');
   para('It will not tell you where fish are being caught. There is no live catch feed for these rivers, so there is nothing honest to show, and a made-up one would be worse than nothing. No bite forecast, no spot predictor, and none is coming.');
   para('It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.');
+  para('It will not look up a street address. The box at the top finds the places this app already carries \u2014 the gauges, the tide stations, the launches, the public land, the Delta\u2019s named channels and your own marks \u2014 and a position typed straight in, which is the way to a spot with no name on any map. It will not find a house, a street or a business, because looking one up means sending what you typed to a company whose business that is, and this app sends nothing anywhere. For a place you fish that no map names, put the map on it and keep it as a mark; a named mark is findable afterwards.');
   para('It does not want an account, cannot be logged in to, and carries no analytics, no tracking and no third-party code of any kind. Your marks live on your device and are sent nowhere.');
   para('Where I am, on the map, is the same, with one honest caveat. The button asks your browser, your browser asks you once, and the answer is drawn and then forgotten: it is not saved between visits, and your coordinate is not sent to this app\u2019s servers, to the depth service, or to anyone else. The caveat is that moving the map to you makes it load map tiles for that area, so whoever serves the basemap can tell roughly where you are looking \u2014 to about the size of a tile, a couple of kilometres at that zoom. That is the same thing that happens if you scroll there by hand, and it is a property of every map you have ever used; it is written here because it is true, not because it is unusual. The one thing that sends your exact coordinate anywhere is asking how deep it is at a point, and that only happens when you tap the map yourself.');
 
@@ -11174,6 +11606,7 @@ function boot(){
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
   $('#figclose').addEventListener('click', function(){ $('#figview').close(); });
+  initFind();
   $('#profbig').addEventListener('click', function(){
     var svgEl = $('#profsvg');
     if (!svgEl || !state.profile) return;
