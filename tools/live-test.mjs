@@ -192,7 +192,10 @@ check('gauges are marked on the map',
   await page.evaluate(() => state.gaugeLayer.getLayers().length) >= 6,
   await page.evaluate(() => state.gaugeLayer.getLayers().length));
 check('a tide curve was drawn', await page.evaluate(() => !!document.querySelector('#tidechart path')));
-check('highs and lows listed', /High ·|Low ·/.test(water), water.slice(0, 300));
+/* THE TIDE IS ITS OWN PANEL from 2.13.0; Water keeps the gauges, the weirs and
+   the week. Read where it lives. */
+const tideWords = (await page.textContent('#panel-tide')).replace(/\s+/g, ' ');
+check('highs and lows listed', /High ·|Low ·/.test(tideWords), tideWords.slice(0, 300));
 
 /* ---- layers, enumerated live ---- */
 await page.click('#tab-layers');

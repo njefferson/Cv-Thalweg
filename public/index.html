@@ -261,7 +261,13 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
 }
 #rail button{ text-align:left; max-width:100% }
 [role=tablist]{display:flex; border-bottom:1px solid var(--teal); flex:0 0 auto}
-[role=tab]{flex:1 1 0; border:0; border-bottom:2px solid transparent; border-radius:0;
+/* SIX TABS FIT WHERE FIVE DID, because they are allowed to shrink. `flex:1 1 0`
+   does not permit that on its own: a flex item's default `min-width:auto` holds
+   it at its content width, so adding the Tide tab pushed the last one 21px past
+   the right edge of a 1280px window — caught by the overflow check rather than
+   by looking, which is the only way a 21px overhang is ever caught. */
+[role=tab]{flex:1 1 0; min-width:0; border:0; border-bottom:2px solid transparent;
+  border-radius:0; overflow:hidden;
   padding:.5rem .2rem; color:var(--mute); font-size:.8rem; letter-spacing:.04em}
 [role=tab][aria-selected=true]{color:var(--ink); border-bottom-color:var(--cyan); background:#16302e}
 [role=tabpanel]{padding:.7rem; overflow-y:auto; flex:1 1 auto; min-height:0}
@@ -272,7 +278,13 @@ body.all-rivers #panel-map, body.all-rivers #tab-map{display:none}
    one control, and the first one's focus ring is drawn off the left edge.
    Natural width from tablet size up. */
 @media (min-width:560px){
-  [role=tab]{ flex:0 0 auto; padding-inline:1.1rem }
+  /* Natural width, BUT ALLOWED TO GIVE. `flex:0 0 auto` was right for five
+     tabs and wrong for six: with no shrink, the strip is as wide as its
+     contents whatever the rail can spare, and the last tab hung 21px past the
+     right edge of a 1280px window the moment Tide was added. `0 1 auto` keeps
+     the natural width wherever it fits and gives it up where it does not,
+     which is the behaviour the comment above always described. */
+  [role=tab]{ flex:0 1 auto; min-width:0; padding-inline:.85rem }
 }
 h2.sec{font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
   color:var(--mute); margin:1.1rem 0 .35rem; border-bottom:1px solid var(--teal); padding-bottom:.2rem}
@@ -469,12 +481,28 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
      a pin under it could not be tapped — which a check for a marker at the map
      edge caught immediately. Its swatches and words let every tap through to
      the map beneath; only its own two buttons take one. */
-  pointer-events:none; max-width:min(15rem,52vw)}
+  /* AND IT IS BOUNDED BY THE MAP, NOT BY THE WINDOW. `52vw` is generous on a
+     desktop where the map is a column a quarter of the screen wide, so the box
+     could be wider than the thing it sits on. The `100%` term is the map. */
+  pointer-events:none; max-width:min(15rem, 52vw, calc(100% - 1rem))}
 .legend button{pointer-events:auto}
 .legend b{font-weight:600; display:block; margin-bottom:.2rem; letter-spacing:.06em;
   text-transform:uppercase; color:var(--mute); font-size:.62rem}
 /* The install offer is a box, not another paragraph, because in a run of
    paragraphs it was read as more prose and scrolled past. */
+/* THE WRAPPER IS A BUTTON AND MUST NOT LOOK LIKE ONE. A picture in a box with
+   a border reads as a control to press for something else; this one is the
+   picture. It gets a focus ring, a pointer, and nothing else — except a hint
+   in the corner, because a thing that can be tapped and gives no sign of it is
+   a feature nobody finds. */
+.figzoom{display:block; width:100%; padding:0; border:0; background:none;
+  text-align:left; position:relative; cursor:zoom-in}
+.figzoom::after{content:'\2315'; position:absolute; right:.15rem; top:.15rem;
+  font-size:.85rem; line-height:1; color:var(--mute); pointer-events:none}
+.figzoom:hover::after{color:var(--ink)}
+/* The enlarged copy: as wide as the screen, pannable, and a pinch on top. */
+#figview{width:min(96vw,1200px); max-width:96vw}
+#figbody{overflow:auto; touch-action:pinch-zoom pan-x pan-y; padding:.6rem}
 .installbox{border:1px solid var(--teal-line); background:var(--panel-2);
   border-radius:3px; padding:.6rem .7rem; margin:1rem 0 .2rem}
 .installbox h3{color:var(--cyan); font-size:.9rem; margin:0 0 .3rem}
@@ -497,8 +525,13 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 .gobtn{margin-left:.4rem; font-size:.68rem; padding:.15rem .4rem; min-height:28px;
   color:var(--mute); border-color:var(--teal)}
 .gobtn:hover{color:var(--ink)}
-.legend .keyrow{display:flex; align-items:center; gap:.4rem; margin:.15rem 0}
-.legend .keyrow span{white-space:nowrap}
+/* A KEY ROW WRAPS. `white-space:nowrap` held every row on one line, so a label
+   longer than the box simply ran out of it and was cut off by the map's own
+   edge — reported from a device, with two rows losing their last words. The
+   swatch stays on the first line and the words wrap under themselves. */
+.legend .keyrow{display:flex; align-items:flex-start; gap:.4rem; margin:.15rem 0}
+.legend .keyrow span{white-space:normal; min-width:0}
+.legend .keyrow i.sw{margin-top:.2rem}
 /* The swatch is drawn to the marker's own geometry — same diameter, same ring
    thickness, same two colours — because a key whose dot is merely dot-shaped
    teaches the reader a symbol the map does not use. */
@@ -696,11 +729,21 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
            where it has been surveyed, the depth at a point, the profile along a
            line — with a basemap chooser at the foot. The panel was never the
            problem; the word on the door was. -->
+      <!-- THE TIDE IS ITS OWN TAB. Water carried the tide, the moon, the tide
+           along the river, the gauges, the weirs and the week of history — 3.9
+           screens on a laptop and worse on a phone — so the thing a reader
+           opened it for was several scrolls from the top. The tide is a
+           self-contained question and it goes with the moon; the gauges are
+           what is happening in the water now. It appears only on a tidal
+           river with a river chosen, because a tab that is empty is worse
+           than a tab that is missing. -->
+      <button role="tab" id="tab-tide"   aria-controls="panel-tide"   aria-selected="false" tabindex="-1">Tide</button>
       <button role="tab" id="tab-layers" aria-controls="panel-layers" aria-selected="false" tabindex="-1">Depth</button>
       <button role="tab" id="tab-marks"  aria-controls="panel-marks"  aria-selected="false" tabindex="-1">Marks</button>
       <button role="tab" id="tab-brief"  aria-controls="panel-brief"  aria-selected="false" tabindex="-1">Brief</button>
     </div>
     <div role="tabpanel" id="panel-water"  aria-labelledby="tab-water"  tabindex="0"></div>
+    <div role="tabpanel" id="panel-tide"   aria-labelledby="tab-tide"   tabindex="0" hidden></div>
     <div role="tabpanel" id="panel-layers" aria-labelledby="tab-layers" tabindex="0" hidden></div>
     <div role="tabpanel" id="panel-marks"  aria-labelledby="tab-marks"  tabindex="0" hidden></div>
     <div role="tabpanel" id="panel-brief"  aria-labelledby="tab-brief"  tabindex="0" hidden></div>
@@ -743,6 +786,18 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
     <button id="newclose" aria-label="Close">Close</button>
   </div>
   <div class="dlg-body" id="newbody"></div>
+</dialog>
+
+<!-- A PICTURE BIG ENOUGH TO READ. These figures are drawn to fit a panel that
+     is a column on a phone, and the ones carrying sixteen rows of Delta gauges
+     are legible only in principle at that size. Every one of them opens here at
+     the width of the screen, and the body allows a pinch on top of that. -->
+<dialog id="figview" aria-labelledby="figtitle">
+  <div class="dlg-head">
+    <h2 class="grow" id="figtitle" tabindex="-1" style="font-size:1rem">Picture</h2>
+    <button id="figclose" aria-label="Close">Close</button>
+  </div>
+  <div class="dlg-body" id="figbody"></div>
 </dialog>
 
 <dialog id="about" aria-labelledby="abouttitle">
@@ -816,7 +871,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.12.0';
+var VERSION = '2.13.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -3568,7 +3623,7 @@ function drawHere(recentre){
      section went on saying nothing about which station was nearest them,
      until some unrelated thing happened to redraw it. Anything that knows
      where the reader is has to tell the panels that use it. */
-  if (state.riverId) renderWater();
+  if (state.riverId){ renderWater(); renderTide(); }
 
   var msg = 'You are on the map' +
     (acc !== null ? ', to about ' + kmText(acc) : '') +
@@ -3720,7 +3775,14 @@ function springNeapBox(river){
      classification this app is making. */
   if (sn.band === 'spring') say += ' That is the big end of the cycle, the one called springs.';
   else if (sn.band === 'neap') say += ' That is the small end of the cycle, the one called neaps.';
-  box.appendChild(el('p', { class:'note', text:say }));
+  /* THE ANSWER STAYS AND THE COMPARISON FOLDS. How big today is, is what the
+     reader came for; what the other end of the fortnight looks like is what
+     puts it in context, and context is exactly what a fold is for. */
+  var cut = say.indexOf('. ');
+  box.appendChild(briefNote(
+    cut > 0 ? say.slice(0, cut + 1) : say,
+    cut > 0 ? [say.slice(cut + 2)] : [],
+    'The rest of the fortnight'));
 
   var narrow = window.matchMedia && window.matchMedia('(max-width:620px)').matches;
   var W = narrow ? 320 : 520, H = 74, pad = 2;
@@ -3748,14 +3810,17 @@ function springNeapBox(river){
     }
   });
   fig.appendChild(g);
-  box.appendChild(fig);
+  box.appendChild(zoomable(fig, 'the fortnight of tides'));
 
   /* AND THE LIMIT OF IT. The swing is the astronomical tide at one station;
      what actually moves where somebody is standing is that plus whatever the
      river is carrying, and this app knows the two separately and must not let
      a tall bar imply the second. */
-  box.appendChild(el('p', { class:'note',
-    text:'One bar a day, for the sixteen days of predictions this app holds — not the biggest of the month or the year, and it says the fortnight because that is what it can see. It is the swing at this station and nothing else: what the water does where you are standing is that plus whatever the river is carrying, and a big swing on a river in flood is not the same afternoon as a big swing on a low one.' }));
+  box.appendChild(briefNote(
+    'One bar a day, over the fortnight of predictions this app holds.',
+    ['Not the biggest of the month or the year \u2014 it says the fortnight because that is what it can see.',
+     'And it is the swing at this station and nothing else. What the water does where you are standing is that plus whatever the river is carrying, and a big swing on a river in flood is not the same afternoon as a big swing on a low one. The app shows the two separately and will not add them together.'],
+    'What this bar is, and is not'));
   return box;
 }
 
@@ -4341,6 +4406,45 @@ function riversPhrase(){
 /* Every row the ribbon draws, which is not the same number. */
 function ribbonRowCount(){ return RIVERS.length; }
 
+
+/* =====================================================================
+   THE TIDE, ITS OWN PANEL.
+
+   It used to be the first three sections of Water, above the gauges, the weirs
+   and the week of history — 3.9 screens on a laptop and a good deal worse on a
+   phone. So somebody opening Water for the flow met the tide prediction, the
+   moon and the tide along the river first, and the reading they came for was
+   several scrolls down.
+
+   The two are different questions. The tide is what the water will do; the
+   gauges are what it is doing. Splitting them is not tidying: it is the same
+   judgement that put Depth above the basemap chooser.
+   ===================================================================== */
+function renderTide(){
+  var p = $('#panel-tide');
+  if (!p) return;
+  p.innerHTML = '';
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (!river || !river.tidal) return;
+
+  p.appendChild(el('h2',{class:'sec',text:'Tide'}));
+  p.appendChild(tideSection(river));
+  /* THE MOON, UNDER THE FORTNIGHTLY SWING IT CAUSES — AND OUTSIDE tideSection
+     ON PURPOSE. That function returns early while the predictions are loading
+     and again when the station fails, and the moon depends on neither: it is
+     arithmetic about the sky, it needs no signal and no station, and it is the
+     one thing here that is never missing. Put inside, it disappeared exactly
+     when everything else did. */
+  p.appendChild(el('h2',{class:'sec',text:'The moon'}));
+  p.appendChild(moonBox());
+  /* THE TIDE AT A PLACE, THEN THE TIDE ALONG THE RIVER. The section above
+     predicts the water level at one station; this one shows which way the
+     water is actually running at every gauge that measures it, in river
+     order. They answer different questions and the second was missing. */
+  p.appendChild(el('h2',{class:'sec',text:'The tide along the river'}));
+  p.appendChild(tideAlongRiver(river));
+}
+
 function renderWater(){
   var p = $('#panel-water'); p.innerHTML = '';
 
@@ -4413,31 +4517,6 @@ function renderWater(){
   rivers.forEach(function(river){
     if (rivers.length > 1) p.appendChild(el('h2',{class:'sec',text:river.name}));
 
-    if (river.tidal){
-      if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Tide'}));
-      p.appendChild(tideSection(river));
-      /* THE MOON, UNDER THE FORTNIGHTLY SWING IT CAUSES — AND OUTSIDE
-         tideSection ON PURPOSE. That function returns early while the
-         predictions are loading and again when the station fails, and the moon
-         depends on neither: it is arithmetic about the sky, it needs no signal
-         and no station, and it is the one thing on this panel that is never
-         missing. Put inside, it disappeared exactly when everything else did.
-         This is the third time in this file a section has been written inside a
-         branch that had nothing to do with it — the light box inside the
-         hourly-curve branch, and the overlap caveat inside the branch that
-         found an overlap. */
-      if (rivers.length === 1){
-        p.appendChild(el('h2',{class:'sec',text:'The moon'}));
-        p.appendChild(moonBox());
-      }
-      /* THE TIDE AT A PLACE, THEN THE TIDE ALONG THE RIVER. The section above
-         predicts the water level at one station; this one shows which way the
-         water is actually running at every gauge that measures it, in river
-         order. They answer different questions and the second was missing. */
-      if (rivers.length === 1)
-        p.appendChild(el('h2',{class:'sec',text:'The tide along the river'}));
-      p.appendChild(tideAlongRiver(river));
-    }
 
     if (rivers.length === 1) p.appendChild(el('h2',{class:'sec',text:'Gauges'}));
     var payload = state.gauges[river.id];
@@ -4472,7 +4551,7 @@ function renderWater(){
           state.swept[river.id] = true;
           loadGauges(river).then(function(payload){
             state.gauges[river.id] = payload;
-            renderWater(); drawRibbon(); drawGaugeMarkers(); drawTideMarkers(); updateStaleness();
+            renderWater(); renderTide(); drawRibbon(); drawGaugeMarkers(); drawTideMarkers(); updateStaleness();
             announce('Sweep finished.');
           }, function(){
             swBtn.disabled = false;
@@ -4481,8 +4560,10 @@ function renderWater(){
         });
         swRow.appendChild(swBtn);
         p.appendChild(swRow);
-        p.appendChild(el('p',{class:'note',
-          text:'The gauges above are the ones this app names and has checked. USGS will also answer a sweep of the whole basin for anything else reporting — 234KB and about nine seconds, which is why it is a button. Asked once, what it finds is kept.'}));
+        p.appendChild(briefNote(
+          'The gauges above are the ones this app names and has checked.',
+          ['USGS will also answer a sweep of the whole basin for anything else reporting — 234KB and about nine seconds, which is why it is a button rather than something that happens to you. Asked once, what it finds is kept.'],
+          'What the wider search costs'));
       }
 
       if (river.weirs){
@@ -4659,8 +4740,10 @@ function tideSection(river){
        at Freeport are hours apart, so a chart read against the wrong station
        is wrong by more than it looks — and nothing on the screen said which
        station it was for, or that it was a choice worth making. */
-    box.appendChild(el('p',{class:'note',style:'margin-top:0',
-      text:'These are predictions for one place on the river, not for the river. The tide turns at different times along it \u2014 hours apart between the top of this reach and the bottom \u2014 so pick the station nearest where you will actually be.'}));
+    box.appendChild(briefNote(
+      'Predicted for one place on the river, not for the river \u2014 pick the station nearest where you will be.',
+      ['The tide turns at different times along this water: high water at the top of a reach and at the bottom can be hours apart, so a chart read against the wrong station is wrong by more than it looks.'],
+      'Why the station matters'));
 
     var row = el('div',{class:'rowline'});
     var lab = el('label',{for:'tidestation-'+river.id,text:'Predicted at'});
@@ -4750,7 +4833,8 @@ function tideSection(river){
     box.appendChild(el('p',{class:'note',
       text:'This station publishes highs and lows only, not an hourly curve. The times below are the turns; the water between them is not published and is not drawn.'}));
   } else {
-    box.appendChild(tideChart(t, lightPlace(river, t)));
+    box.appendChild(zoomable(tideChart(t, lightPlace(river, t)),
+      'the tide curve for the day ahead'));
   }
   /* THE LIGHT DOES NOT DEPEND ON THE CURVE, and putting it inside the branch
      that draws one meant the stations without a curve got no light at all.
@@ -4985,10 +5069,12 @@ function moonBox(){
      figures above are measured out of NOAA's published predictions; this is
      arithmetic about the sky. Neither is derived from the other, so their
      agreement is worth something and their disagreement is worth saying. */
-  box.appendChild(el('p', { class:'note',
-    text:'The fortnightly swing above and this are worked out from different things \u2014 that from NOAA\u2019s published predictions for this station, this from where the moon is. The big tides follow the new and the full by a day or two, so the two should line up; where they do not, the water is the authority.' }));
-  box.appendChild(el('p', { class:'note',
-    text:'The times behind these dates are good to a few hours rather than to the minute, which is why a date is printed and not a time. And nothing here says the fishing is better on any phase: that is a belief, widely held, and this app has no basis for it.' }));
+  box.appendChild(briefNote(
+    'The big tides follow the new and the full by a day or two.',
+    ['The fortnightly swing above and this are worked out from different things \u2014 that from NOAA\u2019s published predictions for this station, this from where the moon is. Neither is derived from the other, so their agreeing is worth something; where they do not agree, the water is the authority.',
+     'The times behind these dates are good to a few hours rather than to the minute, which is why a date is printed and not a time.',
+     'And nothing here says the fishing is better on any phase. That is a belief, widely held, and this app has no basis for it.'],
+    'How this and the tide fit together'));
 
   /* The disc. A circle with the lit part drawn as a half-disc plus an ellipse
      for the terminator — the ordinary construction, and it gets the crescent
@@ -5206,12 +5292,16 @@ function lightBox(river, t){
      inside the branch that found an overlap, it disappeared exactly when the
      answer was "none" — so the reader who most needs to know what this section
      is and is not claiming got the bare sentence and no framing at all. */
-  box.appendChild(el('p',{class:'note',
-    text:'Fishing the change at first or last light is a convention among anglers. This section says when the two coincide and nothing whatever about what the fish will do — Thalweg does not know that and will not guess it.'}));
+  box.appendChild(briefNote(
+    'Fishing the change at first or last light is a convention among anglers.',
+    ['This section says when the two coincide and nothing whatever about what the fish will do. Thalweg does not know that and will not guess it.'],
+    'What this section is claiming'));
 
-  box.appendChild(el('p',{class:'note',
-    text:'Computed for ' + place.name + (place.exact ? '' : ', the middle of this reach rather than the station') +
-      ' — arithmetic from the date and the position, so it needs no signal and works for any day. First and last light are civil twilight, the sun six degrees below the horizon, which is about when you can read water without a torch.'}));
+  box.appendChild(briefNote(
+    'Computed for ' + place.name + (place.exact ? '' : ', the middle of this reach rather than the station') + '.',
+    ['Arithmetic from the date and the position, so it needs no signal and works for any day.',
+     'First and last light are civil twilight \u2014 the sun six degrees below the horizon, which is about when you can read water without a torch.'],
+    'How these times are worked out'));
   return box;
 }
 
@@ -5288,7 +5378,7 @@ function switchTideStation(river, id){
   loadTide(river, id).then(function(t){
     if (t) t.stations = stations;
     state.tides[river.id] = t;
-    renderWater();
+    renderWater(); renderTide();
     /* The map has to agree about which one is being read, or the marker drawn
        as "the one you are using" is the one you just stopped using. */
     drawTideMarkers();
@@ -5333,6 +5423,74 @@ function appendBasemap(p){
    press away instead of four paragraphs in the way. The pattern is the one
    already used for the tide-station box, so the panel has one idiom rather
    than two. */
+/* A SHORT LINE THAT STAYS, AND THE REST BEHIND A PRESS.
+
+   Most of the honesty in this app is a paragraph of qualification: what the
+   number is, what it is not, which instrument it came from, what it cannot
+   see. Every one is worth keeping and all of them together pushed the readings
+   several screens down — measured at 3.9 screens on a LAPTOP for the Water
+   panel, before this.
+
+   Cutting the qualification would be the wrong fix; this app's whole claim is
+   that it says what it does not know. So the qualification is kept ENTIRE and
+   moved: a sentence that carries the fact stays on the surface, and the rest
+   folds. That is the same move the Layers panel made when 1,277 characters of
+   prose stood between the top of it and the last depth control.
+
+   `foldNote` puts EVERYTHING behind the press, which is right for an aside.
+   This is for a note whose first sentence a reader needs whether or not they
+   open anything. */
+function briefNote(short, more, label){
+  var box = el('div', {});
+  box.appendChild(el('p', { class:'note', text:short }));
+  if (more && more.length)
+    box.appendChild(foldNote(label || 'Why, and what it cannot tell you', more));
+  return box;
+}
+
+/* =====================================================================
+   TAP A PICTURE TO SEE IT PROPERLY.
+
+   These figures are sized for a panel that is a narrow column on a phone. The
+   tide along the river draws one row per gauge and the Delta has sixteen of
+   them; at column width the arrows are a few pixels of ink and the speeds are
+   readable in principle rather than in fact. Reported from a device, which is
+   the only place it is obvious.
+
+   THE WRAPPER IS A BUTTON, not a click handler on the drawing. A picture that
+   responds to a tap and is not a control is unreachable by keyboard and
+   invisible to anything reading the page aloud — the same trap that made four
+   river rows inert a few releases ago. It carries its own name, and the figure
+   inside keeps the name it already had.
+   ===================================================================== */
+function zoomable(fig, label){
+  var b = el('button', { type:'button', class:'figzoom',
+    'aria-label': 'Show ' + label + ' larger' });
+  b.appendChild(fig);
+  b.addEventListener('click', function(){ openFigure(fig, label); });
+  return b;
+}
+function openFigure(fig, label){
+  var dlg = $('#figview'), body = $('#figbody'), ttl = $('#figtitle');
+  if (!dlg || !body) return;
+  ttl.textContent = initialCap(label);
+  body.innerHTML = '';
+  /* A COPY, so closing cannot take the original off the panel and nothing the
+     reader does in here changes what is behind it. */
+  var big = fig.cloneNode(true);
+  big.removeAttribute('style');
+  big.setAttribute('width', '100%');
+  big.setAttribute('height', 'auto');
+  big.style.width = '100%';
+  big.style.height = 'auto';
+  big.style.display = 'block';
+  body.appendChild(big);
+  body.scrollTop = 0; body.scrollLeft = 0;
+  dlg.showModal();
+  ttl.focus();
+  announce(initialCap(label) + ' opened larger.');
+}
+
 function foldNote(sumText, texts){
   var d = el('details',{class:'foldbox'});
   var sum = el('summary',{});
@@ -5984,7 +6142,7 @@ function updateLegend(){
     var rp = el('i',{class:'sw',
       style:'width:0;height:0;border-radius:0;border-left:6px solid transparent;' +
             'border-right:6px solid transparent;border-top:11px solid #C9A96A;background:none'});
-    rows.push(keyRow(rp, 'Where you can launch \u2014 CDFW\u2019s record, and it is old'));
+    rows.push(keyRow(rp, 'Where you can launch \u2014 CDFW\u2019s old record'));
   }
   if (state.accessLayer && state.accessLayer.getLayers().length){
     /* THE KEY HAS TO CARRY THE SHAPE. A round swatch beside a square pin is a
@@ -6541,6 +6699,10 @@ var narrowMQ = window.matchMedia('(max-width:900px)');
 
 function tabNames(){
   var names = ['water','layers','marks','brief'];
+  /* The tide only exists where there is one, and only once a river is chosen.
+     An empty tab is a promise the app cannot keep. */
+  var river = state.riverId ? byId(state.riverId) : null;
+  if (river && river.tidal) names.splice(1, 0, 'tide');
   if (narrowMQ.matches && state.riverId) names.splice(1, 0, 'map');
   return names;
 }
@@ -6548,7 +6710,7 @@ function tabEl(name){ return document.getElementById('tab-' + name); }
 function panelEl(name){ return document.getElementById('panel-' + name); }
 
 function initTabs(){
-  ['water','map','layers','marks','brief'].forEach(function(name){
+  ['water','map','tide','layers','marks','brief'].forEach(function(name){
     var tab = tabEl(name);
     tab.addEventListener('click', function(){ selectTab(name); });
     tab.addEventListener('keydown', function(e){
@@ -6672,7 +6834,7 @@ function selectRiver(id){
   selectTab(tabNames().indexOf(state.tab || 'water') === -1 ? 'water' : (state.tab || 'water'));
   announce(river ? river.name + ' selected.' : 'All rivers selected.');
   refreshData();
-  renderWater(); renderMarks(); renderBrief();
+  renderWater(); renderTide(); renderMarks(); renderBrief();
   if (!document.getElementById('panel-layers').hidden) renderLayers();
   drawRibbon();
 }
@@ -6784,11 +6946,11 @@ function refreshData(){
     var cached = sget(river.id,'gauges');
     if (cached && !state.gauges[river.id]){
       cached.stale = true; state.gauges[river.id] = cached;
-      renderWater(); drawRibbon(); updateStaleness();
+      renderWater(); renderTide(); drawRibbon(); updateStaleness();
     }
     loadGauges(river).then(function(payload){
       state.gauges[river.id] = payload;
-      renderWater(); drawRibbon(); updateStaleness(); drawGaugeMarkers(); drawTideMarkers();
+      renderWater(); renderTide(); drawRibbon(); updateStaleness(); drawGaugeMarkers(); drawTideMarkers();
       /* The trend goes out after the readings, not beside them: which gauge
          to ask for a week of flow is decided by which gauge answered for
          right now, and on All rivers nothing asks at all — four rivers of
@@ -6802,15 +6964,15 @@ function refreshData(){
         loadWeirs(river).then(function(w){
           state.weirs[river.id] = w;
           updateWeirStrip();
-          if (state.riverId === river.id) renderWater();
+          if (state.riverId === river.id){ renderWater(); renderTide(); }
         });
       }
       if (state.riverId === river.id && !state.trends[river.id]){
         var stored = sget(river.id,'trend');
-        if (stored){ stored.stale = true; state.trends[river.id] = stored; renderWater(); }
+        if (stored){ stored.stale = true; state.trends[river.id] = stored; renderWater(); renderTide(); }
         loadTrend(river).then(function(tr){
           state.trends[river.id] = tr;
-          if (state.riverId === river.id) renderWater();
+          if (state.riverId === river.id){ renderWater(); renderTide(); }
         });
       }
     });
@@ -6854,14 +7016,14 @@ function loadTideFor(river){
     var stations = declared.concat(fresh, known);
     if (!stations.length){
       state.tides[river.id] = { failed:'no prediction station found for this reach' };
-      renderWater(); return;
+      renderWater(); renderTide(); return;
     }
     var pick = sget(river.id,'tidestation');
     var chosen = stations.filter(function(s){ return s.id === pick; })[0] || stations[0];
     return loadTide(river, chosen.id).then(function(t){
       t.stations = stations;
       state.tides[river.id] = t;
-      renderWater();
+      renderWater(); renderTide();
       drawTideMarkers();
     });
   });
@@ -7085,9 +7247,10 @@ function weirSection(river){
   if (w.unknown.length) box.appendChild(el('p',{class:'note',
     text:'No figure published for ' + w.unknown.map(function(x){ return x.w ? x.w.name : x.name; }).join(' or ') +
       ' in this file, so those are unknown rather than quiet.'}));
-  box.appendChild(el('p',{class:'note',
-    text:'Measured for ' + w.at + ', from ' + river.weirs.source +
-      '. The same file carries a forecast for the days ahead; that is somebody’s model and is not repeated here.'}));
+  box.appendChild(briefNote(
+      'Measured for ' + w.at + '.',
+      ['From ' + river.weirs.source + '. The same file carries a forecast for the days ahead; that is somebody\u2019s model and is not repeated here.'],
+      'Where this comes from'));
   return box;
 }
 
@@ -7305,16 +7468,16 @@ function maxReversal(river, gs, hist){
 function loadVelocityDay(river, gs){
   if (state.velLoading) return;
   state.velLoading = true; state.velFailed = null;
-  renderWater();
+  renderWater(); renderTide();
   usgsVelocity(gs.map(function(r){ return r.id; })).then(function(out){
     state.velHistory = state.velHistory || {};
     state.velHistory[river.id] = out;
-    state.velLoading = false; renderWater();
+    state.velLoading = false; renderWater(); renderTide();
     announce('The last day of velocity is drawn.');
   }, function(e){
     state.velLoading = false;
     state.velFailed = String(e && e.message || e);
-    renderWater();
+    renderWater(); renderTide();
   });
 }
 
@@ -7322,8 +7485,10 @@ function tideAlongRiver(river){
   var box = el('div', {});
   var gs = velGauges(river);
   if (!gs.length){
-    box.appendChild(el('p',{class:'note',
-      text:'No gauge on the ' + river.name + ' publishes water velocity, so there is nothing measured to say which way it is running. The tide table above is a prediction for one place and stays the only answer here.'}));
+    box.appendChild(briefNote(
+      'No gauge on the ' + river.name + ' publishes water velocity.',
+      ['So there is nothing measured to say which way the water is running here. The tide table above is a prediction for one place, and it stays the only answer this river has.'],
+      'What that means for this river'));
     return box;
   }
 
@@ -7336,9 +7501,11 @@ function tideAlongRiver(river){
      cheaper than letting them work out which one is lying. */
   var lvl = tidePhase(river);
   if (lvl)
-    box.appendChild(el('p',{class:'note',
-      text:'The level at the station above is ' + (lvl.rising ? 'rising' : 'falling') +
-        '. That is a prediction of height at one place; what follows is measured direction at each gauge, and the two are not the same thing and need not agree \u2014 on this water the current runs on for a while after the level turns, so a rising level with the water still running out is ordinary rather than a fault.'}));
+    box.appendChild(briefNote(
+      'The level at the station above is ' + (lvl.rising ? 'rising' : 'falling') + '.',
+      ['That is a prediction of HEIGHT at one place; what follows is measured DIRECTION at each gauge. The two are not the same thing and need not agree.',
+       'On this water the current runs on for a while after the level turns, so a rising level with the water still running out is ordinary rather than a fault.'],
+      'Why these two can disagree'));
 
   var up = gs.filter(function(r){ return r.vel < 0; }).length;
   box.appendChild(el('p',{class:'note',
@@ -7384,11 +7551,11 @@ function tideAlongRiver(river){
   /* Dropped from the drawing, not from the account of it. */
   var bad = velConflicts(river);
   if (bad.length)
-    box.appendChild(el('p',{class:'note',
-      text: (bad.length === 1 ? 'One gauge is' : bad.length + ' gauges are') +
-        ' left out of this: ' +
-        bad.map(function(r){ return shortGauge(river, r, 99); }).join(', ') +
-        '. Its velocity and its discharge disagree about which way that water is going, and two instruments at one place disagreeing is not a fact about the river \u2014 picking the likelier one would be inventing the answer.'}));
+    box.appendChild(briefNote(
+      (bad.length === 1 ? 'One gauge is' : bad.length + ' gauges are') +
+        ' left out of this: ' + bad.map(function(r){ return shortGauge(river, r, 99); }).join(', ') + '.',
+      ['Its velocity and its discharge disagree about which way that water is going. Two instruments at one place disagreeing is not a fact about the river, and picking the likelier one would be inventing the answer.'],
+      'Why they are left out'));
 
   /* The day is 47 KB and this panel is the landing screen, so it is asked for
      rather than fetched for everybody. */
@@ -7436,12 +7603,35 @@ function tideAlongRiver(river){
    rather than "what is it doing at one station". */
 function tideAlongFigure(river, gs, hist){
   var narrow = window.matchMedia && window.matchMedia('(max-width:620px)').matches;
-  var W = narrow ? 320 : 560;
   /* Wide enough for the longest hint at the size it is drawn — "Below Walnut
      Grove bridge" ran into the arrow column at 132. */
   var rowH = 34, top = 22, labelW = narrow ? 104 : 156, arrowW = 74;
   var bandX = labelW + arrowW + 8;
-  var bandW = Math.max(40, W - bandX - 8);
+  /* THE WIDTH IS BUILT FROM WHAT IS DRAWN, NOT FIXED AT 560.
+
+     It was 560 whether or not the last day had been asked for — and the band
+     of history is the only thing that column is for. So before you press "Show
+     the last day", the names and the arrows sat in the left 230px of a 560px
+     canvas, the canvas was scaled to the panel's full width, and the arrows
+     came out less than half the size they should be with a screen of nothing
+     beside them. Reported from a device, on the Delta, where sixteen rows made
+     it unmistakable.
+
+     The band's width is now the band's, and the picture is as wide as its
+     parts. */
+  var bandW = hist ? (narrow ? 82 : 314) : 0;
+  /* AND A FLOOR SO THE KEY STILL FITS. Narrowing the picture to what it draws
+     found a sentence in the key that no longer fitted inside it — "the tide
+     pushed back at least this far in the last day" is wider than the names and
+     the arrows put together. The key must not SET the width, but it must be
+     able to live inside it, so the floor is worked out from the longest line
+     of it rather than picked. Nine-pixel text runs about 4.4px a character. */
+  var KEY_LINES = ['the tide pushing in \u2014 upstream',
+                   'the river running out \u2014 downstream',
+                   'the tide reached at least this far in the day'];
+  var keyMin = 19 + Math.round(Math.max.apply(null,
+    KEY_LINES.map(function(t){ return t.length; })) * 4.4) + 8;
+  var W = Math.max(bandX + (bandW ? bandW + 8 : 0), keyMin);
   /* Room at the foot for the key. This figure says two things in colour and
      would otherwise say neither: the same defect as a map whose cyan wash had
      no swatch, in the same app, two releases ago. */
@@ -7566,11 +7756,16 @@ function tideAlongFigure(river, gs, hist){
   /* THE KEY. Two colours carrying two meanings, said plainly, inside the
      picture that uses them. */
   var ky = top + gs.length * rowH + 14;
-  var kx = labelW ? 0 : 0;
-  [[FLOOD, 'the tide pushing in — upstream'], [EBB, 'the river running out — downstream']]
+  /* AND THE KEY IS NOT ALLOWED TO SET THE WIDTH. Side by side these two run to
+     about 350px, so on a picture narrower than that they used to push the
+     viewBox wider than the drawing needed and shrink everything in it. Stacked
+     or side by side is decided by whether they FIT, not by the media query —
+     the picture is narrow whenever there is no band, at any screen size. */
+  var stackKey = W < 360;
+  [[FLOOD, KEY_LINES[0]], [EBB, KEY_LINES[1]]]
     .forEach(function(pair, i){
-      var x = kx + i * (narrow ? 0 : 250);
-      var yy = ky + (narrow ? i * 13 : 0);
+      var x = stackKey ? 0 : i * Math.max(180, Math.round(W / 2));
+      var yy = ky + (stackKey ? i * 13 : 0);
       g.appendChild(svg('rect',{ x:x, y:yy - 7, width:14, height:9,
         fill:pair[0], 'fill-opacity':'.55', stroke:'#1F5B57' }));
       var t2 = svg('text',{ x:x + 19, y:yy, fill:'#9FB3B1', 'font-size':'9' });
@@ -7582,15 +7777,15 @@ function tideAlongFigure(river, gs, hist){
      is the defect the first two entries here exist to fix, one release ago. */
   var extraKey = 0;
   if (mx){
-    var ry = ky + (narrow ? 2 * 13 : 15);
+    var ry = ky + (stackKey ? 2 * 13 : 15);
     g.appendChild(svg('line',{ x1:0, y1:ry - 3, x2:14, y2:ry - 3,
       stroke:FLOOD, 'stroke-width':'1.2', 'stroke-dasharray':'4 3' }));
     var t3 = svg('text',{ x:19, y:ry, fill:'#9FB3B1', 'font-size':'9' });
-    t3.textContent = 'the tide pushed back at least this far in the last day';
+    t3.textContent = KEY_LINES[2];
     g.appendChild(t3);
-    extraKey = narrow ? 13 : 15;
+    extraKey = stackKey ? 13 : 15;
   }
-  fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + (narrow ? 13 : 0) + extraKey));
+  fig.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + (stackKey ? 13 : 0) + extraKey));
 
   fig.appendChild(g);
 
@@ -7602,7 +7797,7 @@ function tideAlongFigure(river, gs, hist){
      picture already shows it, and present for anything that cannot see the
      picture. */
   var wrap2 = el('div', {});
-  wrap2.appendChild(fig);
+  wrap2.appendChild(zoomable(fig, 'the tide along the ' + river.name));
   var desc = el('div', { class:'vh', id:'alongdesc-' + river.id });
   gs.forEach(function(r){
     var up2 = r.vel < 0;
@@ -7993,20 +8188,23 @@ function trendSection(river){
 
   (tr.noHistory || []).forEach(function(n){
     var many = n.id.indexOf(',') !== -1;
-    box.appendChild(el('p',{class:'note',
-      text:'No ' + n.what + ' history at ' + n.name + ' (' + n.id + '). ' +
-        (many ? 'They answer' : 'It answers') + ' for right now and ' +
+    /* The gauge names are long and there can be two of them, so the fact goes
+       on the surface and the identifiers and the reason fold under it. */
+    box.appendChild(briefNote(
+      'No ' + n.what + ' history at ' + n.name + '.',
+      ['(' + n.id + '.) ' + (many ? 'They answer' : 'It answers') + ' for right now and ' +
         (many ? 'publish' : 'publishes') +
-        ' nothing back over the week, so there is no line to draw.'}));
+        ' nothing back over the week, so there is no line to draw.'],
+      'Which gauge, and why'));
   });
 
   if (!tr.flow && !tr.temp && !(tr.noHistory || []).length)
     box.appendChild(el('p',{class:'note',text:'No history published for this reach.'}));
 
-  box.appendChild(el('p',{class:'note',
-    text:'What the line is: every reading the service published over the last ' +
-      tr.days + ' days, thinned to fit the width, with the day marks behind it. ' +
-      'Nothing here is smoothed, predicted or extended past the last reading.'}));
+  box.appendChild(briefNote(
+    'Every reading the service published over the last ' + tr.days + ' days.',
+    ['Thinned to fit the width, with the day marks behind it. Nothing here is smoothed, predicted or extended past the last reading.'],
+    'What this line is'));
   return box;
 }
 
@@ -10008,6 +10206,18 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.13.0', date:'2026-09-02', changes:[
+      'The tide has its own tab. Water was carrying the tide, the moon, the tide along the river, the gauges, the weirs and a week of history \u2014 nearly four screens on a laptop and worse on a phone \u2014 so whatever you opened it for was several scrolls down. Water keeps what the water is doing now; Tide is what it is going to do.',
+      'And the long paragraphs fold. Every section that explained itself at length now opens with the sentence carrying the fact and puts the rest behind a press. NOTHING WAS DELETED \u2014 saying what it does not know is the whole point of this app \u2014 so the qualifications are all still there, one tap away, and a check counts them to make sure a future tidy-up cannot quietly cut them.',
+      'Tap a picture to see it properly. The tide curve, the fortnight of swings and the tide along the river all open at the width of the screen, where you can pinch further. Sixteen Delta gauges in a phone-width column was a drawing you could see and not read.',
+      'THE TIDE-ALONG PICTURE WAS MOSTLY EMPTY AND DID NOT SAY SO. It reserved room for the last-day band whether or not you had asked for one, so before you press Show the last day the names and arrows were squeezed into the left half of it and scaled down to fit. It is as wide as what it draws now.',
+      'The key at the foot of that picture was setting its width, too \u2014 the two entries were laid out far enough apart to stretch the drawing they explain. They stack when there is not room.',
+      'The map key no longer runs off the map. Its rows could not wrap, so a label longer than the box was cut off by the edge \u2014 two of them losing their last words. They wrap now, and the box can never be wider than the map it sits on.',
+      'Six tabs fit where five did. Adding Tide pushed the last one 21 pixels past the right edge on a desktop, because the tabs were not allowed to shrink.',
+  ], broken:[
+      'The Water panel is still nearly three screens on a laptop, and that is the gauge rows and the week of lines rather than prose. Those are the readings; there is nothing to fold.',
+      'Only the three data-dense pictures open larger. The depth profile has its own stretch buttons and the moon is a disc, so neither has one.',
+  ] },
   { v:'2.12.0', date:'2026-09-01', changes:[
       'The width chart said how far it went and it was going nine per cent of the way. Following the river down draws the stretch the state has SURVEYED \u2014 31 km of the Sacramento\u2019s 579 \u2014 because that is what the depth needs. The width has no such limit; it is known for the whole course. Now the chart says which it is showing, with both numbers, and there is a Whole river button beside the view buttons.',
       'That one costs nothing and asks nobody: the widths ship with the app, so the whole course is a redraw rather than a download. It carries no depth for the same reason \u2014 soundings along 579 km would be a large download for a line that is almost all unmeasured \u2014 and it says so, and says which button gets you the surveyed stretch instead.',
@@ -10858,6 +11068,7 @@ function boot(){
     $('#abouttitle').focus();
   });
   $('#aboutclose').addEventListener('click', function(){ $('#about').close(); });
+  $('#figclose').addEventListener('click', function(){ $('#figview').close(); });
   $('#newclose').addEventListener('click', function(){ $('#whatsnew').close(); });
 
   $('#profclear').addEventListener('click', clearProfile);

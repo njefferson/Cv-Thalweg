@@ -14,8 +14,8 @@ session needs before it touches anything.
   verified by reading that address rather than the push output — the page and
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
-- Staged candidate: **2.12.0** — the width chart says how far it goes, and
-  offers the whole course.
+- Staged candidate: **2.13.0** — the tide has its own tab, the long prose
+  folds, and the pictures open.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1177,6 +1177,83 @@ refused samples on that course become eight pieces and two visible dotted
 stretches, because most refusals are consecutive — and a sentence reading "155
 places" beside two dotted lines is the words and the picture disagreeing in
 front of the reader.
+
+
+## Water was four screens, and folding is not cutting
+
+Measured before touching anything: the Water panel was **3.9 screens on a
+laptop** — the tide, the moon, the tide along the river, the gauges, the weirs
+and a week of history, one after another — so whatever a reader opened it for
+was several scrolls down. On a phone it is worse.
+
+**The tide is its own tab.** It appears only on a tidal river with a river
+chosen, because a tab that is empty is worse than a tab that is missing. Water
+keeps what the water is doing now; Tide is what it is going to do. Water came
+down to 2.6 screens and 755 characters of visible prose, from 1,068.
+
+**AND THE FOLDING IS THE PART THAT COULD HAVE GONE WRONG.** Most of the length
+here is qualification — what the number is, what it is not, which instrument it
+came from, what it cannot see — and cutting that would have been the easy fix
+and the wrong one, because saying what it does not know is this app's whole
+claim. `briefNote` keeps every word and moves it: one sentence carrying the
+fact stays on the surface, the rest goes behind a named press. Nine sections
+were rewritten that way.
+
+So the gate has two halves. A budget on VISIBLE prose — text inside a closed
+`details` is present and not in the way, which is exactly what was wanted — and
+a separate check that the qualifications are still in the document at all. A
+future edit that shortens these panels by deleting them would pass the first
+and fail the second.
+
+**The numbers in the gate are measured, not chosen**: Water reads 755 and Tide
+1,190 characters of visible prose, and the limits sit a little above each.
+
+## Three things the device found that no gate was looking for
+
+**THE MAP KEY RAN OFF THE MAP.** `.legend .keyrow span{white-space:nowrap}`, so
+a label longer than the box ran out of it and was cut by the map's own edge —
+two rows losing their last words. Nothing caught it because the overflow checks
+measure the DOCUMENT, and a box clipped inside a map does not make the page any
+wider. The rows wrap now, the box is bounded by `calc(100% - 1rem)` of the map
+rather than by `52vw` of the window, and the a11y walk asks whether any row's
+right edge is past the map's. Planted back, it names four clipped rows.
+
+**THE TIDE-ALONG PICTURE WAS MOSTLY EMPTY.** Its width was 560 whether or not
+the last day had been asked for, and the band of history is the only thing that
+right-hand column is for. So before the reader presses Show the last day, the
+names and the arrows sat in the left 230px of a 560px canvas, the canvas was
+scaled to the panel's width, and the arrows came out at under half the size they
+should be. On the Delta, with sixteen rows, it is unmistakable — which is where
+it was reported from.
+
+**AND THE KEY AT ITS FOOT WAS SETTING THE WIDTH.** The two entries were laid out
+250px apart, so on any picture narrower than about 350 the legend stretched the
+drawing it explains. They stack or sit side by side according to whether they
+FIT now. Narrowing the picture then exposed a third thing: one line of that key
+was wider than the whole drawing, so the width carries a floor computed from the
+longest key line rather than a number somebody picked.
+
+## A picture you can open
+
+The figures are drawn to fit a column on a phone. Three of them — the tide
+curve, the fortnight of swings, the tide along the river — now open at the width
+of the screen, with a pinch available on top of that.
+
+**THE WRAPPER IS A BUTTON, NOT A CLICK HANDLER.** A drawing that answers a tap
+and is not a control is unreachable by keyboard and silent to anything reading
+the page aloud, which is the trap that made four river rows inert a few releases
+ago. It carries its own name — "Show the tide along the Delta larger" — and the
+figure inside keeps the name it already had. The enlarged view is a copy, so
+closing it cannot take the drawing off the panel.
+
+**The enlarged view joined the a11y walk in the same commit** (hub LESSONS §28):
+audited, bounded by the screen, takes focus, gives it back to the picture that
+was pressed.
+
+**One trap on the way in.** The probe that opens a figure left the app on the
+Tide tab, and the two checks after it measure buttons in Layers — which reported
+them as zero by zero, because every element in a hidden panel is. A check that
+changes which tab is showing has to put it back.
 
 
 ## Scratch
