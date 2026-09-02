@@ -14,7 +14,8 @@ session needs before it touches anything.
   verified by reading that address rather than the push output — the page and
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
-- Staged candidate: **2.11.2** — the width chart says where it has nothing.
+- Staged candidate: **2.12.0** — the width chart says how far it goes, and
+  offers the whole course.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1127,6 +1128,55 @@ most of them." Half true: a line you draw yourself gets a width anywhere, but
 the down-river button profiles `surveyedRun(line)` and always has, so on the
 Sacramento it covers 31 km of 359. The note now says which half is which, and
 the limit is listed as still not right.
+
+
+## The axis was nine per cent of the river, and three ways to fix it
+
+`profileRiverLine` draws `surveyedRun(line)` — the longest stretch DWR has
+actually sounded — and always has, because the depth is what it was built for.
+On the Sacramento that is **31 km of 579**. The width has no such limit: it is
+baked for the whole course. So a reader in a width view was looking at a
+fifteenth of the river with nothing on the screen saying so.
+
+**Two fixes were rejected, and why matters more than the one that was taken.**
+
+*Make the extent follow the view.* Depth gets the surveyed run, Width gets the
+whole course. It fails on its own control: the distance axis changes length when
+you press a button labelled as though it changed what is DRAWN rather than what
+is covered — two pictures under one control — and "Depth and width" is then a
+button with no honest answer at all.
+
+*Always draw the whole course.* Truer in one sense: cropping to the surveyed run
+flatters the data the way the shared distance scale used to flatter the shorter
+rivers. But it puts the depth into the left tenth of the chart and destroys the
+reading the profile exists for, to fix a view most readers will not open.
+
+**So it is a separate press, and the axis changes only when somebody asks for a
+different thing.** A `Whole river` button appears beside the view buttons, in a
+width view, on a down-river profile, and only when there is meaningfully more
+river than the surveyed run — a button that redraws the picture you are already
+looking at is worse than no button.
+
+**IT COSTS NOTHING, WHICH IS WHY IT CAN BE OFFERED.** The widths are baked, so
+the whole course is a redraw and not a download: `widthWholeCourse` builds the
+model straight from `river-widths.js` and asks no service anything. That is also
+why it carries no depth — soundings along 579 km would be a large request for a
+line that is almost all unmeasured — and it says so in its own sentence rather
+than falling through to the message about a survey that measured nothing.
+
+**And the clipped case says so with both numbers**, in every width view, with
+the way out named beside it.
+
+**One thing found while wiring it: "Depth and width" on a line with no depth was
+returning early and showing an explanation where the reader had pressed for a
+picture.** Any view that shows a width now draws one; the early return is for
+the Depth view alone.
+
+**The break marks count what is on the screen, not what is in the file.** 155
+refused samples on that course become eight pieces and two visible dotted
+stretches, because most refusals are consecutive — and a sentence reading "155
+places" beside two dotted lines is the words and the picture disagreeing in
+front of the reader.
 
 
 ## Scratch
