@@ -535,6 +535,12 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
 #findlist button:hover, #findlist button:focus{background:#16302e}
 #findlist .fkind{color:var(--mute); font-size:.72rem}
 #findlist .fnone{padding:.5rem .55rem; color:var(--mute); font-size:.78rem}
+/* The button that offers to send something is INSIDE the sentence explaining
+   what it will send, and it looks like the results above it so a thumb finds
+   it in the same place. */
+#findlist .findask{display:block; width:100%; text-align:left; margin-top:.5rem;
+  min-height:44px; padding:.4rem .55rem; border:1px solid var(--teal);
+  border-radius:3px; background:#16302e; color:var(--ink)}
 .figzoom{display:block; width:100%; padding:0; border:0; background:none;
   text-align:left; position:relative; cursor:zoom-in}
 .figzoom::after{content:'\2315'; position:absolute; right:.15rem; top:.15rem;
@@ -759,7 +765,16 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
   </div>
   <p class="note vh" id="findhelp">Searches the places this app already
     carries, on this device. It cannot look up a street address.</p>
-  <div id="findlist" role="listbox" aria-label="Places found" hidden></div>
+  <!-- role="group", NOT listbox. This began as a listbox because it holds a
+       list of things to pick, and that was wrong in two ways. A listbox may
+       only contain options, and this also holds the sentence explaining an
+       empty answer and the button that offers to look an address up — which
+       is a critical violation, and it was invisible while the only state
+       anybody audited was the one where every child IS a result. And the rest
+       of the pattern was never there anyway: no combobox on the field, no
+       active-descendant, no expanded state. Plain buttons in a named group
+       are what this actually is, and they were already reachable and named. -->
+  <div id="findlist" role="group" aria-label="Places found" hidden></div>
 </div>
 
 <main>
@@ -955,7 +970,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.15.0';
+var VERSION = '2.16.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -5721,7 +5736,7 @@ function markTypeLabel(id){
 var PLACE_KINDS = {
   river:'river', gauge:'gauge', tide:'tide station', land:'public land',
   launch:'launch', channel:'channel', mark:'your mark',
-  coord:'the position you typed'
+  coord:'the position you typed', address:'a street address'
 };
 /* Matches, best first: a name that STARTS with what was typed beats one that
    merely contains it, because somebody typing "free" means Freeport and not
@@ -5736,7 +5751,49 @@ var PLACE_KINDS = {
    means -121.5. That is a guess, so it is only made when the sign is absent AND
    the letter is absent AND the bare value cannot be anywhere this app covers —
    never silently over a number that already says what it means. */
+/* A PASTED MAP LINK, read with no network at all.
+ *
+ * This is how a spot actually gets sent between two people on a phone, and the
+ * numbers are already in the text — so reading them here costs nothing and
+ * sends nothing. Google writes the point three different ways depending on how
+ * the link was made, Apple and OSM one each, and `geo:` is the plain one every
+ * phone understands.
+ *
+ * THE SHORTENED LINK IS THE HONEST FAILURE. A maps.app.goo.gl link carries no
+ * numbers whatever — it is a key to a row in somebody's table — so opening it
+ * means asking Google, which costs a request and does not work on a riverbank.
+ * `shortMapLink` exists so the app can say WHICH of those two happened rather
+ * than answering a paste with "nothing found". */
+var LINK_COORD = [
+  /* Google's place links carry the point twice; the !3d!4d pair is the exact
+     one and the @ is the centre of the picture, so the pair is read first. */
+  /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+  /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+  /[?&#](?:q|ll|sll|daddr|saddr|center|mlat)=(-?\d+(?:\.\d+)?)(?:,|%2C|&mlon=)\s*(-?\d+(?:\.\d+)?)/i,
+  /#map=\d+(?:\.\d+)?\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/,
+  /^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i
+];
+function linkCoord(text){
+  var t = String(text || '');
+  if (!/[:/?#]/.test(t)) return null;      /* not a link; the plain reader has it */
+  for (var i = 0; i < LINK_COORD.length; i++){
+    var m = LINK_COORD[i].exec(t);
+    if (!m) continue;
+    var lat = Number(m[1]), lon = Number(m[2]);
+    if (!isNum(lat) || !isNum(lon)) continue;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    return [lat, lon];
+  }
+  return null;
+}
+function shortMapLink(text){
+  return /(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.apple\.com\/p\/|bit\.ly|tinyurl)/i.test(String(text || ''));
+}
 function coordPlace(q){
+  var fromLink = linkCoord(q);
+  if (fromLink) return { name: coordText(fromLink[0], fromLink[1]), kind:'coord',
+    lat:fromLink[0], lon:fromLink[1], riverId: riverAt(fromLink[0], fromLink[1]),
+    extra:'from the link you pasted', key:'' };
   var t = String(q || '').trim()
     .replace(/[°′″’”"']/g, ' ')
     .replace(/[−–—]/g, '-')
@@ -5824,6 +5881,149 @@ function findPlaces(q, limit){
   return out.slice(0, limit || 12);
 }
 
+/* =====================================================================
+   LOOKING UP AN ADDRESS.
+
+   This is the one thing in this app that sends what somebody TYPED to a
+   third party, and it is arranged around that fact rather than around the
+   feature. Everything else here works with no signal; this cannot, and it is
+   the control a reader will reach for first.
+
+   THREE SEPARATE GATES, on purpose, and none of them is decoration.
+
+   It is OFF until switched on, in the About panel beside the sentence that
+   says what the app does with what you type. Somebody who never wants this
+   never sees it offered.
+
+   Switched on, it still sends NOTHING as you type. There is no lookup on a
+   keystroke and no lookup on an empty result: there is a button, and pressing
+   it sends that one query, once. Every send is a deliberate act.
+
+   And it goes through this app's own proxy rather than straight from the page.
+   That is forced anyway — the Census geocoder sends no CORS header, so a
+   browser cannot call it — but the consequence is worth saying out loud in the
+   copy: the address reaches the site's own edge before it reaches the Census
+   Bureau, and it is never cached anywhere on the way.
+
+   WHY THE CENSUS BUREAU AND NOT A BETTER ONE. It is a US government service:
+   free, no key, no account, no clause about what it may do with a query.
+   OpenStreetMap's own usage policy rules out pointing a public app at their
+   shared instance. The cost is that it matches STREET ADDRESSES and nothing
+   else — no businesses, no landmarks — so it will find a house and it will not
+   find a bait shop by name. The app says which rather than looking broken.
+   ===================================================================== */
+var GEOCODER = 'the US Census Bureau';
+function addressOn(){
+  if (state.addressOn === undefined){
+    var v = null;
+    try { v = Store.s.getItem('thalweg:_shared:addresslookup'); } catch (e) {}
+    state.addressOn = v === 'yes';
+  }
+  return !!state.addressOn;
+}
+function setAddressOn(on){
+  state.addressOn = !!on;
+  try { Store.s.setItem('thalweg:_shared:addresslookup', on ? 'yes' : 'no'); } catch (e) {}
+}
+function geocodeUrl(q){
+  if (!BATHY_PROXY) return null;
+  return BATHY_PROXY + '/geocode/geocoder/locations/onelineaddress' +
+    '?address=' + encodeURIComponent(q) +
+    '&benchmark=Public_AR_Current&format=json';
+}
+/* The reply, read defensively. A geocoder that answers with no match is a
+   normal answer and not an error, and the two say different things here. */
+function readMatches(data){
+  var r = (data && data.result) || {};
+  return (r.addressMatches || []).map(function(m){
+    var c = m.coordinates || {};
+    var lat = Number(c.y), lon = Number(c.x);
+    if (!isNum(lat) || !isNum(lon)) return null;
+    return { name: m.matchedAddress || 'an address', kind:'address',
+             lat:lat, lon:lon, riverId: riverAt(lat, lon),
+             extra:'matched by ' + GEOCODER, key:'' };
+  }).filter(Boolean);
+}
+function lookUpAddress(q){
+  var list = $('#findlist');
+  var url = geocodeUrl(q);
+  if (!url){
+    showFindNote('This build talks to the depth service directly rather than ' +
+      'through the site, and address lookup only goes the second way. Nothing ' +
+      'was sent.');
+    return;
+  }
+  showFindNote('Asking ' + GEOCODER + ' about “' + q + '”…');
+  announce('Looking that up.');
+  fetch(url, { headers:{ 'Accept':'application/json' } })
+    .then(function(res){
+      if (!res.ok) throw new Error('answered ' + res.status);
+      return res.json();
+    })
+    .then(function(data){
+      /* WHAT WAS TYPED CAN HAVE MOVED ON. A reply that lands after the reader
+         has typed something else must not replace what is on screen. */
+      var now = $('#findq');
+      if (!now || now.value !== q) return;
+      var hits = readMatches(data);
+      if (!hits.length){
+        showFindNote(GEOCODER + ' has no street address matching “' + q +
+          '”. Two different things cause that. It matches street addresses ' +
+          'ONLY — not businesses, not landmarks — so a place known by its ' +
+          'name will never be found this way. And its list of addresses is ' +
+          'not complete: a real house on a real street can be missing from ' +
+          'it. Check the number and the town, and if it still will not ' +
+          'match, put the map on the spot and keep it as a mark.');
+        announce('No address matched.');
+        return;
+      }
+      list.innerHTML = '';
+      list.hidden = false;
+      hits.forEach(function(p){ list.appendChild(findRow(p)); });
+      var note = el('div',{class:'fnone',
+        text:'Matched by ' + GEOCODER + '. It reads street addresses, so what ' +
+          'you get is the address, not the fishing.'});
+      list.appendChild(note);
+      announce(countWord(hits.length) + ' address' + (hits.length === 1 ? '' : 'es') + ' found.');
+    })
+    .catch(function(err){
+      /* A REFUSAL AND A DEAD SIGNAL ARE DIFFERENT FACTS and the reader is told
+         which. This app is used where there is no signal; "it did not work" is
+         the sentence that sends somebody looking for a fault that is not there. */
+      showFindNote(navigator.onLine === false
+        ? 'There is no signal, and this is the one thing here that needs one. ' +
+          'Everything else in Thalweg works without it.'
+        : GEOCODER + ' did not answer (' + err.message + '). Nothing about your ' +
+          'search was wrong; try again, or put the map on the spot and keep it ' +
+          'as a mark.');
+      announce('The address lookup did not answer.');
+    });
+}
+/* One place builds a result row, so an address and a gauge cannot drift into
+   looking like two different kinds of thing. */
+function findRow(p){
+  var b = el('button',{type:'button',
+    'aria-label':p.name + ', ' + PLACE_KINDS[p.kind] +
+      (p.extra ? ', ' + p.extra : '')});
+  b.appendChild(el('div',{text:p.name}));
+  var river = p.riverId ? byId(p.riverId) : null;
+  b.appendChild(el('div',{class:'fkind',
+    text:PLACE_KINDS[p.kind] + (river ? ' · ' + river.short : '') +
+      (p.extra ? ' · ' + p.extra : '')}));
+  b.addEventListener('click', function(){ goToPlace(p); });
+  return b;
+}
+/* The list showing a sentence instead of results — searching, refused, no
+   match. It keeps the list open, because closing it is how an answer gets
+   missed. */
+function showFindNote(text){
+  var list = $('#findlist');
+  if (!list) return;
+  list.innerHTML = '';
+  list.hidden = false;
+  list.appendChild(el('div',{class:'fnone', text:text}));
+}
+
 function renderFind(){
   var list = $('#findlist'), q = $('#findq');
   if (!list || !q) return;
@@ -5835,36 +6035,48 @@ function renderFind(){
   list.hidden = false;
   if (!hits.length){
     /* NOT A BARE "NOTHING FOUND". The commonest thing to type into a box on a
-       map is an address, and this cannot answer one — so it says which, rather
-       than letting somebody try three more spellings of their own street. */
+       map is an address, so the empty answer says what this searches, what it
+       will not do without being asked, and the two things that work with no
+       signal at all. */
     var none = el('div',{class:'fnone'});
     none.appendChild(el('div',{text:'Nothing here by that name.'}));
     none.appendChild(el('div',{style:'margin-top:.3rem',
       text:'This searches the gauges, tide stations, launches, public land, ' +
-        'Delta channels and your own marks that this app carries. It cannot ' +
-        'look up a street address \u2014 that would mean sending what you typed ' +
-        'to somebody else, and this app does not do that. Two things work ' +
-        'instead. Type a position and it will go there: 38.1533, -121.6870, or ' +
-        '38 09 12 N 121 41 13 W. Or put the map on the spot and keep it as a ' +
-        'mark \u2014 tap the map, or use Add at map centre on the Marks tab. ' +
-        'A named mark is findable here afterwards, and it is the only thing ' +
-        'in this list that is yours.'}));
+        'Delta channels and your own marks that this app carries. Two things ' +
+        'work with no signal. Type a position and it will go there: ' +
+        '38.1533, -121.6870, or 38 09 12 N 121 41 13 W \u2014 and a map link ' +
+        'somebody sent you works too, because the numbers are already in it. ' +
+        'Or put the map on the spot and keep it as a mark \u2014 tap the map, ' +
+        'or use Add at map centre on the Marks tab. A named mark is findable ' +
+        'here afterwards, and it is the only thing in this list that is yours.'}));
+    /* A SHORT MAP LINK IS A DIFFERENT FAILURE and saying so saves somebody
+       deciding the paste did not work. It carries no numbers at all — it is a
+       key to a row in somebody else's table — so reading it means asking them. */
+    if (shortMapLink(text))
+      none.appendChild(el('div',{style:'margin-top:.3rem',
+        text:'That is a shortened map link, and there is no position inside it ' +
+          '\u2014 only a code that Google can look up. Open it in your map app ' +
+          'and share the full link, or read the numbers off it and type them here.'}));
+    if (addressOn()){
+      var ask = el('button',{type:'button', class:'findask',
+        'aria-label':'Look up \u201c' + text + '\u201d as a street address with ' +
+          GEOCODER});
+      ask.appendChild(el('div',{text:'Look this up as a street address'}));
+      ask.appendChild(el('div',{class:'fkind',
+        text:'sends \u201c' + text + '\u201d to ' + GEOCODER + ', through this site'}));
+      ask.addEventListener('click', function(){ lookUpAddress(text); });
+      none.appendChild(ask);
+    } else {
+      none.appendChild(el('div',{style:'margin-top:.3rem',
+        text:'Address lookup is switched off. It is the one thing here that ' +
+          'would send what you typed to somebody else, so it stays off until ' +
+          'you turn it on \u2014 the \u24d8 button, under What it will not do.'}));
+    }
     list.appendChild(none);
     announce('Nothing found by that name.');
     return;
   }
-  hits.forEach(function(p){
-    var b = el('button',{type:'button', role:'option',
-      'aria-label':p.name + ', ' + PLACE_KINDS[p.kind] +
-        (p.extra ? ', ' + p.extra : '')});
-    b.appendChild(el('div',{text:p.name}));
-    var river = p.riverId ? byId(p.riverId) : null;
-    b.appendChild(el('div',{class:'fkind',
-      text:PLACE_KINDS[p.kind] + (river ? ' \u00b7 ' + river.short : '') +
-        (p.extra ? ' \u00b7 ' + p.extra : '')}));
-    b.addEventListener('click', function(){ goToPlace(p); });
-    list.appendChild(b);
-  });
+  hits.forEach(function(p){ list.appendChild(findRow(p)); });
   announce(countWord(hits.length) + ' place' + (hits.length === 1 ? '' : 's') + ' found.');
 }
 
@@ -10714,6 +10926,15 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.16.0', date:'2026-09-02', changes:[
+      'A map link somebody sent you works in the search box. Paste it and the app goes there \u2014 Google, Apple, OpenStreetMap, or a plain geo: link, whichever way it was made. Nothing is sent to anybody to do it: the position is already sitting inside the link, so this reads it on your own phone.',
+      'And it can look up a street address, if you switch that on. It is off to begin with \u2014 the \u24d8 button, under What it will not do. Switched on it still sends nothing while you type: when a search finds nothing, a button appears saying exactly what it would send and to whom, and only pressing that sends it. One press, one search, every time.',
+      'Who gets asked is the US Census Bureau, whose address finder is free, wants no account and makes no claim on what you ask it. The question goes through this site rather than straight out of your browser, and it is not kept anywhere along the way. It matches street addresses and nothing else \u2014 it will find a house and it will not find a bait shop by name \u2014 and the app says which of those happened rather than looking broken.',
+  ], broken:[
+      'Address lookup is the one thing in Thalweg that needs a signal. Everything else here works on a bank with no bars, and this cannot. When there is nothing to ask, it says so rather than failing quietly.',
+      'The Census list of addresses is not complete. A real house on a real street can be missing from it, and nothing this app does can change that. Typing the position, or putting the map on the spot and keeping it as a mark, both still work and neither needs anybody else.',
+      'A shortened map link cannot be read \u2014 the maps.app.goo.gl kind. There is no position inside one, only a code that Google can look up, so reading it would mean asking them. Share the full link instead, or read the numbers off it.',
+  ] },
   { v:'2.15.0', date:'2026-09-02', changes:[
       'You can look a place up. There is a box above everything now: type Freeport, Garcia Bend, Georgiana Slough, or the name you gave one of your own marks, and press the answer to go there. It knows the gauges, the tide stations, the launches, the public land, the Delta\u2019s named channels and your marks \u2014 several hundred named places on this water \u2014 and pressing one switches to the river it belongs to as well as moving the map.',
       'It works with no signal. A gauge\u2019s name and where it sits used to arrive only with a live reading, so searching for Freeport worked on a good connection and found nothing on a riverbank \u2014 which is the condition this app is built for. Both now travel with the app, taken once from USGS and not typed by hand.',
@@ -11104,6 +11325,32 @@ var INSTALL = [
   { id:'desktop', label:'On a computer, in Chrome or Edge',
     how:'Click the install icon at the right-hand end of the address bar.' }
 ];
+/* The switch, beside the sentence that says what it changes. A control that
+   alters what leaves the device belongs where the promise about that is
+   written, not tucked into a settings list somebody has to go looking for. */
+function addressSwitch(){
+  var row = el('div',{class:'rowline'});
+  var b = el('button',{type:'button'});
+  function paint(){
+    var on = addressOn();
+    b.textContent = on ? 'Turn address lookup off' : 'Turn address lookup on';
+    b.setAttribute('aria-label', on
+      ? 'Turn address lookup off. It is on: a button is offered when a search finds nothing.'
+      : 'Turn address lookup on. It is off: nothing you type is ever sent anywhere.');
+  }
+  b.addEventListener('click', function(){
+    setAddressOn(!addressOn());
+    paint();
+    announce(addressOn()
+      ? 'Address lookup is on. Nothing is sent until you press the button a search offers you.'
+      : 'Address lookup is off. Nothing you type leaves this device.');
+    renderFind();
+  });
+  paint();
+  row.appendChild(b);
+  return row;
+}
+
 function installList(){
   var here = platformGuess();
   var ul = el('ul',{class:'tight'});
@@ -11160,7 +11407,9 @@ function renderAbout(){
   h('What it will not do');
   para('It will not tell you where fish are being caught. There is no live catch feed for these rivers, so there is nothing honest to show, and a made-up one would be worse than nothing. No bite forecast, no spot predictor, and none is coming.');
   para('It is not a navigation aid. The depth surveys come from the state, whose own notes say they are not for navigating by, and that restriction travels with them.');
-  para('It will not look up a street address. The box at the top finds the places this app already carries \u2014 the gauges, the tide stations, the launches, the public land, the Delta\u2019s named channels and your own marks \u2014 and a position typed straight in, which is the way to a spot with no name on any map. It will not find a house, a street or a business, because looking one up means sending what you typed to a company whose business that is, and this app sends nothing anywhere. For a place you fish that no map names, put the map on it and keep it as a mark; a named mark is findable afterwards.');
+  para('It will not look up a street address unless you switch that on, and it is off to begin with. The box at the top finds the places this app already carries \u2014 the gauges, the tide stations, the launches, the public land, the Delta\u2019s named channels and your own marks \u2014 along with a position typed straight in and the numbers inside a map link somebody sent you. All of that happens on this device and none of it goes anywhere.');
+  para('Switched on, address lookup still sends nothing as you type. When a search finds nothing, a button appears; pressing it sends that one search to ' + GEOCODER + '\u2019s geocoder, and only then. It goes through this site rather than straight from the page, and it is not kept anywhere on the way \u2014 not by this app, not at the edge it passes through. ' + initialCap(GEOCODER) + ' matches street addresses and nothing else, so it will find a house and it will not find a business or a landmark by name. It is also the one thing in Thalweg that needs a signal.');
+  b.appendChild(addressSwitch());
   para('It does not want an account, cannot be logged in to, and carries no analytics, no tracking and no third-party code of any kind. Your marks live on your device and are sent nowhere.');
   para('Where I am, on the map, is the same, with one honest caveat. The button asks your browser, your browser asks you once, and the answer is drawn and then forgotten: it is not saved between visits, and your coordinate is not sent to this app\u2019s servers, to the depth service, or to anyone else. The caveat is that moving the map to you makes it load map tiles for that area, so whoever serves the basemap can tell roughly where you are looking \u2014 to about the size of a tile, a couple of kilometres at that zoom. That is the same thing that happens if you scroll there by hand, and it is a property of every map you have ever used; it is written here because it is true, not because it is unusual. The one thing that sends your exact coordinate anywhere is asking how deep it is at a point, and that only happens when you tap the map yourself.');
 

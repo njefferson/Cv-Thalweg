@@ -553,6 +553,40 @@ check('the biggest tide NOAA predicts falls near a new or a full moon',
   syzygy && !syzygy.noWindow && syzygy.days <= 3.5,
   JSON.stringify(syzygy));
 
+/* --- LOOKING UP AN ADDRESS, against the real geocoder ---------------------
+   This is the only thing in the app that sends what somebody TYPED anywhere,
+   so it is proved end to end rather than against a stub: through this site's
+   own proxy — the Census geocoder sends no CORS header, so a page cannot
+   reach it any other way — to the real service and back as a position.
+
+   The address is a public building, deliberately. Nothing about a person is
+   typed into a test that runs on every push. */
+{
+  await page.evaluate(() => { setAddressOn(true); });
+  const got = await page.evaluate(async () => {
+    const url = geocodeUrl('1315 10th St, Sacramento, CA');
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return { status: res.status };
+    const hits = readMatches(await res.json());
+    return { status: res.status, n: hits.length, first: hits[0] || null,
+             cache: res.headers.get('cache-control') };
+  });
+  check('the address lookup reaches the geocoder through this site',
+    got.status === 200, JSON.stringify(got));
+  check('and a real street address comes back as a position',
+    got.n >= 1 && got.first && Math.abs(got.first.lat - 38.58) < 0.1 &&
+    Math.abs(got.first.lon + 121.49) < 0.1,
+    JSON.stringify(got.first));
+  check('and the address it matched is named back, not just plotted',
+    got.first && /10TH ST/i.test(got.first.name), JSON.stringify(got.first));
+  /* A TYPED ADDRESS MUST NOT SIT IN AN EDGE CACHE. Every other thing this
+     proxy forwards is a question about a river; this one is usually where
+     somebody lives, and no-store is the rule that keeps it out. */
+  check('and nothing along the way is allowed to keep it',
+    /no-store/.test(got.cache || ''), got.cache);
+  await page.evaluate(() => { setAddressOn(false); });
+}
+
 check('no page errors anywhere', errs.length === 0, errs.join(' | '));
 console.log(`\nlanding cost ${(relayed.boot / 1024).toFixed(0)}KB; whole run ` +
   `${(relayed.bytes / 1024 / 1024).toFixed(1)}MB`);
