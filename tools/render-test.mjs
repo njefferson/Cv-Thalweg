@@ -2421,6 +2421,51 @@ check('nothing on that screen is written at the developer',
   news.items.join(' ').slice(0, 200));
 await page.evaluate(() => document.getElementById('whatsnew').close());
 
+/* --- A TAB IS NOT A PANEL --------------------------------------------------
+   The Tide tab was added to `tabNames()`, which decides which tabs EXIST, and
+   not to the list inside `selectTab` that shows and hides the panels. Two
+   statements of one fact in two places. Pressing Tide hid Water and showed
+   nothing: the tab lit up and the screen went blank.
+
+   EVERY SUITE WAS GREEN. The walk clicked the tab and audited whatever was
+   visible; the checks that read the tide panel query the DOM directly, where a
+   hidden element answers exactly as well as a shown one. Nothing anywhere
+   asserted that pressing a tab SHOWS THE PANEL IT NAMES — so nothing could
+   have caught it, and the next tab added would have gone the same way.
+
+   This walks whatever `tabNames()` offers, so it covers the tabs that exist
+   today and the ones that do not exist yet. */
+const tabs = await page.evaluate(async () => {
+  const out = [];
+  for (const n of tabNames()) {
+    document.getElementById('tab-' + n).click();
+    await new Promise(r => setTimeout(r, 120));
+    const panel = document.getElementById('panel-' + n);
+    const others = tabNames().filter(x => x !== n && x !== 'map')
+      .filter(x => !document.getElementById('panel-' + x).hidden);
+    out.push({
+      tab: n,
+      shown: panel ? !panel.hidden : false,
+      /* And it has something in it. A panel that is shown and empty is the
+         same blank screen from the reader's side. */
+      filled: panel ? panel.textContent.trim().length > 20 : false,
+      selected: document.getElementById('tab-' + n).getAttribute('aria-selected') === 'true',
+      othersShowing: others
+    });
+  }
+  return out;
+});
+tabs.forEach(t => {
+  check('pressing ' + t.tab + ' shows the ' + t.tab + ' panel', t.shown, JSON.stringify(t));
+  check('and it has something in it', t.filled, JSON.stringify(t));
+  check('and the tab says it is the one selected', t.selected, JSON.stringify(t));
+});
+/* Exactly one at a time. The map is exempt: above the breakpoint it is a
+   column of the layout rather than a panel behind a tab. */
+check('only one panel is showing at a time',
+  tabs.every(t => t.othersShowing.length === 0),
+  JSON.stringify(tabs.filter(t => t.othersShowing.length)));
+
 /* --- THE PANELS HAVE A PROSE BUDGET, AND IT IS MEASURED ON THE SURFACE ------
    Water carried the tide, the moon, the tide along the river, the gauges, the
    weirs and a week of history: 3.9 screens on a LAPTOP, so the reading a person

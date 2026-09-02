@@ -15,8 +15,8 @@ session needs before it touches anything.
   the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
   it on the same day.
 - **2.13.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02.
-- Staged candidate: **2.14.0** — the choice about the river bars, at the top,
-  saying what it reveals. 2.13.1 is behind it.
+- Staged candidate: **2.14.1** — the Tide tab actually opens the Tide panel.
+  2.13.1 and 2.14.0 are behind it.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1314,6 +1314,38 @@ iPad mini: band shown but squeezed at rowH 41 against a natural 51, so the
 sideways button is offered and the inline one is not — there is nothing to
 reveal, only a better size. Desktop at rowH 62: the whole box is absent, because
 a control that changes nothing is clutter.
+
+
+## The Tide tab lit up and showed nothing, and every suite was green
+
+`tabNames()` decides which tabs EXIST. A hardcoded array inside `selectTab`
+decided which panels get shown and hidden. **Two statements of one fact in two
+places**, and Tide went into the first and not the second — so pressing it hid
+Water, unhid nothing, and left a blank screen under a highlighted tab.
+Reported from a device.
+
+**THE PART THAT MATTERS IS WHY NOTHING CAUGHT IT.** Every suite passed:
+
+- The accessibility walk clicks `#tab-tide` and then audits — and `audit` looks
+  at whatever is on the screen. A blank panel has no violations.
+- Every check that reads the tide panel queries the DOM directly:
+  `document.querySelector('#panel-tide …')`. **A hidden element answers exactly
+  as well as a shown one**, so all of them passed against a panel nobody could
+  see.
+- The prose budget, the moon, the figure geometry, the tide-along picture — all
+  measured content that was correct, present, and invisible.
+
+**Nothing anywhere asserted that pressing a tab shows the panel it names.** That
+is the whole defect: not a missing entry in an array, which is a typo, but a
+class of failure the suites had no instrument for. The next tab added would have
+gone the same way.
+
+So there are two fixes and the second is the real one. `ALL_TABS` is the single
+list and `selectTab` derives from it. And the rendering suite now walks whatever
+`tabNames()` offers, pressing each tab and asserting the panel is shown, has
+something in it, reports itself selected, and is the only one showing — so it
+covers the tabs that exist today and the ones that do not exist yet. Planted
+back, it reads `pressing tide shows the tide panel — {"shown":false}`.
 
 
 ## Scratch

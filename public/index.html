@@ -889,7 +889,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.14.0';
+var VERSION = '2.14.1';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -6765,6 +6765,11 @@ function announce(msg){
  */
 var narrowMQ = window.matchMedia('(max-width:900px)');
 
+/* THE PANELS THAT EXIST. `tabNames()` picks which of them are offered on this
+   screen and for this river; this is the full set, and everything that has to
+   walk all of them reads it rather than restating it. */
+var ALL_TABS = ['water','map','tide','layers','marks','brief'];
+
 function tabNames(){
   var names = ['water','layers','marks','brief'];
   /* The tide only exists where there is one, and only once a river is chosen.
@@ -6778,7 +6783,7 @@ function tabEl(name){ return document.getElementById('tab-' + name); }
 function panelEl(name){ return document.getElementById('panel-' + name); }
 
 function initTabs(){
-  ['water','map','tide','layers','marks','brief'].forEach(function(name){
+  ALL_TABS.forEach(function(name){
     var tab = tabEl(name);
     tab.addEventListener('click', function(){ selectTab(name); });
     tab.addEventListener('keydown', function(e){
@@ -6808,7 +6813,20 @@ function selectTab(name){
   var names = tabNames();
   if (names.indexOf(name) === -1) name = 'water';
   state.tab = name;
-  ['water','map','layers','marks','brief'].forEach(function(n){
+  /* EVERY PANEL THIS APP HAS, AND THE LIST IS THE DEFECT WAITING TO HAPPEN.
+
+     `tabNames()` decides which tabs EXIST; this list decides which panels get
+     shown and hidden. They are two statements of the same fact in two places,
+     and when Tide was added to the first and not the second, pressing Tide hid
+     Water and showed nothing — the tab lit up and the screen went blank.
+     Reported from a device, and every suite was green: the walk clicked the
+     tab and audited whatever was visible, and the checks that read the tide
+     panel query the DOM directly, where a hidden element answers just as well
+     as a shown one. NOTHING ASSERTED THAT PRESSING A TAB SHOWS THE PANEL IT
+     NAMES, so nothing could have caught it.
+
+     It is derived now rather than typed, so the two cannot disagree again. */
+  ALL_TABS.forEach(function(n){
     var tab = tabEl(n), panel = panelEl(n);
     var live = names.indexOf(n) !== -1;
     var on = live && n === name;
@@ -6839,6 +6857,7 @@ function selectTab(name){
     setTimeout(mapBecameVisible, 60);
   }
   if (name === 'water')  drawTrendLines();
+  if (name === 'tide')   renderTide();
   if (name === 'layers') renderLayers();
   if (name === 'marks')  renderMarks();
   if (name === 'brief')  renderBrief();
@@ -10274,6 +10293,10 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.14.1', date:'2026-09-02', changes:[
+      'The Tide tab works. It was added to the list that decides which tabs EXIST and not to the one that shows and hides the panels, so pressing it hid Water and showed nothing \u2014 the tab lit up and the screen went blank. There is one list now, so the two cannot disagree again.',
+      'And nothing anywhere was checking that pressing a tab shows the panel it names, which is why every test was green while the tab was dead. That check exists now, and it walks whatever tabs the app offers rather than a list written beside it, so the next tab added is covered before it is built.',
+  ], broken:[] },
   { v:'2.14.0', date:'2026-09-02', changes:[
       'The choice about the river bars is at the top of the page now, where the bars would have been. It was at the BOTTOM, under every river card \u2014 below pages of data, with a button reading \u201cSee all five sideways\u201d that said nothing about what it would reveal. A thing that explains an absence has to sit where the absence is.',
       'And it is a choice rather than one way out. You can turn them sideways at full size, or show them here small and scroll \u2014 which the app used to decide for you. Whether a scrolled band beats no band is a matter of taste and it was not the app\u2019s to settle; all-or-nothing was the right default and the wrong law.',
