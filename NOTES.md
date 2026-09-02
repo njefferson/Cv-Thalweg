@@ -25,13 +25,22 @@ session needs before it touches anything.
   channels and the reader's own marks, plus a position typed in. It works with
   no signal, because the gauge names and positions now travel with the app
   rather than arriving with a live reading.
-- Staged candidate: **2.16.0** — a pasted map link is read on the device, and
-  address lookup exists behind a switch that is off to begin with. The Census
-  Bureau's address finder is reached through this site's own proxy, because it
-  sends no cross-origin header at all and because a typed address should not sit
-  in an edge cache — the rule for it is `no-store`, the same as a gauge reading.
-  Switched on, nothing is sent while typing: a search that finds nothing offers
-  a button, and only that button sends.
+- **2.16.0 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-02. A
+  pasted map link is read on the device, and address lookup exists behind a
+  switch that is off to begin with. The Census Bureau's address finder is
+  reached through this site's own proxy, because it sends no cross-origin
+  header at all and because a typed address should not sit in an edge cache —
+  the rule for it is `no-store`, the same as a gauge reading. Switched on,
+  nothing is sent while typing: a search that finds nothing offers a button,
+  and only that button sends.
+  Verified at the address rather than from the push: the page and the service
+  worker both serve 2.16.0, the deployed page is byte-identical to
+  `main:public/index.html`, the geocode path answers 200 with `no-store` and
+  `x-thalweg-proxy: address` through the real Pages Function, and the
+  `geographies` path is refused 403 there. The stored preference reads false
+  with nothing stored, and `lookUpAddress` has exactly one call site in the
+  deployed file — the offer button.
+- No staged candidate.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
