@@ -3099,6 +3099,128 @@ check('and offers to show it, keep it, or let it go',
   held.buttons.some(b => /Keep it as a mark/.test(b)) &&
   held.buttons.some(b => /Let it go/.test(b)), JSON.stringify(held.buttons));
 
+/* A LINE THROUGH A GAP IS A MEASUREMENT NOBODY MADE, and the width had been
+   drawing one. Kept only the measured samples, the series ran straight from
+   the last width before a refusal to the first after it — across a confluence,
+   or across a whole reach USGS maps as a line rather than an area — at a slope
+   that reads exactly like data. The depth bands have refused to do this since
+   they were built; this asserts the same rule for the other dimension.
+
+   The refusals are INJECTED rather than hunted for: on the Sacramento's
+   surveyed run every sample happens to carry a width, so the branch that
+   matters would never run against the real file. What is being tested is the
+   drawing's response to a gap, and a gap is a gap wherever it came from. */
+const gapped = await page.evaluate(() => {
+  const before = state.profile.widths.slice();
+  state.profShow = 'width';
+  const w = state.profile.widths;
+  const cut = Math.floor(w.length / 2);
+  /* Three consecutive refusals in the middle, which is what a confluence
+     looks like in the baked file. */
+  for (let i = cut; i < cut + 3 && i < w.length; i++) w[i] = { along: w[i].along, m: null };
+  renderProfile();
+  const svg = document.getElementById('profsvg');
+  const out = {
+    runs: svg.querySelectorAll('path[stroke="#8FD9B4"]').length,
+    dashed: svg.querySelectorAll('line[stroke-dasharray]').length,
+    note: document.getElementById('profnote').textContent
+  };
+  state.profile.widths = before;
+  renderProfile();
+  return out;
+});
+check('a gap in the width breaks the line rather than being drawn through',
+  gapped.runs === 2, JSON.stringify({ runs: gapped.runs }));
+/* A BREAK ON ITS OWN READS AS NOTHING. On the upper reaches most samples
+   refuse, and a reader seeing a few short strokes with no explanation would
+   reasonably conclude the app is broken rather than that USGS maps the river
+   there as a line. */
+check('and the gap is marked on the drawing, not merely left blank',
+  gapped.dashed >= 1, JSON.stringify({ dashed: gapped.dashed }));
+check('and the words under it say what a dotted stretch means',
+  /dotted/.test(gapped.note) && /no width to give/.test(gapped.note),
+  gapped.note.slice(0, 300));
+
+/* --- THE AXIS WAS NINE PER CENT OF THE RIVER AND SAID NOTHING ---------------
+   The down-river profile draws `surveyedRun(line)` and always has, because the
+   depth is what it was built for. The width has no such limit — it is baked for
+   the whole course — so a reader in a width view was looking at 31 km of 579
+   with nothing on the screen saying so. Two fixes were rejected before this
+   one: making the extent follow the VIEW puts two pictures under one control
+   and leaves "Depth and width" with no honest answer, and always drawing the
+   whole course puts the depth in the left tenth of the chart to fix a view most
+   readers will not open. */
+const clipped = await page.evaluate(() => {
+  state.profShow = 'both';
+  renderProfile();
+  return {
+    note: document.getElementById('profnote').textContent,
+    buttons: [...document.querySelectorAll('#profviews button')].map(b => b.textContent),
+    shownKm: Math.round((state.profile.length || 0) / 1000)
+  };
+});
+check('a clipped width axis says what fraction of the river it is',
+  /the state has surveyed, of the river/.test(clipped.note), clipped.note.slice(-260));
+check('and offers the whole course beside it',
+  clipped.buttons.includes('Whole river'), JSON.stringify(clipped.buttons));
+
+/* IT ASKS NO SERVICE ANYTHING. The widths are baked, so the whole course costs
+   a redraw — which is the only reason it can be offered at all, and the reason
+   it carries no depth. */
+const course = await page.evaluate(() => {
+  const before = (state.profile.widths || []).length;
+  widthWholeCourse(byId(state.riverId));
+  const svg = document.getElementById('profsvg');
+  const w = state.profile.widths || [];
+  return {
+    before, samples: w.length, measured: w.filter(p => p.m !== null).length,
+    km: Math.round((state.profile.length || 0) / 1000),
+    runs: svg.querySelectorAll('path[stroke="#8FD9B4"]').length,
+    dashed: svg.querySelectorAll('line[stroke-dasharray]').length,
+    note: document.getElementById('profnote').textContent,
+    /* The button is gone once you are on it: a control that redraws the picture
+       you are already looking at is worse than none. */
+    buttons: [...document.querySelectorAll('#profviews button')].map(b => b.textContent)
+  };
+});
+check('the whole course covers far more river than the surveyed run',
+  course.samples > course.before * 3 && course.km > 200,
+  JSON.stringify({ before: course.before, now: course.samples, km: course.km }));
+check('and it is drawn in pieces, with the breaks marked',
+  course.runs > 1 && course.dashed >= 1,
+  JSON.stringify({ runs: course.runs, dashed: course.dashed }));
+check('and the words say it is the whole course, not the surveyed stretch',
+  /whole .* of the river\u2019s own course/.test(course.note), course.note.slice(0, 200));
+/* AND PRESSING DEPTH ON IT EXPLAINS ITSELF rather than falling through to the
+   message about a survey that measured nothing, which is what it did before
+   this case was given its own sentence. */
+check('and asking for the depth on it says why there is none, and where to get it',
+  await page.evaluate(() => {
+    state.profShow = 'depth';
+    renderProfile();
+    const t = document.getElementById('profnote').textContent;
+    return /no depth on it/.test(t) && /Profile down the river itself/.test(t) &&
+      !/measured nothing along it/.test(t);
+  }),
+  await page.evaluate(() => document.getElementById('profnote').textContent.slice(0, 240)));
+check('and it no longer offers the course you are already looking at',
+  !course.buttons.includes('Whole river'), JSON.stringify(course.buttons));
+/* A VIEW THAT SHOWS A WIDTH MUST DRAW ONE. "Depth and width" on a line with no
+   depth is still a request for the width, and the first version of this
+   returned early there and showed the reader an explanation where they had
+   pressed for a picture. */
+check('and Depth and width still draws the width where there is no depth',
+  await page.evaluate(() => {
+    state.profShow = 'both';
+    renderProfile();
+    return document.getElementById('profsvg')
+      .querySelectorAll('path[stroke="#8FD9B4"]').length > 1;
+  }));
+/* Back to the surveyed run, so what follows is measured against the picture
+   the rest of this suite built. */
+await page.evaluate(() => { state.profShow = 'depth'; profileRiverLine(byId(state.riverId)); });
+await page.waitForTimeout(4000);
+
 /* --- THE DRAWING SURVIVES ITS OWN COMMENTARY -------------------------------
    Holding a point fills `#profheld` with four paragraphs and two buttons. The
    section has a fixed height, and with the drawing on `flex:1 1 auto;

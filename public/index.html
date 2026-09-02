@@ -816,7 +816,7 @@ dialog::backdrop{background:rgba(4,9,10,.8)}
    infrastructure one tile at a time. The Layers panel says so if you do. */
 var BATHY_PROXY = '/bathy';
 
-var VERSION = '2.11.1';
+var VERSION = '2.12.0';
 
 /* Provenance. Every fact carried by this app declares where it came from,
    and the UI renders the three weaker kinds differently from the strong one.
@@ -8428,9 +8428,16 @@ function widthAlong(river, pts){
   if (!river || !pts || pts.length < 2) return [];
   var line = riverLineFor(river.id);
   if (!line) return [];
+  /* THE REFUSALS COME THROUGH TOO, AND DROPPING THEM WAS A DEFECT. The first
+     version kept only the measured samples, so the chart drew ONE line from
+     the last width before a gap to the first width after it — a straight run
+     across a confluence, or across a whole reach USGS maps as a line rather
+     than an area, stated as if it had been measured. That is precisely what
+     the depth bands already refuse to do, three hundred lines above: "a line
+     drawn straight across a gap invents a bottom between two places nobody
+     measured." A width is no different. */
   var out = [];
   widthsFor(river).forEach(function(sample){
-    if (sample.m === null) return;
     var p = line[sample.i];
     if (!p) return;
     var pr = projectOnLine(pts, p[0], p[1]);
@@ -8442,6 +8449,12 @@ function widthAlong(river, pts){
   });
   out.sort(function(a, b){ return a.along - b.along; });
   return out;
+}
+/* The ones that carry a number. Everything that asks "is there a width here"
+   means these, and counting the refusals among them would offer a reader a
+   view of nothing. */
+function widthsMeasured(list){
+  return (list || []).filter(function(p){ return p.m !== null; });
 }
 /* Three states rather than a checkbox, because "width only" is a real way to
    read this: a reader looking for a narrows does not want the bed in the way.
@@ -8461,7 +8474,7 @@ function profView(){
   /* AND IT FALLS BACK WHERE THERE IS NO WIDTH. The buttons are only offered
      when a width exists, so a default of "both" on a line with none would
      leave the reader in a view they were never shown a way out of. */
-  var have = state.profile && state.profile.widths && state.profile.widths.length > 1;
+  var have = state.profile && widthsMeasured(state.profile.widths).length > 1;
   if (!have && want !== 'depth') want = 'depth';
   return PROF_VIEWS.filter(function(v){ return v.id === want; })[0] || PROF_VIEWS[0];
 }
@@ -8472,7 +8485,7 @@ function renderProfViews(){
   var host = $('#profviews');
   if (!host) return;
   host.innerHTML = '';
-  var have = state.profile && state.profile.widths && state.profile.widths.length > 1;
+  var have = state.profile && widthsMeasured(state.profile.widths).length > 1;
   PROF_VIEWS.forEach(function(v){
     /* THE WIDTH VIEWS ARE NOT OFFERED WHERE THERE IS NO WIDTH. A button that
        switches to an empty picture teaches the reader the feature is broken. */
@@ -8488,7 +8501,27 @@ function renderProfViews(){
     host.appendChild(b);
   });
   /* One button on its own is not a choice; it is furniture. */
-  if (!have) host.innerHTML = '';
+  if (!have) { host.innerHTML = ''; return; }
+
+  /* AND THE WAY OUT OF A CLIPPED AXIS. Offered only in a width view, only on a
+     down-river profile, and only when there is meaningfully more river than
+     the surveyed run — a button that redraws the same picture is worse than no
+     button. It asks nothing of any service: the widths are baked. */
+  if (profView().id !== 'depth' && state.profWhole && state.profWhole.of && state.riverId){
+    var line = riverLineFor(state.riverId);
+    var full = line ? courseLength(line) : 0;
+    var shown = (state.profile && state.profile.length) || 0;
+    if (full > shown * 1.15){
+      var whole = el('button',{type:'button', text:'Whole river',
+        'aria-label':'Draw the width of the whole river, all ' +
+          Math.round(full / 1000) + ' kilometres of it \u2014 there is no depth on that one' });
+      whole.addEventListener('click', function(){
+        var r = byId(state.riverId);
+        if (r) widthWholeCourse(r);
+      });
+      host.appendChild(whole);
+    }
+  }
 }
 
 function renderProfile(){
@@ -8572,9 +8605,21 @@ function renderProfile(){
      no-depth return is skipped when the reader has asked for the width and
      there is a width to show — which is the whole reason "Width" is its own
      view rather than a tick beside the depth. */
-  var wOnly = view.id === 'width' && m.widths && m.widths.length > 1;
-  if ((m.none || !isNum(m.deepest)) && !wOnly){
-    var why = m.none === 'nocatalog'
+  /* NO DEPTH ON THIS LINE, whether because nothing was surveyed or because the
+     reader asked for the whole course, which carries none by design. */
+  var noDepth = !!m.none || !isNum(m.deepest);
+  /* ANY VIEW THAT SHOWS A WIDTH, not just the Width one. "Depth and width" on
+     a line with no depth is still a request for the width, and returning early
+     there showed the reader an explanation where they had pressed for a
+     picture — which is what the whole-course button did on its first run. */
+  var wOnly = view.id !== 'depth' && widthsMeasured(m.widths).length > 1;
+  /* And where there is no depth to share the box with, the width takes the
+     whole of it rather than hanging in the top four-tenths of an empty frame. */
+  var wFull = view.id === 'width' || noDepth;
+  if (noDepth && !wOnly){
+    var why = m.none === 'wholecourse'
+      ? 'This is the whole river, drawn for its width. There is no depth on it: the state has sounded a few short reaches of this course, and asking for soundings along the whole of it would be a large download for a line that is almost all unmeasured. Press \u201cProfile down the river itself\u201d in Layers for the stretch that has been surveyed.'
+      : m.none === 'nocatalog'
       ? 'The survey directory has not arrived, so this cannot be answered yet \u2014 which is not the same as there being no survey here.'
       : m.none === 'nowhere'
         ? 'No published survey covers this line. Draw one over water the state has actually measured, and the Depth panel lists which reaches those are.'
@@ -8651,31 +8696,76 @@ function renderProfile(){
      sharing an axis would invite reading one as the other. Mint, which is not
      a colour any depth band or map pin uses. */
   var widthPts = view.id === 'depth' ? [] : (m.widths || []);
-  if (widthPts.length > 1){
+  var widthGot = widthsMeasured(widthPts);
+  /* Counted as DRAWN rather than as refused. 155 refused samples on this course
+     become a handful of visible stretches, because most of them are
+     consecutive — and a sentence saying "155 places" beside two dotted lines
+     is the words and the picture disagreeing in front of the reader. */
+  var gapsDrawn = 0, wruns = null;
+  if (widthGot.length > 1){
     var wMax = 0;
-    widthPts.forEach(function(p){ if (p.m > wMax) wMax = p.m; });
+    widthGot.forEach(function(p){ if (p.m > wMax) wMax = p.m; });
     wMax = wMax * 1.12 + 5;
     /* In width-only mode the series owns the picture and reads upward from the
        foot, which is what a width looks like. Shown with the depth it hangs
        from the top on its own scale, so the two never touch. */
-    var wy = view.id === 'width'
+    var wy = wFull
       ? function(v){ return (H - padB) - (v / wMax) * (H - padT - padB); }
       : function(v){ return padT + (1 - v / wMax) * (H - padT - padB) * 0.42; };
-    var wd = widthPts.map(function(p){ return x(p.along).toFixed(1) + ',' + wy(p.m).toFixed(1); });
-    svg.appendChild(node('path', { fill:'none', stroke:'#8FD9B4', 'stroke-width':1.8,
-      'stroke-linejoin':'round', d:'M' + wd.join(' L') }));
+
+    /* RUNS, SPLIT WHERE USGS PUBLISHED NOTHING — and the split is the point.
+       Drawn as one path the line ran straight from the last width before a
+       gap to the first width after it, across a confluence or across a whole
+       reach that is mapped as a line rather than an area, at a slope that
+       looked like a measurement. The depth bands have refused to do that since
+       they were built; this is the same rule for the other dimension. */
+    wruns = []; var wrun = [];
+    gapsDrawn = 0;
+    widthPts.forEach(function(p){
+      if (p.m !== null) wrun.push(p);
+      else if (wrun.length){ wruns.push(wrun); wrun = []; }
+    });
+    if (wrun.length) wruns.push(wrun);
+
+    /* AND THE GAPS ARE DRAWN RATHER THAN LEFT BLANK. A break in a line reads
+       as "nothing here" only to somebody who already knows the line is
+       continuous elsewhere; on the upper reaches, where most samples refuse,
+       the reader would see a few short strokes and no reason for them. Each
+       gap gets a dotted rule at the foot of the width band, which says there
+       is river here and no width for it. */
+    var gapY = wFull ? (H - padB) - 3 : padT + 3;
+    for (var gi = 0; gi + 1 < wruns.length; gi++){
+      var gFrom = wruns[gi][wruns[gi].length - 1].along;
+      var gTo = wruns[gi + 1][0].along;
+      /* Under three pixels there is nothing to see and nothing to say; the
+         break in the line is the whole of it at that size. */
+      if (x(gTo) - x(gFrom) < 3) continue;
+      svg.appendChild(node('line', { x1:x(gFrom), x2:x(gTo), y1:gapY, y2:gapY,
+        stroke:'#8FD9B4', 'stroke-width':1.5, 'stroke-dasharray':'2 3', opacity:.65 }));
+      gapsDrawn++;
+    }
+
+    wruns.forEach(function(r){
+      if (r.length === 1){
+        svg.appendChild(node('circle', { cx:x(r[0].along), cy:wy(r[0].m), r:2, fill:'#8FD9B4' }));
+        return;
+      }
+      var wd = r.map(function(p){ return x(p.along).toFixed(1) + ',' + wy(p.m).toFixed(1); });
+      svg.appendChild(node('path', { fill:'none', stroke:'#8FD9B4', 'stroke-width':1.8,
+        'stroke-linejoin':'round', d:'M' + wd.join(' L') }));
+    });
     /* The scale, labelled, on the side the series is on. A shape with no
        numbers beside it is decoration. */
     var wstep = wMax > 600 ? 200 : wMax > 240 ? 100 : wMax > 120 ? 50 : 20;
     for (var wv = wstep; wv < wMax; wv += wstep){
       var yy = wy(wv);
       if (yy < padT || yy > H - padB) continue;
-      var wl = node('text', { x: view.id === 'width' ? 4 : W - padR - 2, y: yy + 3,
+      var wl = node('text', { x: wFull ? 4 : W - padR - 2, y: yy + 3,
         fill:'#8FD9B4', 'font-size':9,
-        'text-anchor': view.id === 'width' ? 'start' : 'end' });
+        'text-anchor': wFull ? 'start' : 'end' });
       wl.textContent = wv + 'm';
       svg.appendChild(wl);
-      if (view.id === 'width')
+      if (wFull)
         svg.appendChild(node('line', { x1:padL, x2:W - padR, y1:yy, y2:yy,
           stroke:'#2E7C76', 'stroke-width':1, opacity:.35 }));
     }
@@ -8713,32 +8803,58 @@ function renderProfile(){
      and for the drawing's accessible name, so a reader who never sees the
      drawing loses nothing. In width-only mode there may be no survey at all
      here, so the depth sentence must not be assembled. */
+  /* THE AXIS IS NINE PER CENT OF THE RIVER AND NOTHING SAID SO. The down-river
+     profile covers the surveyed run because that is what it was built to draw;
+     the width has no such limit, and a reader in a width view was looking at a
+     small fraction of the course with no way to know it. Said here, with both
+     numbers, and with the way to see the rest offered beside it. */
+  var clipSay = '';
+  if (view.id !== 'depth' && state.profWhole && state.profWhole.of){
+    var full = courseLength(riverLineFor(state.riverId) || []);
+    if (full > axisLen * 1.15)
+      clipSay = ' This is the ' + kmText(axisLen) + ' the state has surveyed, of the river\u2019s ' +
+        kmText(full) + '. The width is known for the rest of it as well, and the button above ' +
+        'draws the whole course.';
+  }
+
   var wSay = '';
-  if (widthPts.length > 1){
-    var wMin = widthPts[0].m, wMaxSeen = widthPts[0].m;
-    widthPts.forEach(function(pt){
+  if (widthGot.length > 1){
+    var wMin = widthGot[0].m, wMaxSeen = widthGot[0].m;
+    widthGot.forEach(function(pt){
       if (pt.m < wMin) wMin = pt.m;
       if (pt.m > wMaxSeen) wMaxSeen = pt.m;
     });
-    var wm = widthsMeta();
+    var pieces = wruns ? wruns.length : 1;
     wSay = ' Bank to bank it runs from ' + wMin + ' m at its narrowest here to ' +
-      wMaxSeen + ' m at its widest, over ' + countWord(widthPts.length) +
+      wMaxSeen + ' m at its widest, over ' + countWord(widthGot.length) +
       ' places USGS has mapped along this line. That is the MAPPED channel at ' +
       '1:24,000, not today\u2019s water \u2014 the river is wider in a flood and ' +
       'narrower in a drought and this does not move with the stage. It is bank ' +
-      'to bank, so bars and shallow margins are inside it.' +
-      (wm ? '' : '');
+      'to bank, so bars and shallow margins are inside it.';
+    /* THE GAPS, COUNTED AND EXPLAINED, because on the upper reaches they are
+       most of the line and a reader seeing a few short strokes deserves to be
+       told why rather than left to assume the app is broken. */
+    if (pieces > 1) wSay += ' The line is in ' + countWord(pieces) + ' pieces' +
+      (gapsDrawn ? ', with ' + countWord(gapsDrawn) + ' of the breaks marked by a dotted rule' : '') +
+      '. A break is somewhere with no width to give: either the cast found no ' +
+      'far bank \u2014 a confluence or a bypass, where there is no single width ' +
+      '\u2014 or USGS maps the river there as a line rather than an area, which ' +
+      'is what it does wherever the channel is too narrow to draw at 1:24,000. ' +
+      'The line is broken across those rather than run through them.';
   }
   /* THE WIDTH VIEW USED TO RETURN HERE, and returning took the finger-tracing
      with it — the whole reason to drag along a profile is to find the narrows
      or the deep bit and put it somewhere on the map, and this view had the
      picture and not the gesture. It sets the sentence and carries on now; the
      tracing below reads whichever quantities the view is showing. */
-  if (view.id === 'width'){
-    var wLead = state.profWhole
-      ? 'Down the river\u2019s own line, '
-      : 'Along ' + kmText(axisLen) + ' of line, ';
-    var wSentence = wLead + 'how far it is from bank to bank.' + wSay + youText;
+  if (view.id === 'width' || noDepth){
+    var wLead = state.profCourse
+      ? 'The whole ' + kmText(axisLen) + ' of the river\u2019s own course, '
+      : state.profWhole
+        ? 'Down the river\u2019s own line, along the ' + kmText(axisLen) +
+          ' of it the state has surveyed, '
+        : 'Along ' + kmText(axisLen) + ' of line, ';
+    var wSentence = wLead + 'how far it is from bank to bank.' + wSay + youText + clipSay;
     note.textContent = wSentence;
     name(wSentence);
   } else {
@@ -8759,7 +8875,7 @@ function renderProfile(){
     (names.length === 1 ? names[0] : names.length + ' surveys: ' + names.join('; ')) + '.' +
     youText +
     ' Depths are as the survey published them; the vertical scale is stretched, so read the shape and the numbers, not the slope.' +
-    (view.id === 'both' ? wSay : '');
+    (view.id === 'both' ? wSay + clipSay : '');
   note.textContent = sentence;
   name(sentence);
   }
@@ -8809,13 +8925,20 @@ function renderProfile(){
     (m.widths || []).forEach(function(pt){
       if (!wBest || Math.abs(pt.along - along) < Math.abs(wBest.along - along)) wBest = pt;
     });
-    var wSample = wBest && Math.abs(wBest.along - along) < tol ? wBest : null;
+    var wNear = wBest && Math.abs(wBest.along - along) < tol ? wBest : null;
+    var wSample = wNear && wNear.m !== null ? wNear : null;
 
     var says = [];
     if (view.id !== 'width')
       says.push(sample ? fmt(Math.abs(sample.v), 1) + ' ft' : 'no depth here');
     if (view.id !== 'depth')
-      says.push(wSample ? wSample.m + ' m across' : 'no width here');
+      /* THREE ANSWERS, NOT TWO. A width, a place USGS mapped and REFUSED to
+         give one for, and a place nothing was sampled at all are different
+         facts, and collapsing the last two into "no width here" would tell a
+         reader the app has no data where it in fact has a refusal. */
+      says.push(wSample ? wSample.m + ' m across'
+        : wNear ? 'no single width here'
+        : 'no width here');
     read.setAttribute('x', Math.min(W - padR - 60, x(along) + 4));
     read.setAttribute('opacity', 1);
     /* "not measured here" was the whole readout when only the depth existed.
@@ -9492,10 +9615,83 @@ function profileRiverNow(river, claim){
   runProfile(run.pts, claim);
 }
 
+/* =====================================================================
+   THE WIDTH OF THE WHOLE RIVER, WHICH COSTS NOTHING TO DRAW.
+
+   THE PROBLEM THIS SETTLES. `profileRiverLine` profiles `surveyedRun(line)` —
+   the longest stretch the state has actually sounded — and always has, because
+   the depth is what it was built for. On the Sacramento that is 31 km of 359.
+   The width does not have that limit: it is baked for the whole course. So a
+   reader in the Width view was looking at nine per cent of the river with
+   nothing saying so.
+
+   THE OBVIOUS FIX WAS THE WRONG ONE. Making the extent follow the view — the
+   surveyed run for Depth, the whole course for Width — means the distance axis
+   changes length when you press a button labelled as though it changed what is
+   DRAWN, not what is covered. Two pictures under one control, and "Depth and
+   width" would have no honest answer at all.
+
+   THE OTHER OBVIOUS FIX WAS WORSE. Always profiling the whole course would put
+   the depth in the left tenth of the chart and make the reading it exists for
+   unusable, to fix a view most readers will not open.
+
+   So it is a SEPARATE PRESS, and the axis changes only when somebody asks for
+   a different thing. It is free: the widths are baked, so this asks no service
+   anything and does no fetch at all — which is also why it carries no depth,
+   and says so rather than leaving a reader to wonder where the bed went.
+   ===================================================================== */
+function courseLength(pts){
+  var R = 6371000, rad = function(d){ return d * Math.PI / 180; }, total = 0;
+  for (var i = 1; i < pts.length; i++){
+    var a = pts[i - 1], b = pts[i];
+    var dLat = rad(b[0] - a[0]), dLon = rad(b[1] - a[1]);
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    total += 2 * R * Math.asin(Math.sqrt(h));
+  }
+  return total;
+}
+function widthWholeCourse(river){
+  var line = riverLineFor(river.id);
+  if (!line || line.length < 2){
+    announce('This build carries no centreline for the ' + river.name + '.');
+    return;
+  }
+  var w = widthAlong(river, line);
+  if (widthsMeasured(w).length < 2){
+    announce('USGS has mapped no width along the ' + river.name + '\u2019s course in this build.');
+    return;
+  }
+  state.traceAt = null;
+  renderHeld(null);
+  if (state.profLayer) state.profLayer.clearLayers();
+  if (state.traceLayer) state.traceLayer.clearLayers();
+  L.polyline(line, { pane:'herepane', color:'#0A1214', weight:7, opacity:.75,
+    lineJoin:'round', interactive:false }).addTo(state.profLayer);
+  L.polyline(line, { pane:'herepane', color:'#F2A65A', weight:3.5,
+    lineJoin:'round', interactive:false }).addTo(state.profLayer);
+  state.profWhole = null; state.profCross = null; state.profCourse = true;
+  /* Landing in the Depth view on a profile that carries no depth would show
+     the reader an explanation instead of the thing they pressed for. Any other
+     view draws the width across the whole box, since there is no bed to share
+     it with. */
+  if (profView().id === 'depth') state.profShow = 'width';
+  state.profile = { none:'wholecourse', pts:line, widths:w, length:courseLength(line) };
+  state.profZoom = 1;
+  $('#profile').hidden = false;
+  if (tabNames().indexOf('map') !== -1) selectTab('map');
+  mapView(L.latLngBounds(line).pad(0.1), { animate:!reduceMotion });
+  renderProfile();
+  renderLayers();
+  updateLegend();
+  announce('The width of the whole ' + river.name + '.');
+}
+
 function runProfile(pts, claim){
   /* A held point is a place on the LAST line. Drawing a new one makes it a
      claim about a line it was never on. */
   state.traceAt = null;
+  state.profCourse = false;
   renderHeld(null);
   if (state.profLayer) state.profLayer.clearLayers();
   if (state.traceLayer) state.traceLayer.clearLayers();
@@ -9812,6 +10008,21 @@ function depthNode(res, lat, lon){
    restates it, so the two cannot drift apart.
    ===================================================================== */
 var RELEASES = [
+  { v:'2.12.0', date:'2026-09-01', changes:[
+      'The width chart said how far it went and it was going nine per cent of the way. Following the river down draws the stretch the state has SURVEYED \u2014 31 km of the Sacramento\u2019s 579 \u2014 because that is what the depth needs. The width has no such limit; it is known for the whole course. Now the chart says which it is showing, with both numbers, and there is a Whole river button beside the view buttons.',
+      'That one costs nothing and asks nobody: the widths ship with the app, so the whole course is a redraw rather than a download. It carries no depth for the same reason \u2014 soundings along 579 km would be a large download for a line that is almost all unmeasured \u2014 and it says so, and says which button gets you the surveyed stretch instead.',
+      'The break marks now count what is on the screen rather than what is in the file. A hundred and fifty-five refused samples become a handful of visible stretches, because most of them are next to each other, and the words saying \u201c155 places\u201d beside two dotted lines was the picture and the sentence disagreeing in front of you.',
+  ], broken:[
+      'The extent does not follow the view, on purpose. Pressing Width will not stretch the chart out to the whole river; that is its own button, because an axis that changes length under a control labelled as though it changed what is DRAWN is two pictures pretending to be one.',
+      'The Whole river view has no depth on it at all, so there is nothing to trace for depth there and no bed to read. It is a width chart and only that.',
+  ] },
+  { v:'2.11.2', date:'2026-09-01', changes:[
+      'The width chart now says where it has nothing. Stretches with no width to give are a dotted rule under the line, and the line BREAKS across them instead of running through them \u2014 which it had been doing, drawing a straight run from the last measured width to the next at a slope that read exactly like a measurement.',
+      'The words under the chart say how many of those stretches there are and what they are: either the cast found no far bank, at a confluence or a bypass where there is no single width, or USGS maps the river there as a line rather than an area, which is what it does wherever the channel is too narrow to draw at 1:24,000. On the upper reaches that is most of it.',
+      'Dragging a finger over one of those stretches says \u201cno single width here\u201d rather than \u201cno width here\u201d. A place USGS mapped and refused to give a width for is a different fact from a place nothing was measured at, and reading them as the same would understate what is known.',
+  ], broken:[
+      'The down-river button still draws only the stretch the state has surveyed, so on the Sacramento that is 31 km of 359. Width works anywhere \u2014 draw a line yourself on water nobody has sounded and you get it \u2014 but the one-press profile does not go there.',
+  ] },
   { v:'2.11.1', date:'2026-09-01', changes:[
       'Dragging a finger along the profile now reads out the width as well as the depth, in whichever view you are in \u2014 \u201c16.3 ft \u00b7 178 m across\u201d with both showing, the width alone in the Width view. Letting go keeps both, and the held panel says which was found and which was not, because the bed and the banks were surveyed by different people and one can be there without the other.',
       'The profile opens on Depth and width. The state has sounded a small fraction of these rivers and USGS mapped the banks of all of them, so opening on Depth alone was opening on the emptier of the two pictures most of the time.',
@@ -9823,8 +10034,8 @@ var RELEASES = [
       'How wide the river is, along the same line the depth is drawn on. The profile has three views now \u2014 Depth, Depth and width, and Width on its own \u2014 and the width has its own scale in metres so it can never be read as a depth.',
       'It is measured rather than estimated: a line cast straight across USGS\u2019s mapped water surface, perpendicular to the river\u2019s own course, taking the distance between the two nearest banks. Six hundred metres between samples down the Sacramento.',
       'It is the MAPPED channel at 1:24,000, not today\u2019s water \u2014 the river is wider in a flood and narrower in a drought and this does not move with the stage. Bank to bank, so bars and shallow margins are inside it. Same reason as the depth surveys: not for navigating by.',
-      'Where there is no single width \u2014 a confluence, a flooded bypass, a junction \u2014 nothing is drawn rather than a number invented. And where USGS\u2019s own centreline and its own water polygon disagree, which happens on the narrow upper reaches, the app says nothing rather than measuring from the wrong bank.',
-      'Width survives a missing survey. The state has sounded a small fraction of these rivers; USGS mapped the banks of all of them. So Width works on stretches where Depth has nothing to show, which is most of them.',
+      'Where there is no single width \u2014 a confluence, a flooded bypass, a junction \u2014 nothing is drawn rather than a number invented. And where USGS\u2019s own centreline and its own water polygon disagree, which happens on the narrow upper reaches, the app says nothing rather than measuring from the wrong bank. Those stretches are a dotted rule under the line, and the line breaks across them instead of running through them.',
+      'Width survives a missing survey \u2014 draw a line anywhere on the river and it has a width, even where the state has never sounded. What the DOWN-RIVER button gives you is still only the stretch that has been surveyed, because that is what it has always drawn.',
       'The moon. Under the fortnightly swing it causes: which phase it is, how much of the face is lit, how many days since the new moon, and the dates of the next new and full. It needs no signal and no station \u2014 it is arithmetic about the sky \u2014 so it is the one thing on that panel that is never missing.',
       'The moon and the tide are worked out from completely different things, and the app says so: the fortnightly swing comes from NOAA\u2019s published predictions and the moon from where the moon is. That they agree is checked on every run against the real service.',
   ], broken:[

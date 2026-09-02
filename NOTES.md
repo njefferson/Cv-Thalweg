@@ -10,10 +10,12 @@ session needs before it touches anything.
   the service worker both serve 2.9.0. Gates went green against that exact head
   SHA on both branches, which is a different claim from the newest run being
   green.
-- **2.11.0 is live at https://cv-thalweg.pages.dev**, promoted with 2.10.0 on
-  2026-09-01 and verified by reading that address.
-- Staged candidate: **2.11.1** — the width under the finger, Depth and width as
-  the default view, and the tracing defect below.
+- **2.11.1 is live at https://cv-thalweg.pages.dev**, promoted 2026-09-01 and
+  verified by reading that address rather than the push output — the page and
+  the service worker both serve it. 2.10.0 and 2.11.0 went out together ahead of
+  it on the same day.
+- Staged candidate: **2.12.0** — the width chart says how far it goes, and
+  offers the whole course.
 - **Live at https://cv-thalweg.pages.dev, and linked from the hub** — added on
   the owner's instruction, which is the only way an app reaches that page.
 - The proxy ships as a Pages Function at `/bathy`, so connecting Pages deploys
@@ -1086,6 +1088,95 @@ says is on top at a point inside it — and it is made on the SECOND trace, afte
 a hold and a re-render, because the first one always worked. That is the same
 shape as the touch-target checks this repo already carries: measured by hit
 testing rather than by styling.
+
+
+## The width was drawing a line through its own refusals
+
+`tools/fetch-widths.mjs` refuses to give a width at a confluence, at a bypass,
+and wherever USGS's flowline sits outside USGS's own area polygon — and the
+generator, the check and the baked file all handled that correctly. **The chart
+then drew straight through every one of them**, because `widthAlong` kept only
+the samples that carried a number, so the series ran from the last width before
+a gap to the first after it at a slope that reads exactly like data.
+
+That is the defect the depth bands were built not to have, three hundred lines
+above in the same function: *a line drawn straight across a gap invents a bottom
+between two places nobody measured.* A width is no different, and the refusals
+this repo was careful to produce were being thrown away one layer later.
+
+Now the refusals travel to the chart, the line is drawn as RUNS split on them,
+and each gap gets a dotted rule at the foot of the band. **The mark matters as
+much as the break**: on the upper reaches most samples refuse, and a reader
+seeing a few short strokes with nothing to explain them would reasonably
+conclude the app is broken rather than that USGS maps the river there as a line
+rather than an area.
+
+The readout has three answers now instead of two — a width, "no single width
+here" where USGS mapped the place and the cast refused, and "no width here"
+where nothing was sampled. Collapsing the middle one into the last would
+understate what is actually known.
+
+**THE TEST INJECTS THE GAP RATHER THAN HUNTING FOR ONE.** On the Sacramento's
+surveyed run every sample happens to carry a width, so the branch that matters
+would never run against the real file — which is how it shipped in the first
+place. Three consecutive nulls are written into the model, the drawing is
+asserted to produce two runs and a dashed rule, and the model is put back.
+
+**And a release note was overclaiming.** 2.11.0 said "Width survives a missing
+survey ... so Width works on stretches where Depth has nothing to show, which is
+most of them." Half true: a line you draw yourself gets a width anywhere, but
+the down-river button profiles `surveyedRun(line)` and always has, so on the
+Sacramento it covers 31 km of 359. The note now says which half is which, and
+the limit is listed as still not right.
+
+
+## The axis was nine per cent of the river, and three ways to fix it
+
+`profileRiverLine` draws `surveyedRun(line)` — the longest stretch DWR has
+actually sounded — and always has, because the depth is what it was built for.
+On the Sacramento that is **31 km of 579**. The width has no such limit: it is
+baked for the whole course. So a reader in a width view was looking at a
+fifteenth of the river with nothing on the screen saying so.
+
+**Two fixes were rejected, and why matters more than the one that was taken.**
+
+*Make the extent follow the view.* Depth gets the surveyed run, Width gets the
+whole course. It fails on its own control: the distance axis changes length when
+you press a button labelled as though it changed what is DRAWN rather than what
+is covered — two pictures under one control — and "Depth and width" is then a
+button with no honest answer at all.
+
+*Always draw the whole course.* Truer in one sense: cropping to the surveyed run
+flatters the data the way the shared distance scale used to flatter the shorter
+rivers. But it puts the depth into the left tenth of the chart and destroys the
+reading the profile exists for, to fix a view most readers will not open.
+
+**So it is a separate press, and the axis changes only when somebody asks for a
+different thing.** A `Whole river` button appears beside the view buttons, in a
+width view, on a down-river profile, and only when there is meaningfully more
+river than the surveyed run — a button that redraws the picture you are already
+looking at is worse than no button.
+
+**IT COSTS NOTHING, WHICH IS WHY IT CAN BE OFFERED.** The widths are baked, so
+the whole course is a redraw and not a download: `widthWholeCourse` builds the
+model straight from `river-widths.js` and asks no service anything. That is also
+why it carries no depth — soundings along 579 km would be a large request for a
+line that is almost all unmeasured — and it says so in its own sentence rather
+than falling through to the message about a survey that measured nothing.
+
+**And the clipped case says so with both numbers**, in every width view, with
+the way out named beside it.
+
+**One thing found while wiring it: "Depth and width" on a line with no depth was
+returning early and showing an explanation where the reader had pressed for a
+picture.** Any view that shows a width now draws one; the early return is for
+the Depth view alone.
+
+**The break marks count what is on the screen, not what is in the file.** 155
+refused samples on that course become eight pieces and two visible dotted
+stretches, because most refusals are consecutive — and a sentence reading "155
+places" beside two dotted lines is the words and the picture disagreeing in
+front of the reader.
 
 
 ## Scratch
