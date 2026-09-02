@@ -34,7 +34,7 @@ permissions:
 jobs:
   # Everything the hub owns, in one line rather than eight steps that drift.
   hub-gates:
-    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@c13dfc885a1c3c608a0d105d4a11b0b7e872189a
+    uses: njefferson/noahjefferson/.github/workflows/hub-gates.yml@3f2a37374fd7fb9fa5671f6c6b79e1c95d660b06
     with:
       pwa: true
       # This repo carries three workflows, one of which holds a write token, and
