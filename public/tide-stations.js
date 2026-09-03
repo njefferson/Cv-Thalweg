@@ -8,7 +8,7 @@
  * These are NOAA's numbers. Nothing here was typed by hand, which is the same
  * rule as when the app fetched them at run time — only the moment changed. */
 var TIDE_STATIONS_META = {
-  fetchedAt: '2026-08-31T20:51:13.769Z',
+  fetchedAt: '2026-09-03T12:08:49.193Z',
   source: 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions&units=english'
 };
 var TIDE_STATIONS = {
