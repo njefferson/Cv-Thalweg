@@ -15,7 +15,7 @@
  * These are CDFW's coordinates and CDFW's words. Nothing here was typed by hand.
  */
 var ACCESS_META = {
-  fetchedAt: '2026-08-31T21:19:55.235Z',
+  fetchedAt: '2026-09-05T11:23:36.005Z',
   source: 'https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/biosds3077_fpu/FeatureServer/0'
 };
 var ACCESS_LANDS = {
