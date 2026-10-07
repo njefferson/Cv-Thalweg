@@ -21,7 +21,7 @@
  * These are CDFW's coordinates and CDFW's words. Nothing here was typed by hand.
  */
 var RAMPS_META = {
-  fetchedAt: '2026-09-07T12:46:40.622Z',
+  fetchedAt: '2026-10-07T13:37:09.743Z',
   source: 'https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/FishingGuide/FeatureServer/0',
   seenFrom: 2010,
   seenTo: 2014
