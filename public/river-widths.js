@@ -20,7 +20,7 @@
  * The Delta is absent on purpose. It has no course to be perpendicular to.
  */
 var WIDTHS_META = {
-  fetchedAt: '2026-09-01T20:29:00.608Z',
+  fetchedAt: '2026-10-09T11:51:43.999Z',
   source: 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/9',
   every: 2,
   capM: 2400,
